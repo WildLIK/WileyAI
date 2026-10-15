@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
 import pytest
@@ -36,6 +38,15 @@ def test_local_voice_conversation_pipeline(tmp_path):
             assert spoken.status_code == 200, spoken.text[:200]
             assert spoken.content.startswith(b"RIFF") and len(spoken.content) > 10000
             assert len(api.get("/messages").json()) == 2
+            for phrase, hour in [("Напомни завтра в десять купить хлеб.", 10), ("Перенеси напоминание на одиннадцать часов.", 11)]:
+                speech = api.post("/voice/synthesize", json={"text": phrase})
+                recognized = api.post("/voice/transcribe", files={"file": ("command.wav", speech.content, "audio/wav")})
+                text = recognized.json()["text"]
+                result = api.post("/chat", json={"text": text, "mode": "conversation", "timezone": "Asia/Yekaterinburg"})
+                assert '"changed": ["tasks"]' in result.text, (text, result.text)
+                task, = api.get("/tasks").json()
+                assert "хлеб" in task["title"].casefold()
+                assert datetime.fromisoformat(task["due"]).astimezone(ZoneInfo("Asia/Yekaterinburg")).hour == hour
 
 
 @pytest.mark.skipif(os.environ.get("WILEYAI_LIVE_TESTS") != "1" or os.name != "nt", reason="Requires installed Windows SAPI voice")

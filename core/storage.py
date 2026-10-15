@@ -31,6 +31,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS dialogue_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
             """)
 
     @contextmanager
@@ -101,10 +102,44 @@ class Store:
     def save_task(self, title: str, kind: str, due: str | None, done: bool = False, item_id: str | None = None) -> dict:
         item = dict(id=item_id or uuid.uuid4().hex, title=title, kind=kind, due=due, done=int(done), created=now())
         with self.db() as db:
-            db.execute("INSERT INTO tasks (id,title,kind,due,done,created) VALUES (:id,:title,:kind,:due,:done,:created) ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,due=excluded.due,done=excluded.done,notified=CASE WHEN tasks.due IS excluded.due THEN tasks.notified ELSE 0 END", item)
-            if done:
-                db.execute("UPDATE notifications SET delivered=1 WHERE task_id=?", (item["id"],))
+            db.execute("BEGIN IMMEDIATE")
+            self._write_task(db, item)
+            item = dict(db.execute("SELECT * FROM tasks WHERE id=?", (item["id"],)).fetchone())
         return item
+
+    def _write_task(self, db, item):
+        previous = db.execute("SELECT due FROM tasks WHERE id=?", (item["id"],)).fetchone()
+        if previous and previous["due"] != item["due"]:
+            db.execute("DELETE FROM notifications WHERE task_id=? AND delivered=0", (item["id"],))
+        db.execute("INSERT INTO tasks (id,title,kind,due,done,created) VALUES (:id,:title,:kind,:due,:done,:created) ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,due=excluded.due,done=excluded.done,notified=CASE WHEN tasks.due IS excluded.due THEN tasks.notified ELSE 0 END", item)
+        if item["done"]:
+            db.execute("UPDATE notifications SET delivered=1 WHERE task_id=?", (item["id"],))
+
+    def task(self, item_id: str) -> dict | None:
+        with self.db() as db:
+            row = db.execute("SELECT * FROM tasks WHERE id=?", (item_id,)).fetchone()
+        return dict(row) if row else None
+
+    def revise_task(self, item_id: str, **changes) -> dict | None:
+        if changes.keys() - {"title", "due", "done"}:
+            raise ValueError("Недопустимое изменение задачи")
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM tasks WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                return None
+            item = {**dict(row), **changes}
+            self._write_task(db, item)
+            return dict(db.execute("SELECT * FROM tasks WHERE id=?", (item_id,)).fetchone())
+
+    def dialogue(self) -> dict:
+        with self.db() as db:
+            row = db.execute("SELECT value FROM dialogue_state WHERE id=1").fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save_dialogue(self, value: dict):
+        with self.db() as db:
+            db.execute("INSERT OR REPLACE INTO dialogue_state VALUES (1,?)", (json.dumps(value, ensure_ascii=False),))
 
     def queue_due_notifications(self) -> list[dict]:
         pending = []

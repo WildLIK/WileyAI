@@ -155,6 +155,7 @@ export async function stream(
     text?: string;
     message?: Message;
     seconds?: number;
+    changed?: string[];
   }) => void,
   mode: "text" | "conversation" = "text",
 ) {
@@ -164,7 +165,12 @@ export async function stream(
       Authorization: "Bearer " + connection.token,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text, document_ids, mode }),
+    body: JSON.stringify({
+      text,
+      document_ids,
+      mode,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
     signal,
   });
   if (!response.ok) {

@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psutil
 
 from . import commands, documents, providers
@@ -21,6 +22,7 @@ from .storage import Store
 from .voice import Voice
 from .capabilities import catalog as capabilities_catalog
 from .scheduler import run_scheduler
+from .workflows import Workflows
 
 
 class TextBody(BaseModel):
@@ -30,6 +32,17 @@ class TextBody(BaseModel):
 class ChatBody(TextBody):
     document_ids: list[str] = Field(default_factory=list, max_length=10)
     mode: Literal["text", "conversation"] = "text"
+    timezone: str | None = Field(default=None, max_length=100)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        if value:
+            try:
+                ZoneInfo(value)
+            except (ValueError, ZoneInfoNotFoundError):
+                raise ValueError("Неизвестный часовой пояс")
+        return value or None
 
 
 class AliasBody(BaseModel):
@@ -75,6 +88,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     store = Store(root)
     jobs = ModelJobs(root)
     voice = Voice(root)
+    workflows = Workflows(store)
     chat_lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -383,11 +397,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         async def generate():
             began = time.perf_counter()
             answer = ""
+            changed = []
             try:
                 yield event("user", message=user)
                 if text.casefold().startswith("запомни: "):
                     store.add_memory(text.split(":", 1)[1].strip())
                     answer = "Запомнил. Посмотреть и удалить запись можно в разделе «Память»."
+                    yield event("delta", text=answer)
+                elif (workflow := await asyncio.to_thread(workflows.handle, text, body.timezone, None, current.name)) is not None:
+                    answer, changed = workflow.text, workflow.changed
                     yield event("delta", text=answer)
                 elif command:
                     answer = await asyncio.to_thread(run_command, command)
@@ -424,7 +442,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         yield event("delta", text=delta)
                 if answer:
                     assistant = store.add_message("assistant", answer)
-                    yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2))
+                    yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
             except asyncio.CancelledError:

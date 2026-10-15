@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "./api";
 
 type Task = {
@@ -40,20 +40,37 @@ export function Productivity({
   const [due, setDue] = useState("");
   const [minutes, setMinutes] = useState(5);
   const [editing, setEditing] = useState<string | null>(null);
-  const load = async () => {
+  const channel = useRef<BroadcastChannel | null>(null);
+  const load = useCallback(async () => {
     if (mode === "tasks") setTasks(await request("/tasks"));
     else setNotes(await request("/notes"));
-  };
+  }, [mode]);
   useEffect(() => {
     setTitle("");
     setContent("");
     setDue("");
     setEditing(null);
     void load().catch(onError);
-  }, [mode]);
+  }, [mode, load]);
+  useEffect(() => {
+    const changed = () => {
+      void load().catch(onError);
+    };
+    channel.current = new BroadcastChannel("wiley-ui");
+    channel.current.onmessage = (event) => {
+      if (["chat-updated", "productivity-changed"].includes(event.data.type))
+        changed();
+    };
+    window.addEventListener("wiley-data-updated", changed);
+    return () => {
+      channel.current?.close();
+      window.removeEventListener("wiley-data-updated", changed);
+    };
+  }, [load]);
   const run = async (action: () => Promise<void>) => {
     try {
       await action();
+      channel.current?.postMessage({ type: "productivity-changed" });
     } catch (error) {
       onError(error);
     }
@@ -109,6 +126,11 @@ export function Productivity({
             {mode === "tasks"
               ? "Локальные дела, таймеры и уведомления без облака."
               : "Мысли, идеи и списки остаются на вашем компьютере."}
+          </p>
+          <p className="help">
+            {mode === "tasks"
+              ? "Можно сказать в чате: «напомни завтра в 10 купить хлеб», «поставь таймер на 5 минут», затем «перенеси на 11»."
+              : "Можно сказать в чате: «создай заметку Покупки: хлеб и молоко»."}
           </p>
         </div>
       </div>

@@ -413,6 +413,7 @@ export function App() {
       setAnswer("");
       abort.current = null;
       channel.current?.postMessage({ type: "chat-updated" });
+      window.dispatchEvent(new Event("wiley-data-updated"));
     }
   }
   async function toggleConversation() {
@@ -828,6 +829,7 @@ export function App() {
                       {[
                         "Открой загрузки",
                         "Запомни: я предпочитаю короткие ответы",
+                        "Напомни завтра в 10 купить хлеб",
                         "Расскажи, чем ты можешь помочь",
                       ].map((text) => (
                         <button key={text} onClick={() => setDraft(text)}>
