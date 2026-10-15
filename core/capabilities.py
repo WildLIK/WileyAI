@@ -1,0 +1,46 @@
+"""Declarative roadmap: a supported extension point is not an implemented integration."""
+from dataclasses import asdict, dataclass
+
+
+@dataclass(frozen=True)
+class Capability:
+    id: str
+    name: str
+    status: str
+    description: str
+    scopes: tuple[str, ...]
+    adapters: tuple[str, ...] = ()
+
+
+CAPABILITIES = [
+    Capability("speech", "Распознавание и синтез речи", "available", "Whisper, Silero и системная озвучка; отдельный выбор компонентов.", ("voice.input", "voice.output"), ("faster-whisper", "silero", "windows-sapi")),
+    Capability("language", "Понимание языка и контекста", "partial", "Потоковое общение, контекст и точные команды. Свободные формулировки действий будут добавлены отдельно.", ("model.chat",), ("ollama", "compatible-api")),
+    Capability("tasks", "Задачи и напоминания", "available", "Локальные задачи, напоминания, таймеры и будильники с однократным временем; редактирование и уведомления.", ("tasks.write",), ("local-scheduler",)),
+    Capability("calendar", "Календарь и планирование", "planned", "Контракт для событий и адаптеров Google Calendar, Outlook и CalDAV. Синхронизация ещё не реализована.", ("calendar.read", "calendar.write"), ("google-calendar", "outlook", "caldav")),
+    Capability("communications", "Сообщения, почта и контакты", "planned", "Будущие адаптеры почты, мессенджеров, звонков и контактов. Отправка потребует настроенного подключения.", ("messages.read", "messages.send", "contacts.read")),
+    Capability("information", "Поиск, погода и информация", "planned", "Подключаемые источники веб-поиска, погоды, новостей, курсов и дорожной информации.", ("web.search", "location.read")),
+    Capability("device", "Управление устройством", "partial", "Открытие приложений, сайтов, папок и файлов. Громкость, медиа, яркость и радиомодули ещё не подключены.", ("files.open", "apps.open", "web.open", "device.control"), ("windows-shell",)),
+    Capability("notes", "Заметки и списки", "available", "Локальные заметки с редактированием; списки можно хранить в тексте или как задачи.", ("notes.write",), ("sqlite",)),
+    Capability("personalization", "Персонализация и адаптация", "partial", "Личность, история, явно сохранённые воспоминания и ресурсные профили. Поведенческое обучение — следующий этап.", ("memory.write",)),
+    Capability("integrations", "Внешние сервисы и умный дом", "planned", "Реестр адаптеров для Home Assistant, медиа, досок задач и других API. Сервисы ещё не подключены.", ("integrations.connect",)),
+    Capability("workflows", "Сценарии и уточнения", "planned", "Контракт для многошаговых сценариев и контекста сущностей: продолжение, перенос, отмена и уточнение.", ("workflows.run",)),
+    Capability("privacy", "Безопасность и приватность", "partial", "Ключ локального сеанса, системное хранилище API-ключей, журнал действий. Пароль, шифрование базы и голосовая идентификация ещё не реализованы.", ("security.configure",)),
+    Capability("proactivity", "Проактивность", "planned", "Будущие правила инициативы, тихие часы, предложения по контексту и явное отключение.", ("proactivity.suggest",)),
+    Capability("multimodal", "Изображения, экран и камера", "partial", "Чат, документы и голос работают; изображения, камера и чтение экрана требуют отдельных адаптеров.", ("images.read", "screen.read", "camera.read")),
+]
+
+
+def catalog():
+    return [asdict(item) for item in CAPABILITIES]
+
+
+class IntegrationAdapter:
+    """Base contract. Concrete service adapters supply authentication and operations."""
+    id: str
+    required_scopes: tuple[str, ...] = ()
+
+    async def check_connection(self) -> dict:
+        raise NotImplementedError
+
+    async def execute(self, operation: str, arguments: dict) -> dict:
+        raise NotImplementedError

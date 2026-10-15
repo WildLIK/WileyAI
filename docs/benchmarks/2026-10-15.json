@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-15",
+  "kind": "small diagnostic, not a comprehensive benchmark",
+  "model": {
+    "model": "qwen3.5:4b",
+    "context": 4096,
+    "records": [
+      {
+        "case": "russian",
+        "answer": "Приветствую, я Уайли, ваш персональный ассистент, готовый мгновенно найти любую информацию или помочь с задачами. Чем могу быть полезен прямо сейчас?",
+        "first_token_seconds": 38.252,
+        "total_seconds": 39.03,
+        "output_tokens": 39,
+        "tokens_per_second": 49.88
+      },
+      {
+        "case": "command",
+        "answer": "{\n  \"action\": \"none\",\n  \"target\": \"папка загрузок\"\n}",
+        "first_token_seconds": 0.076,
+        "total_seconds": 0.403,
+        "output_tokens": 24,
+        "tokens_per_second": 73.41
+      },
+      {
+        "case": "negation",
+        "answer": "Да",
+        "first_token_seconds": 0.07,
+        "total_seconds": 0.086,
+        "output_tokens": 2,
+        "tokens_per_second": 124.85
+      },
+      {
+        "case": "memory",
+        "answer": "Я буду отвечать на русском языке короткими и точными фразами.",
+        "first_token_seconds": 0.071,
+        "total_seconds": 0.267,
+        "output_tokens": 15,
+        "tokens_per_second": 76.38
+      }
+    ]
+  },
+  "voice": {
+    "tts": [
+      {
+        "run": 1,
+        "tts_seconds": 3.654
+      },
+      {
+        "run": 2,
+        "tts_seconds": 0.058
+      }
+    ],
+    "recognized": "Привет, я Уэли, твой личный ассистент. Открой папку загрузок.",
+    "stt_seconds": 2.486,
+    "test": "synthetic speech, not microphone"
+  }
+}
