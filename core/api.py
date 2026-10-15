@@ -29,6 +29,7 @@ class TextBody(BaseModel):
 
 class ChatBody(TextBody):
     document_ids: list[str] = Field(default_factory=list, max_length=10)
+    mode: Literal["text", "conversation"] = "text"
 
 
 class AliasBody(BaseModel):
@@ -329,7 +330,21 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         await file.close()
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(413, "Запись слишком длинная")
-        return {"text": await asyncio.to_thread(voice.transcribe, data, store.settings().stt_model)}
+        config = store.settings()
+        return {"text": await asyncio.to_thread(voice.transcribe, data, config.stt_model, config.name)}
+
+    @app.post("/voice/prepare")
+    async def prepare_conversation():
+        config = store.settings()
+        if config.tts_engine == "sapi" and not await voice.voices():
+            raise ValueError("Системные голоса недоступны. Выберите Silero в настройках.")
+        try:
+            await asyncio.gather(asyncio.to_thread(voice.prepare, config.stt_model, config.tts_engine), providers.prepare(config))
+        except ValueError:
+            raise
+        except Exception as error:
+            raise HTTPException(400, providers.describe_error(error)) from error
+        return {"ok": True}
 
     @app.post("/voice/speak")
     async def speak(body: SpeechBody):
@@ -382,6 +397,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     memory = "\n".join(item["content"] for item in store.list("memories", 100))[-1200:]
                     context = documents.context_for(text, selected, budget=2000) if selected else ""
                     system = current.personality[:3000] + "\nИмя ассистента: " + current.name
+                    if body.mode == "conversation":
+                        system += "\nСейчас идёт разговор голосом. Отвечай естественно и дружелюбно, обычно одной-тремя короткими фразами. Учитывай предыдущие реплики. Развёрнутые объяснения давай по просьбе. Избегай Markdown, таблиц, длинных списков и постоянных встречных вопросов. Не выдумывай общие воспоминания или человеческий опыт."
                     system += "\nВ текущей версии есть локальные команды открытия, заметки, задачи, документы и явно сохраняемая память. Поиск в интернете, почта, календарная синхронизация, камера и умный дом ещё не подключены. Не заявляй, что выполнил действие, если нет результата инструмента; произвольные действия из твоего ответа автоматически не исполняются."
                     system += "\nПодтверждённые записи памяти владельца:\n" + (memory or "Нет записей.")
                     if context:

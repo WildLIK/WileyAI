@@ -26,22 +26,25 @@ class Voice:
     def available(self):
         return importlib.util.find_spec("faster_whisper") is not None
 
-    def transcribe(self, data: bytes, model: str) -> str:
+    def _load_stt(self, model: str):
         if not self.available():
             raise ValueError("Модуль речи не установлен. Выполните uv sync --extra dev --extra voice и перезапустите WileyAI.")
         from faster_whisper import WhisperModel
         folder = self.root / "models" / "whisper" / model
         if not folder.is_dir() or not (folder / "model.bin").is_file():
             raise ValueError("Сначала скачайте выбранную модель Whisper в разделе «Модели».")
+        if model not in self.models:
+            self.models.clear()
+            self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8")
+
+    def transcribe(self, data: bytes, model: str, hint: str = "") -> str:
         with self.lock:
-            if model not in self.models:
-                self.models.clear()
-                self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8")
+            self._load_stt(model)
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
                 file.write(data)
                 path = file.name
             try:
-                segments, _ = self.models[model].transcribe(path, language="ru", vad_filter=True, beam_size=1)
+                segments, _ = self.models[model].transcribe(path, language="ru", vad_filter=True, beam_size=1, initial_prompt=hint[:200] or None)
                 return " ".join(segment.text.strip() for segment in segments).strip()
             finally:
                 Path(path).unlink(missing_ok=True)
@@ -58,6 +61,25 @@ class Voice:
 
     def tts_installed(self):
         return (self.root / "models" / "silero" / "v5_ru.pt").is_file()
+
+    def _load_tts(self):
+        if not self.tts_available() or not self.tts_installed():
+            raise ValueError("Сначала установите Silero в категории «Озвучка»")
+        import torch
+        if self.tts_model is None:
+            torch.set_num_threads(min(4, os.cpu_count() or 2))
+            self.tts_model = torch.package.PackageImporter(str(self.root / "models" / "silero" / "v5_ru.pt")).load_pickle("tts_models", "model")
+            self.tts_model.to(torch.device("cpu"))
+
+    def prepare(self, model: str, tts_engine: str):
+        # Load without speaking, recording, downloading weights, or generating a message.
+        if tts_engine == "silero" and (not self.tts_available() or not self.tts_installed()):
+            raise ValueError("Сначала установите Silero в категории «Озвучка»")
+        with self.lock:
+            self._load_stt(model)
+        if tts_engine == "silero":
+            with self.tts_lock:
+                self._load_tts()
 
     def download_tts(self):
         if not self.tts_available():
@@ -82,10 +104,7 @@ class Voice:
         with self.tts_lock:
             import torch
             import numpy as np
-            torch.set_num_threads(min(4, os.cpu_count() or 2))
-            if self.tts_model is None:
-                self.tts_model = torch.package.PackageImporter(str(self.root / "models" / "silero" / "v5_ru.pt")).load_pickle("tts_models", "model")
-                self.tts_model.to(torch.device("cpu"))
+            self._load_tts()
             parts = textwrap.wrap(text, width=700, break_long_words=False, replace_whitespace=False)
             if not parts:
                 raise ValueError("Нет текста для озвучки")

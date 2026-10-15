@@ -22,6 +22,8 @@ class Settings(BaseModel):
     tts_engine: Literal["silero", "sapi"] = "silero"
     tts_voice: str = Field(default="", max_length=300)
     speak_answers: bool = False
+    conversation_silence_ms: int = Field(default=1000, ge=500, le=2500)
+    conversation_threshold: float = Field(default=0.015, ge=0.003, le=0.1)
     avatar_path: str = Field(default="", max_length=4096)
 
     @field_validator("base_url")

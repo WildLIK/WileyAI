@@ -4,6 +4,7 @@ import pytest
 from core.api import create_app
 from core.config import Settings
 from core import providers
+from core.voice import Voice
 
 
 TOKEN = "test-local-session-0123456789abcdef"
@@ -101,3 +102,64 @@ def test_preview_never_opens_target(api, tmp_path, monkeypatch):
     assert result.status_code == 200
     assert "Запуск не выполнялся" in result.json()["text"]
     assert api.get("/actions").json()[-1]["status"] == "preview"
+
+
+def test_conversation_uses_personality_memory_and_previous_turn(api, monkeypatch):
+    captured = []
+    async def fake_chat(settings, messages):
+        captured.append(messages)
+        yield "Давай обсудим это."
+    monkeypatch.setattr(providers, "chat", fake_chat)
+    api.post("/memories", json={"text": "Мне нравится астрономия"})
+    api.post("/chat", json={"text": "Сегодня смотрел на звёзды", "mode": "conversation"})
+    result = api.post("/chat", json={"text": "Что думаешь об этом?", "mode": "conversation"})
+    assert '"type": "done"' in result.text
+    messages = captured[-1]
+    assert "разговор голосом" in messages[0]["content"]
+    assert "Имя ассистента: Уайли" in messages[0]["content"]
+    assert "Мне нравится астрономия" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "Сегодня смотрел на звёзды"}
+    assert messages[2] == {"role": "assistant", "content": "Давай обсудим это."}
+    assert messages[-1]["content"] == "Что думаешь об этом?"
+
+
+def test_voice_prepare_loads_selected_components_without_dialogue(api, monkeypatch):
+    calls = []
+    monkeypatch.setattr(Voice, "prepare", lambda self, model, engine: calls.append((model, engine)))
+    async def prepare(settings):
+        calls.append(settings.model)
+    monkeypatch.setattr(providers, "prepare", prepare)
+    assert api.post("/voice/prepare").json() == {"ok": True}
+    assert ("small", "silero") in calls
+    assert "qwen3.5:4b" in calls
+    assert api.get("/messages").json() == []
+
+
+def test_voice_prepare_reports_missing_components(api, monkeypatch):
+    def missing(*args):
+        raise ValueError("Сначала скачайте Whisper")
+    async def prepare(settings):
+        pass
+    monkeypatch.setattr(Voice, "prepare", missing)
+    monkeypatch.setattr(providers, "prepare", prepare)
+    result = api.post("/voice/prepare")
+    assert result.status_code == 400
+    assert "Whisper" in result.json()["detail"]
+
+
+def test_transcription_receives_assistant_name_hint(api, monkeypatch):
+    captured = []
+    def transcribe(self, data, model, hint):
+        captured.append((data, model, hint))
+        return "Привет, Уайли"
+    monkeypatch.setattr(Voice, "transcribe", transcribe)
+    result = api.post("/voice/transcribe", files={"file": ("utterance.wav", b"audio", "audio/wav")})
+    assert result.json() == {"text": "Привет, Уайли"}
+    assert captured == [(b"audio", "small", "Уайли")]
+
+
+@pytest.mark.parametrize("field,value", [("conversation_silence_ms", 0), ("conversation_silence_ms", 3000), ("conversation_threshold", 0), ("conversation_threshold", 1)])
+def test_conversation_settings_reject_invalid_audio_limits(api, field, value):
+    settings = api.get("/settings").json()
+    settings[field] = value
+    assert api.put("/settings", json=settings).status_code == 422

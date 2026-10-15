@@ -20,6 +20,13 @@ import {
   type VoiceInfo,
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
+import {
+  Conversation,
+  phaseLabels,
+  type ConversationState,
+} from "./voice/conversation";
+import { Microphone } from "./voice/microphone";
+import { ConversationControl } from "./voice/ConversationControl";
 
 const tabs = [
   { id: "chat", icon: "◈", label: "Общение" },
@@ -79,6 +86,11 @@ export function App() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [conversation, setConversation] = useState<ConversationState>({
+    active: false,
+    owner: false,
+    phase: "idle",
+  });
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -105,8 +117,21 @@ export function App() {
   const [customModel, setCustomModel] = useState("");
   const [keyTouched, setKeyTouched] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+  const conversationRef = useRef<{
+    session: Conversation;
+    lease: string;
+  } | null>(null);
+  const conversationStarting = useRef<{
+    lease: string;
+    controller: AbortController;
+  } | null>(null);
+  const conversationEpoch = useRef(0);
   const recorder = useRef<MediaRecorder | null>(null);
   const audioStream = useRef<MediaStream | null>(null);
+  const manualAbort = useRef<AbortController | null>(null);
+  const manualGeneration = useRef(0);
+  const manualDiscard = useRef(false);
   const speechAbort = useRef<AbortController | null>(null);
   const playback = useRef<{
     audio: HTMLAudioElement;
@@ -162,16 +187,45 @@ export function App() {
     setVoice(voices);
     void refreshModels().catch(fail);
   }, [refreshModels]);
-  const stop = useCallback(() => {
-    abort.current?.abort();
+  const stopAudio = useCallback(() => {
     speechAbort.current?.abort();
     playback.current?.audio.pause();
     playback.current?.finish();
-    if (recorder.current?.state === "recording") recorder.current.stop();
     void request("/voice/stop", "POST").catch(() => {});
     channel.current?.postMessage({ type: "speaking", value: false });
     setSpeaking(false);
   }, []);
+  const endConversation = useCallback(async () => {
+    conversationEpoch.current++;
+    const starting = conversationStarting.current;
+    conversationStarting.current = null;
+    if (starting) {
+      starting.controller.abort();
+      void window.wiley.releaseConversation(starting.lease);
+    }
+    const current = conversationRef.current;
+    conversationRef.current = null;
+    stopAudio();
+    if (current) {
+      try {
+        await current.session.stop();
+      } finally {
+        await window.wiley.releaseConversation(current.lease);
+      }
+    }
+  }, [stopAudio]);
+  const stop = useCallback(() => {
+    abort.current?.abort();
+    manualAbort.current?.abort();
+    manualGeneration.current++;
+    manualDiscard.current = true;
+    if (recorder.current?.state === "recording") recorder.current.stop();
+    audioStream.current?.getTracks().forEach((track) => track.stop());
+    setRecording(false);
+    setUploading(false);
+    stopAudio();
+    void endConversation().catch(fail);
+  }, [endConversation, stopAudio]);
   useEffect(() => {
     void refresh().catch(fail);
     channel.current = new BroadcastChannel("wiley-ui");
@@ -185,20 +239,41 @@ export function App() {
         setTab("chat");
       }
       if (event.data.type === "stop") stop();
+      if (event.data.type === "chat-updated") {
+        void request<Message[]>("/messages").then(setMessages).catch(fail);
+        void request<Memory[]>("/memories").then(setMemories).catch(fail);
+      }
     };
     const offStop = window.wiley.onStop(stop);
+    const offConversation = window.wiley.onConversation(setConversation);
+    void window.wiley.conversationState().then(setConversation).catch(fail);
     const offReminder = window.wiley.onReminder((title) =>
       setNotice("Напоминание: " + title),
     );
-    const offOffline = window.wiley.onOffline(() =>
-      setError("Ядро остановилось. Перезапустите WileyAI."),
-    );
+    const offOffline = window.wiley.onOffline(() => {
+      stop();
+      setError("Ядро остановилось. Перезапустите WileyAI.");
+    });
     return () => {
       offStop();
+      offConversation();
       offReminder();
       offOffline();
       channel.current?.close();
       audioStream.current?.getTracks().forEach((track) => track.stop());
+      const current = conversationRef.current;
+      conversationRef.current = null;
+      if (current)
+        void current.session
+          .stop()
+          .finally(() => window.wiley.releaseConversation(current.lease));
+      conversationEpoch.current++;
+      const starting = conversationStarting.current;
+      conversationStarting.current = null;
+      if (starting) {
+        starting.controller.abort();
+        void window.wiley.releaseConversation(starting.lease);
+      }
     };
   }, [refresh, stop]);
   useEffect(() => {
@@ -225,6 +300,8 @@ export function App() {
 
   async function save(next = settings) {
     if (!next) return;
+    if (conversation.active)
+      throw new Error("Завершите разговор перед сменой моделей и настроек.");
     const saved = await request<Settings>("/settings", "PUT", {
       ...next,
       ...(keyTouched ? { api_key: apiKey } : {}),
@@ -236,20 +313,33 @@ export function App() {
     setNotice("Настройки сохранены");
     await refreshModels();
   }
-  async function speak(text: string) {
+  async function speak(text: string, config = settings, signal?: AbortSignal) {
+    if (conversation.active && !signal)
+      throw new Error("Сначала завершите текущий разговор.");
+    if (signal?.aborted)
+      throw new DOMException("Озвучка отменена", "AbortError");
     speechAbort.current?.abort();
     playback.current?.audio.pause();
     playback.current?.finish();
     const generation = ++speechGeneration.current;
     const controller = new AbortController();
     speechAbort.current = controller;
+    const cancel = () => {
+      controller.abort();
+      if (generation === speechGeneration.current) {
+        playback.current?.audio.pause();
+        playback.current?.finish();
+        void request("/voice/stop", "POST").catch(() => {});
+      }
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     setSpeaking(true);
     channel.current?.postMessage({ type: "speaking", value: true });
     try {
-      if (settings?.tts_engine === "silero") {
+      if (config?.tts_engine === "silero") {
         const blob = await audioRequest(
           text,
-          settings.tts_voice,
+          config.tts_voice,
           controller.signal,
         );
         if (controller.signal.aborted) return;
@@ -270,11 +360,12 @@ export function App() {
         await request(
           "/voice/speak",
           "POST",
-          { text, voice: settings?.tts_voice || "" },
+          { text, voice: config?.tts_voice || "" },
           controller.signal,
         );
       }
     } finally {
+      signal?.removeEventListener("abort", cancel);
       if (generation === speechGeneration.current) {
         playback.current = null;
         setSpeaking(false);
@@ -282,54 +373,196 @@ export function App() {
       }
     }
   }
-  async function send(text = draft) {
-    if (!text.trim() || busy) return;
+  async function send(
+    text = draft,
+    options: { signal?: AbortSignal; conversation?: boolean } = {},
+  ) {
+    if (options.signal?.aborted)
+      throw new DOMException("Ответ отменён", "AbortError");
+    if (!text.trim() || busyRef.current) return "";
+    if (conversation.active && !options.conversation) {
+      setNotice("Завершите разговор для ручной отправки сообщения.");
+      return "";
+    }
     setError("");
     setDraft("");
     setAnswer("");
     setBusy(true);
+    busyRef.current = true;
     const controller = new AbortController();
     abort.current = controller;
+    const cancel = () => controller.abort();
+    options.signal?.addEventListener("abort", cancel, { once: true });
     let completed = "";
+    let streamError = "";
     try {
-      await stream(text, selectedDocs, controller.signal, (event) => {
-        if (event.type === "user" && event.message)
-          setMessages((items) => [...items, event.message!]);
-        if (event.type === "delta") setAnswer((value) => value + event.text);
-        if (event.type === "error") setError(event.text || "Ошибка модели");
-        if (event.type === "done" && event.message) {
-          completed = event.message.content;
-          setMessages((items) => [...items, event.message!]);
-          setAnswer("");
-        }
-      });
-      if (completed && settings?.speak_answers)
+      await stream(
+        text,
+        selectedDocs,
+        controller.signal,
+        (event) => {
+          if (event.type === "user" && event.message)
+            setMessages((items) => [...items, event.message!]);
+          if (event.type === "delta") setAnswer((value) => value + event.text);
+          if (event.type === "error") {
+            streamError = event.text || "Ошибка модели";
+            setError(streamError);
+          }
+          if (event.type === "done" && event.message) {
+            completed = event.message.content;
+            setMessages((items) => [...items, event.message!]);
+            setAnswer("");
+          }
+        },
+        options.conversation ? "conversation" : "text",
+      );
+      if (streamError) throw new Error(streamError);
+      if (controller.signal.aborted)
+        throw new DOMException("Ответ отменён", "AbortError");
+      if (completed && settings?.speak_answers && !options.conversation)
         void speak(completed).catch(fail);
-      void request<Memory[]>("/memories").then(setMemories);
+      void request<Memory[]>("/memories").then(setMemories).catch(fail);
+      return completed;
     } catch (error) {
+      if (options.conversation) throw error;
       if (!(error instanceof DOMException && error.name === "AbortError"))
         fail(error);
+      return "";
     } finally {
+      options.signal?.removeEventListener("abort", cancel);
       setBusy(false);
+      busyRef.current = false;
       setAnswer("");
       abort.current = null;
+      channel.current?.postMessage({ type: "chat-updated" });
     }
+  }
+  async function toggleConversation() {
+    if (conversation.active) {
+      await window.wiley.stopConversation();
+      return;
+    }
+    if (
+      conversationRef.current ||
+      busyRef.current ||
+      recording ||
+      uploading ||
+      speaking
+    )
+      throw new Error("Дождитесь текущего действия перед началом разговора.");
+    const epoch = ++conversationEpoch.current;
+    const lease = await window.wiley.acquireConversation();
+    const controller = new AbortController();
+    if (epoch !== conversationEpoch.current) {
+      await window.wiley.releaseConversation(lease);
+      return;
+    }
+    conversationStarting.current = { lease, controller };
+    let session: Conversation | null = null;
+    try {
+      const config = await request<Settings>(
+        "/settings",
+        "GET",
+        undefined,
+        controller.signal,
+      );
+      if (epoch !== conversationEpoch.current) return;
+      session = new Conversation({
+        capture: new Microphone(),
+        speech: {
+          threshold: config.conversation_threshold,
+          silenceMs: config.conversation_silence_ms,
+        },
+        prepare: async (signal) => {
+          await request("/voice/prepare", "POST", undefined, signal);
+        },
+        onPhase: (phase) => {
+          if (phase === "idle") void window.wiley.releaseConversation(lease);
+          else void window.wiley.updateConversation(lease, phase);
+        },
+        onError: (error) => {
+          if (conversationRef.current?.session === session)
+            conversationRef.current = null;
+          fail(error);
+        },
+        onTurn: async (audio, signal, phase) => {
+          const data = new FormData();
+          data.append("file", audio, "utterance.wav");
+          const result = await request<{ text: string }>(
+            "/voice/transcribe",
+            "POST",
+            data,
+            signal,
+          );
+          if (signal.aborted)
+            throw new DOMException("Разговор остановлен", "AbortError");
+          const text = result.text.trim();
+          if (!text) return;
+          if (
+            ["заверши разговор", "выключи режим разговора"].includes(
+              text.toLowerCase().replace(/[.!?]+$/, ""),
+            )
+          ) {
+            await endConversation();
+            setNotice("Разговор завершён.");
+            return;
+          }
+          phase("thinking");
+          const completed = await send(text, { signal, conversation: true });
+          if (signal.aborted)
+            throw new DOMException("Разговор остановлен", "AbortError");
+          if (!completed)
+            throw new Error("Ответ не получен. Начните разговор заново.");
+          phase("speaking");
+          await speak(completed, config, signal);
+        },
+      });
+      conversationStarting.current = null;
+      conversationRef.current = { session, lease };
+      await session.start();
+    } catch (error) {
+      const cancelled =
+        controller.signal.aborted || epoch !== conversationEpoch.current;
+      if (!cancelled) {
+        await endConversation();
+        throw error;
+      }
+    } finally {
+      if (conversationStarting.current?.lease === lease)
+        conversationStarting.current = null;
+      if (!session?.active) await window.wiley.releaseConversation(lease);
+    }
+  }
+  function interruptConversation() {
+    conversationRef.current?.session.interrupt();
+    abort.current?.abort();
+    stopAudio();
   }
   async function toggleRecording() {
     if (recording) {
       recorder.current?.stop();
       return;
     }
+    if (conversation.active || conversationRef.current)
+      throw new Error("Сначала завершите режим разговора.");
     if (!voice.available)
       throw new Error(
         "Сначала установите модуль речи: uv sync --extra dev --extra voice. Затем перезапустите приложение.",
       );
     if (!voice.installed_stt.includes(settings!.stt_model))
       throw new Error("Скачайте выбранную модель Whisper в разделе «Модели».");
-    await request("/voice/stop", "POST");
+    stopAudio();
+    const generation = ++manualGeneration.current;
+    manualDiscard.current = false;
+    const controller = new AbortController();
+    manualAbort.current = controller;
     const media = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
     });
+    if (generation !== manualGeneration.current) {
+      media.getTracks().forEach((track) => track.stop());
+      return;
+    }
     audioStream.current = media;
     const audio = new MediaRecorder(media, { mimeType: "audio/webm" });
     recorder.current = audio;
@@ -338,6 +571,8 @@ export function App() {
     audio.onstop = () => {
       media.getTracks().forEach((track) => track.stop());
       setRecording(false);
+      if (manualDiscard.current || generation !== manualGeneration.current)
+        return;
       setUploading(true);
       const data = new FormData();
       data.append(
@@ -345,8 +580,18 @@ export function App() {
         new Blob(chunks, { type: "audio/webm" }),
         "speech.webm",
       );
-      request<{ text: string }>("/voice/transcribe", "POST", data)
+      request<{ text: string }>(
+        "/voice/transcribe",
+        "POST",
+        data,
+        controller.signal,
+      )
         .then((result) => {
+          if (
+            controller.signal.aborted ||
+            generation !== manualGeneration.current
+          )
+            return;
           setDraft(result.text);
           input.current?.focus();
           if (!result.text)
@@ -423,7 +668,10 @@ export function App() {
           <button onClick={() => window.wiley.showWindow("chat")}>
             Открыть чат
           </button>
-          <button onClick={() => run(toggleRecording)}>
+          <button
+            disabled={conversation.active}
+            onClick={() => run(toggleRecording)}
+          >
             {recording ? "■ Стоп" : "● Голос"}
           </button>
           <button
@@ -433,8 +681,21 @@ export function App() {
             Пропуск кликов
           </button>
         </div>
+        <ConversationControl
+          compact
+          state={conversation}
+          onToggle={() => run(toggleConversation)}
+          onInterrupt={interruptConversation}
+          disabled={busy || recording || uploading || speaking}
+        />
         <p className="pet-note">
-          {recording ? (
+          {conversation.active ? (
+            conversation.owner ? (
+              phaseLabels[conversation.phase]
+            ) : (
+              "Разговор в другом окне"
+            )
+          ) : recording ? (
             "Слушаю. Нажмите «Стоп», когда закончите."
           ) : uploading ? (
             "Распознаю речь…"
@@ -515,6 +776,24 @@ export function App() {
             {connected ? settings.model : "Модель не подключена"}
           </div>
         </header>
+        {(tab === "chat" || conversation.active) && (
+          <div className="conversation-banner">
+            <div>
+              <strong>Голосовой разговор</strong>
+              <span>
+                {conversation.active
+                  ? "Во время ответа звук с микрофона пропускается · Ctrl + Shift + Esc — завершить"
+                  : "Говорите свободно — реплики отправляются после паузы"}
+              </span>
+            </div>
+            <ConversationControl
+              state={conversation}
+              onToggle={() => run(toggleConversation)}
+              onInterrupt={interruptConversation}
+              disabled={busy || recording || uploading || speaking}
+            />
+          </div>
+        )}
         {error && (
           <div className="error global-message" role="alert">
             <span>{error}</span>
@@ -666,10 +945,13 @@ export function App() {
                   <textarea
                     ref={input}
                     aria-label="Сообщение"
+                    disabled={conversation.active}
                     placeholder={
-                      recording
-                        ? "Идёт запись с микрофона…"
-                        : "Напишите сообщение или команду…"
+                      conversation.active
+                        ? "Идёт голосовой разговор…"
+                        : recording
+                          ? "Идёт запись с микрофона…"
+                          : "Напишите сообщение или команду…"
                     }
                     value={draft}
                     rows={2}
@@ -687,7 +969,7 @@ export function App() {
                         type="button"
                         className="icon-button"
                         aria-label="Прикрепить документ"
-                        disabled={uploading}
+                        disabled={uploading || conversation.active}
                         onClick={() => upload.current?.click()}
                       >
                         ＋
@@ -700,7 +982,7 @@ export function App() {
                         aria-label={
                           recording ? "Остановить запись" : "Записать голос"
                         }
-                        disabled={busy || uploading}
+                        disabled={busy || uploading || conversation.active}
                         onClick={() => run(toggleRecording)}
                       >
                         {recording ? "■" : "♩"}
@@ -726,7 +1008,9 @@ export function App() {
                       <button
                         className="send"
                         type="submit"
-                        disabled={!draft.trim() || recording}
+                        disabled={
+                          !draft.trim() || recording || conversation.active
+                        }
                         aria-label="Отправить"
                       >
                         ↑
@@ -946,7 +1230,7 @@ export function App() {
                         ) : ready ? (
                           <button
                             className="outline"
-                            disabled={busy}
+                            disabled={busy || conversation.active}
                             onClick={() =>
                               run(async () => {
                                 await save({
@@ -1048,7 +1332,7 @@ export function App() {
                         </span>
                         <button
                           className="outline"
-                          disabled={busy}
+                          disabled={busy || conversation.active}
                           onClick={() =>
                             run(() => save({ ...settings, model: item.id }))
                           }
@@ -1299,7 +1583,7 @@ export function App() {
               </div>
               <button
                 className="primary"
-                disabled={busy}
+                disabled={busy || conversation.active}
                 onClick={() => run(() => save())}
               >
                 Сохранить
@@ -1524,6 +1808,44 @@ export function App() {
                 <p className="help">
                   После записи распознанный текст появится в поле сообщения: его
                   можно исправить перед отправкой.
+                </p>
+                <label>
+                  Пауза до конца реплики, мс
+                  <input
+                    type="number"
+                    min={500}
+                    max={2500}
+                    step={100}
+                    value={settings.conversation_silence_ms}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        conversation_silence_ms: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Порог голоса в режиме разговора
+                  <input
+                    type="number"
+                    min={0.003}
+                    max={0.1}
+                    step={0.003}
+                    value={settings.conversation_threshold}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        conversation_threshold: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <p className="help">
+                  В режиме разговора отправка и озвучка автоматические. Если
+                  фразы обрываются, увеличьте паузу. При срабатывании на фоновый
+                  шум увеличьте порог. Перебить ответ пока можно кнопкой;
+                  голосовое перебивание ещё не включено.
                 </p>
               </div>
               <div className="card">

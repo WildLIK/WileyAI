@@ -81,6 +81,14 @@ async def unload(settings: Settings):
         response.raise_for_status()
 
 
+async def prepare(settings: Settings):
+    if settings.provider != "ollama":
+        return  # Cloud model loading is controlled by its provider; no paid warm-up query.
+    async with client(settings) as http:
+        response = await http.post("api/generate", json={"model": settings.model, "prompt": "", "stream": False, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile], "options": {"num_ctx": settings.context_tokens}})
+        response.raise_for_status()
+
+
 def describe_error(error: Exception) -> str:
     if "redirect target not allowed" in str(error):
         return "Ollama не может скачать модель через текущую DNS/VPN-конфигурацию. Скачайте GGUF из доверенного источника и используйте импорт локального файла."

@@ -13,7 +13,7 @@ class Capability:
 
 
 CAPABILITIES = [
-    Capability("speech", "Распознавание и синтез речи", "available", "Whisper, Silero и системная озвучка; отдельный выбор компонентов.", ("voice.input", "voice.output"), ("faster-whisper", "silero", "windows-sapi")),
+    Capability("speech", "Распознавание и синтез речи", "available", "Whisper, Silero и системная озвучка; отдельный выбор компонентов, разговор по очереди и прерывание кнопкой.", ("voice.input", "voice.output"), ("faster-whisper", "silero", "windows-sapi")),
     Capability("language", "Понимание языка и контекста", "partial", "Потоковое общение, контекст и точные команды. Свободные формулировки действий будут добавлены отдельно.", ("model.chat",), ("ollama", "compatible-api")),
     Capability("tasks", "Задачи и напоминания", "available", "Локальные задачи, напоминания, таймеры и будильники с однократным временем; редактирование и уведомления.", ("tasks.write",), ("local-scheduler",)),
     Capability("calendar", "Календарь и планирование", "planned", "Контракт для событий и адаптеров Google Calendar, Outlook и CalDAV. Синхронизация ещё не реализована.", ("calendar.read", "calendar.write"), ("google-calendar", "outlook", "caldav")),

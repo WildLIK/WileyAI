@@ -17,6 +17,8 @@ const { randomBytes } = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { ConversationLease } = require("./conversation.cjs");
+const { liveContents, sendToWindow } = require("./window-messages.cjs");
 
 const root = path.resolve(__dirname, "..");
 const dev = process.env.WILEYAI_DEV === "1";
@@ -31,6 +33,18 @@ let quitting = false;
 let ollamaProcess;
 let notificationTimer;
 let notificationPolling = false;
+const conversation = new ConversationLease(() => {
+  if (quitting) return;
+  for (const window of windows.values()) {
+    const contents = liveContents(window);
+    if (contents)
+      contents.send("conversation-state", conversation.state(contents.id));
+  }
+  if (tray && !tray.isDestroyed())
+    tray.setToolTip(
+      conversation.lease ? "WileyAI · разговор включён" : "WileyAI",
+    );
+});
 
 async function deliverNotifications() {
   if (!connection || notificationPolling || quitting) return;
@@ -53,7 +67,7 @@ async function deliverNotifications() {
         notification.show();
       }
       for (const window of windows.values())
-        window.webContents.send("reminder", item.title);
+        sendToWindow(window, "reminder", item.title);
       await fetch(connection.url + "/notifications/" + item.id + "/ack", {
         method: "POST",
         headers,
@@ -178,7 +192,7 @@ async function startCore() {
       if (!quitting) {
         reject(new Error(`Ядро завершилось с кодом ${code}`));
         for (const window of windows.values())
-          window.webContents.send("core-offline");
+          sendToWindow(window, "core-offline");
       }
     });
     child.stdout.on("data", async (data) => {
@@ -241,9 +255,17 @@ function showWindow(view = "chat") {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
   windows.set(view, window);
+  const contentsId = window.webContents.id;
+  window.webContents.on("render-process-gone", () =>
+    conversation.releaseSender(contentsId),
+  );
+  window.webContents.on("did-navigate", () =>
+    conversation.releaseSender(contentsId),
+  );
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.on("close", (event) => {
@@ -252,7 +274,10 @@ function showWindow(view = "chat") {
       window.hide();
     }
   });
-  window.on("closed", () => windows.delete(view));
+  window.on("closed", () => {
+    conversation.releaseSender(contentsId);
+    windows.delete(view);
+  });
   window.once("ready-to-show", () => window.show());
   window.loadURL(
     (dev ? "http://127.0.0.1:5173/" : "app://wileyai/") + "?view=" + view,
@@ -290,6 +315,28 @@ app.whenReady().then(async () => {
   ipcMain.handle("connection", (event) => {
     trusted(event);
     return connection;
+  });
+  ipcMain.handle("conversation-state", (event) => {
+    trusted(event);
+    return conversation.state(event.sender.id);
+  });
+  ipcMain.handle("conversation-acquire", (event) => {
+    trusted(event);
+    return conversation.acquire(event.sender.id);
+  });
+  ipcMain.handle("conversation-update", (event, id, phase) => {
+    trusted(event);
+    conversation.update(event.sender.id, id, phase);
+  });
+  ipcMain.handle("conversation-release", (event, id) => {
+    trusted(event);
+    conversation.release(event.sender.id, id);
+  });
+  ipcMain.handle("conversation-stop", (event) => {
+    trusted(event);
+    const owner = conversation.stop();
+    for (const window of windows.values())
+      if (liveContents(window)?.id === owner) sendToWindow(window, "stop-all");
   });
   ipcMain.handle("show-window", (event, view) => {
     trusted(event);
@@ -367,8 +414,8 @@ app.whenReady().then(async () => {
         showWindow("chat"),
       );
       globalShortcut.register("CommandOrControl+Shift+Escape", () => {
-        for (const window of windows.values())
-          window.webContents.send("stop-all");
+        conversation.stop();
+        for (const window of windows.values()) sendToWindow(window, "stop-all");
         windows.get("avatar")?.setIgnoreMouseEvents(false);
       });
     }
@@ -388,6 +435,8 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  conversation.stop();
+  for (const window of windows.values()) sendToWindow(window, "stop-all");
   clearInterval(notificationTimer);
   globalShortcut.unregisterAll();
   const stopSpeech = connection

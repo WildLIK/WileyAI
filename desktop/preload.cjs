@@ -7,6 +7,17 @@ contextBridge.exposeInMainWorld("wiley", {
   avatarBytes: () => ipcRenderer.invoke("avatar-bytes"),
   clickThrough: (enabled) => ipcRenderer.invoke("avatar-clickthrough", enabled),
   quit: () => ipcRenderer.invoke("quit"),
+  conversationState: () => ipcRenderer.invoke("conversation-state"),
+  acquireConversation: () => ipcRenderer.invoke("conversation-acquire"),
+  updateConversation: (id, phase) =>
+    ipcRenderer.invoke("conversation-update", id, phase),
+  releaseConversation: (id) => ipcRenderer.invoke("conversation-release", id),
+  stopConversation: () => ipcRenderer.invoke("conversation-stop"),
+  onConversation: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("conversation-state", listener);
+    return () => ipcRenderer.removeListener("conversation-state", listener);
+  },
   onReminder: (callback) => {
     const listener = (_event, title) => callback(title);
     ipcRenderer.on("reminder", listener);

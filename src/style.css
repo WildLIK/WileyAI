@@ -1,3 +1,86 @@
+.conversation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 28px 0;
+  padding: 12px 16px;
+  border: 1px solid #304239;
+  border-radius: 11px;
+  background: #1b2b2433;
+}
+.conversation-banner > div:first-child {
+  min-width: 0;
+}
+.conversation-banner strong {
+  display: block;
+  color: #b8dccb;
+  font-size: 11px;
+  font-weight: 500;
+}
+.conversation-banner > div > span {
+  display: block;
+  font-size: 9px;
+  color: #7a9d8b;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.conversation-control {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.conversation-control.enabled {
+  color: #a6dfc6;
+}
+.conversation-control .conversation-end {
+  border-color: #5c7d6a;
+  color: #b7dfc9;
+}
+.conversation-phase {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.conversation-phase i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a6dfc6;
+  animation: breathe 1.3s infinite;
+}
+.pet-window .conversation-control {
+  margin-top: 8px;
+  justify-content: center;
+  background: #172230ee;
+  border-radius: 10px;
+  padding: 7px;
+}
+.pet-window .conversation-control button {
+  font-size: 10px;
+  padding: 8px;
+}
+.pet-window .conversation-phase {
+  font-size: 9px;
+}
+@media (max-width: 1100px) {
+  .conversation-banner {
+    align-items: flex-start;
+  }
+  .conversation-banner > div:first-child {
+    max-width: 180px;
+  }
+  .conversation-control {
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .conversation-phase {
+    font-size: 9px;
+  }
+}
 :root {
   font-family: "Segoe UI", system-ui, sans-serif;
   color: #e9edf5;

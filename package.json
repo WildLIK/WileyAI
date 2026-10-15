@@ -11,8 +11,9 @@
     "build": "tsc --noEmit && vite build",
     "start": "electron .",
     "test": "node scripts/python.mjs -m pytest",
+    "test:voice": "node --experimental-strip-types --test tests/voice/*.test.ts tests/voice/*.test.cjs",
     "test:desktop": "playwright test",
-    "check": "npm run build && npm test",
+    "check": "npm run build && npm test && npm run test:voice",
     "format": "prettier --write src desktop scripts/*.mjs tests/desktop/*.ts"
   },
   "dependencies": {

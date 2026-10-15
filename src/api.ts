@@ -1,3 +1,5 @@
+import type { ConversationState, Phase } from "./voice/conversation";
+
 export interface Settings {
   name: string;
   personality: string;
@@ -11,6 +13,8 @@ export interface Settings {
   tts_engine: "silero" | "sapi";
   tts_voice: string;
   speak_answers: boolean;
+  conversation_silence_ms: number;
+  conversation_threshold: number;
   avatar_path: string;
   has_api_key?: boolean;
   api_key?: string;
@@ -72,6 +76,12 @@ declare global {
       avatarBytes(): Promise<Uint8Array | null>;
       clickThrough(enabled: boolean): Promise<void>;
       quit(): Promise<void>;
+      conversationState(): Promise<ConversationState>;
+      acquireConversation(): Promise<string>;
+      updateConversation(id: string, phase: Phase): Promise<void>;
+      releaseConversation(id: string): Promise<void>;
+      stopConversation(): Promise<void>;
+      onConversation(callback: (state: ConversationState) => void): () => void;
       onStop(callback: () => void): () => void;
       onReminder(callback: (title: string) => void): () => void;
       onOffline(callback: () => void): () => void;
@@ -143,6 +153,7 @@ export async function stream(
     message?: Message;
     seconds?: number;
   }) => void,
+  mode: "text" | "conversation" = "text",
 ) {
   const response = await fetch(connection.url + "/chat", {
     method: "POST",
@@ -150,7 +161,7 @@ export async function stream(
       Authorization: "Bearer " + connection.token,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text, document_ids }),
+    body: JSON.stringify({ text, document_ids, mode }),
     signal,
   });
   if (!response.ok) {
