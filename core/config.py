@@ -22,6 +22,7 @@ class Settings(BaseModel):
     tts_engine: Literal["silero", "sapi"] = "silero"
     tts_voice: str = Field(default="", max_length=300)
     speak_answers: bool = False
+    memory_suggestions: bool = True
     audio_input_device_id: str = Field(default="", max_length=512)
     audio_output_device_id: str = Field(default="", max_length=512)
     conversation_silence_ms: int = Field(default=1000, ge=500, le=2500)

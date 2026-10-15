@@ -13,6 +13,7 @@ import {
   type Settings,
   type Message,
   type Memory,
+  type MemoryCandidate,
   type Doc,
   type Job,
   type CatalogItem,
@@ -20,6 +21,7 @@ import {
   type VoiceInfo,
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
+import { MemoryPanel, MemorySuggestions } from "./Memory";
 import {
   Conversation,
   phaseLabels,
@@ -100,7 +102,10 @@ export function App() {
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
-  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>(
+    [],
+  );
+  const memoryRefreshEpoch = useRef(0);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [modelCategory, setModelCategory] = useState("llm");
   const [installed, setInstalled] = useState<{ id: string; size: number }[]>(
@@ -169,8 +174,35 @@ export function App() {
     setInstalled(data.installed);
     return data;
   }, []);
+  const refreshMemories = useCallback(async () => {
+    const epoch = ++memoryRefreshEpoch.current;
+    const [facts, candidates, history] = await Promise.all([
+      request<Memory[]>("/memories"),
+      request<MemoryCandidate[]>("/memory-candidates"),
+      request<Message[]>("/messages"),
+    ]);
+    if (epoch !== memoryRefreshEpoch.current) return;
+    setMemories(facts);
+    setMemoryCandidates(candidates);
+    // Refresh references without overwriting an answer currently streaming.
+    // The server checks record revisions, including memories outside the list limit.
+    const references = new Map(
+      history.map((item) => [item.id, item.memory_context]),
+    );
+    setMessages((current) =>
+      current.map((item) =>
+        references.has(item.id)
+          ? { ...item, memory_context: references.get(item.id) }
+          : item,
+      ),
+    );
+  }, []);
+  const memoryChanged = useCallback(async () => {
+    await refreshMemories();
+    channel.current?.postMessage({ type: "memory-changed" });
+  }, [refreshMemories]);
   const refresh = useCallback(async () => {
-    const [config, history, facts, files, items, aliases, voices] =
+    const [config, history, facts, files, items, aliases, voices, candidates] =
       await Promise.all([
         request<Settings>("/settings"),
         request<Message[]>("/messages"),
@@ -179,10 +211,12 @@ export function App() {
         request<CatalogItem[]>("/catalog"),
         request<{ custom: Alias[] }>("/aliases"),
         request<VoiceInfo>("/voice"),
+        request<MemoryCandidate[]>("/memory-candidates"),
       ]);
     setSettings(config);
     setMessages(history);
     setMemories(facts);
+    setMemoryCandidates(candidates);
     setDocuments(files);
     setCatalog(items);
     setAliasList(aliases.custom);
@@ -241,8 +275,10 @@ export function App() {
       if (event.data.type === "stop") stop();
       if (event.data.type === "chat-updated") {
         void request<Message[]>("/messages").then(setMessages).catch(fail);
-        void request<Memory[]>("/memories").then(setMemories).catch(fail);
+        void refreshMemories().catch(fail);
       }
+      if (event.data.type === "memory-changed")
+        void refreshMemories().catch(fail);
     };
     const offStop = window.wiley.onStop(stop);
     const offConversation = window.wiley.onConversation(setConversation);
@@ -275,10 +311,10 @@ export function App() {
         void window.wiley.releaseConversation(starting.lease);
       }
     };
-  }, [refresh, stop]);
+  }, [refresh, refreshMemories, stop]);
   useEffect(() => {
     listEnd.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, answer]);
+  }, [messages, answer, memoryCandidates.length]);
   useEffect(() => {
     if (!jobs.some((job) => ["queued", "running"].includes(job.status))) return;
     const timer = setInterval(() => {
@@ -399,7 +435,6 @@ export function App() {
         throw new DOMException("Ответ отменён", "AbortError");
       if (completed && settings?.speak_answers && !options.conversation)
         void speak(completed).catch(fail);
-      void request<Memory[]>("/memories").then(setMemories).catch(fail);
       return completed;
     } catch (error) {
       if (options.conversation) throw error;
@@ -412,6 +447,7 @@ export function App() {
       busyRef.current = false;
       setAnswer("");
       abort.current = null;
+      void refreshMemories().catch(fail);
       channel.current?.postMessage({ type: "chat-updated" });
       window.dispatchEvent(new Event("wiley-data-updated"));
     }
@@ -863,6 +899,16 @@ export function App() {
                         )}
                       </div>
                       <div className="message-text">{message.content}</div>
+                      {Boolean(message.memory_context?.length) && (
+                        <details className="memory-context">
+                          <summary>Передано в контекст из памяти</summary>
+                          <ul>
+                            {message.memory_context!.map((item) => (
+                              <li key={item.id}>{item.content}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -880,6 +926,14 @@ export function App() {
                     </div>
                   </article>
                 )}
+                <MemorySuggestions
+                  compact
+                  memories={memories}
+                  candidates={memoryCandidates}
+                  onChanged={memoryChanged}
+                  onError={fail}
+                  onOpen={() => setTab("memory")}
+                />
                 <div ref={listEnd} />
               </div>
               {documents.length > 0 && (
@@ -1357,73 +1411,13 @@ export function App() {
         {tab === "capabilities" && <Capabilities onError={fail} />}
 
         {tab === "memory" && (
-          <section className="page scroll-page">
-            <div className="page-heading">
-              <div>
-                <span className="eyebrow">ВАШ ОБЩИЙ КОНТЕКСТ</span>
-                <h1>Память</h1>
-                <p>
-                  Только сохранённые вами факты. Просматривайте, добавляйте и
-                  удаляйте.
-                </p>
-              </div>
-              <span className="count-pill">{memories.length} записей</span>
-            </div>
-            <form
-              className="card memory-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run(async () => {
-                  await request("/memories", "POST", { text: memoryDraft });
-                  setMemoryDraft("");
-                  setMemories(await request("/memories"));
-                });
-              }}
-            >
-              <textarea
-                aria-label="Новая запись памяти"
-                placeholder="Например: рабочие проекты находятся в D:\projects"
-                value={memoryDraft}
-                onChange={(event) => setMemoryDraft(event.target.value)}
-              />
-              <button className="primary" disabled={!memoryDraft.trim()}>
-                Запомнить
-              </button>
-            </form>
-            <div className="memory-list">
-              {memories.map((item) => (
-                <article className="card memory-card" key={item.id}>
-                  <div className="memory-symbol">◎</div>
-                  <div>
-                    <p>{item.content}</p>
-                    <small>
-                      {new Date(item.created).toLocaleDateString("ru-RU")} ·
-                      добавлено владельцем
-                    </small>
-                  </div>
-                  <button
-                    className="subtle danger"
-                    aria-label={"Удалить запись " + item.content}
-                    onClick={() =>
-                      run(async () => {
-                        await request("/memories/" + item.id, "DELETE");
-                        setMemories((items) =>
-                          items.filter((value) => value.id !== item.id),
-                        );
-                      })
-                    }
-                  >
-                    Удалить
-                  </button>
-                </article>
-              ))}
-            </div>
-            {!memories.length && (
-              <div className="empty-state">
-                Здесь появится то, что вы попросите запомнить.
-              </div>
-            )}
-          </section>
+          <MemoryPanel
+            memories={memories}
+            candidates={memoryCandidates}
+            onChanged={memoryChanged}
+            onError={fail}
+            suggestionsEnabled={settings.memory_suggestions}
+          />
         )}
 
         {tab === "commands" && (
@@ -1582,6 +1576,23 @@ export function App() {
             <div className="settings-grid">
               <div className="card">
                 <h2>Личность</h2>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={settings.memory_suggestions}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        memory_suggestions: event.target.checked,
+                      })
+                    }
+                  />
+                  Предлагать память из разговоров
+                </label>
+                <p className="help">
+                  Локальные предложения из новых реплик. Они сохраняются в
+                  память только после принятия.
+                </p>
                 <label>
                   Имя
                   <input

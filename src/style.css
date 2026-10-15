@@ -1077,6 +1077,98 @@ small {
   align-items: center;
   gap: 15px;
 }
+.memory-suggestions {
+  border-color: #365349;
+}
+.memory-suggestions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.memory-suggestions-heading h2 {
+  margin-bottom: 0;
+}
+.memory-suggestion + .memory-suggestion {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 8px;
+}
+.memory-suggestion details,
+.memory-entry details {
+  margin: 14px 0;
+  font-size: 11px;
+  color: #9aaec2;
+}
+.memory-suggestion summary,
+.memory-entry summary,
+.memory-context summary {
+  cursor: pointer;
+}
+.memory-suggestion blockquote,
+.memory-entry blockquote {
+  margin: 10px 0;
+  padding-left: 14px;
+  border-left: 2px solid #416355;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+.memory-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.memory-entry small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.memory-entry .button-row {
+  margin-top: 14px;
+}
+.memory-context {
+  color: #8aa99d;
+  margin-top: 13px;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.memory-context ul {
+  padding-left: 16px;
+}
+.memory-context li {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.memory-suggestions.compact {
+  padding: 18px;
+  margin-top: 22px;
+}
+.memory-suggestions.compact h2 {
+  font-size: 13px;
+}
+.memory-suggestions.compact .two-columns {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.memory-suggestions.compact .two-columns label {
+  margin: 6px 0;
+}
+.memory-suggestions.compact textarea {
+  min-height: 65px;
+  font-size: 12px;
+}
+.memory-suggestions.compact select {
+  padding: 7px 9px;
+  font-size: 11px;
+}
+.memory-suggestions.compact label {
+  font-size: 11px;
+}
+.memory-suggestions.compact .button-row button {
+  font-size: 11px;
+}
 .memory-form textarea {
   resize: none;
   min-height: 80px;

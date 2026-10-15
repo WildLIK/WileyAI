@@ -13,6 +13,7 @@ export interface Settings {
   tts_engine: "silero" | "sapi";
   tts_voice: string;
   speak_answers: boolean;
+  memory_suggestions: boolean;
   audio_input_device_id: string;
   audio_output_device_id: string;
   conversation_silence_ms: number;
@@ -26,10 +27,23 @@ export interface Message {
   role: string;
   content: string;
   created: string;
+  memory_context?: { id: string; content: string; revision: number }[];
 }
 export interface Memory {
   id: string;
   content: string;
+  created: string;
+  category: "fact" | "preference" | "profile";
+  pinned: number;
+  updated: string;
+  revision: number;
+  source_text: string | null;
+}
+export interface MemoryCandidate {
+  id: string;
+  content: string;
+  category: Memory["category"];
+  source_text: string;
   created: string;
 }
 export interface Doc {
