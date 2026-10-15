@@ -1,3 +1,5 @@
+import { microphoneConstraints, microphoneError } from "./devices.ts";
+
 export interface Capture {
   sampleRate: number;
   start(
@@ -14,6 +16,10 @@ export class Microphone implements Capture {
   private source: MediaStreamAudioSourceNode | null = null;
   private node: AudioWorkletNode | null = null;
   private generation = 0;
+  private deviceId: string;
+  constructor(deviceId = "") {
+    this.deviceId = deviceId;
+  }
 
   async start(
     onFrame: (frame: Float32Array) => void,
@@ -21,15 +27,9 @@ export class Microphone implements Capture {
   ) {
     const generation = ++this.generation;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(
+        microphoneConstraints(this.deviceId),
+      );
       if (generation !== this.generation) {
         stream.getTracks().forEach((track) => track.stop());
         return;
@@ -73,13 +73,7 @@ export class Microphone implements Capture {
       await context.resume();
     } catch (error) {
       if (generation === this.generation) await this.stop();
-      if (error instanceof DOMException && error.name === "NotAllowedError")
-        throw new Error(
-          "Нет доступа к микрофону. Разрешите его в настройках Windows.",
-        );
-      if (error instanceof DOMException && error.name === "NotFoundError")
-        throw new Error("Микрофон не найден. Подключите устройство записи.");
-      throw error;
+      throw microphoneError(error);
     }
   }
 

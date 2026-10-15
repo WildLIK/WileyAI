@@ -13,6 +13,8 @@ export interface Settings {
   tts_engine: "silero" | "sapi";
   tts_voice: string;
   speak_answers: boolean;
+  audio_input_device_id: string;
+  audio_output_device_id: string;
   conversation_silence_ms: number;
   conversation_threshold: number;
   avatar_path: string;
@@ -127,6 +129,7 @@ export async function audioRequest(
   text: string,
   voice: string,
   signal: AbortSignal,
+  engine: Settings["tts_engine"] = "silero",
 ): Promise<Blob> {
   const response = await fetch(connection.url + "/voice/synthesize", {
     method: "POST",
@@ -134,7 +137,7 @@ export async function audioRequest(
       Authorization: "Bearer " + connection.token,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text, voice }),
+    body: JSON.stringify({ text, voice, engine }),
     signal,
   });
   if (!response.ok) {

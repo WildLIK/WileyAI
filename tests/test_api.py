@@ -29,11 +29,13 @@ def test_settings_and_memories_survive_new_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(providers, "get_key", lambda settings: "")
     with TestClient(create_app(tmp_path, TOKEN), headers=HEADERS) as first:
         settings = first.get("/settings").json()
-        settings.update(name="Тестовый Уайли", model="local-model", personality="Говори кратко")
+        settings.update(name="Тестовый Уайли", model="local-model", personality="Говори кратко", audio_input_device_id="usb-microphone", audio_output_device_id="headphones")
         assert first.put("/settings", json=settings).status_code == 200
         memory = first.post("/memories", json={"text": "Я работаю вечером"}).json()
     with TestClient(create_app(tmp_path, TOKEN), headers=HEADERS) as second:
         assert second.get("/settings").json()["name"] == "Тестовый Уайли"
+        assert second.get("/settings").json()["audio_input_device_id"] == "usb-microphone"
+        assert second.get("/settings").json()["audio_output_device_id"] == "headphones"
         assert second.get("/memories").json()[0]["content"] == "Я работаю вечером"
         second.delete("/memories/" + memory["id"])
         assert second.get("/memories").json() == []
@@ -163,3 +165,17 @@ def test_conversation_settings_reject_invalid_audio_limits(api, field, value):
     settings = api.get("/settings").json()
     settings[field] = value
     assert api.put("/settings", json=settings).status_code == 422
+
+
+@pytest.mark.parametrize("engine", ["silero", "sapi"])
+def test_both_tts_engines_return_audio_for_selected_browser_output(api, monkeypatch, engine):
+    captured = []
+    async def render(self, text, voice, engine):
+        captured.append((text, voice, engine))
+        return b"RIFFaudio"
+    monkeypatch.setattr(Voice, "render", render)
+    response = api.post("/voice/synthesize", json={"text": "Проверка", "voice": "", "engine": engine})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content == b"RIFFaudio"
+    assert captured == [("Проверка", "", engine)]

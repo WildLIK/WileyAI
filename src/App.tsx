@@ -27,6 +27,12 @@ import {
 } from "./voice/conversation";
 import { Microphone } from "./voice/microphone";
 import { ConversationControl } from "./voice/ConversationControl";
+import { AudioDevices } from "./voice/AudioDevices";
+import {
+  microphoneConstraints,
+  microphoneError,
+  playAudio,
+} from "./voice/devices";
 
 const tabs = [
   { id: "chat", icon: "◈", label: "Общение" },
@@ -133,10 +139,6 @@ export function App() {
   const manualGeneration = useRef(0);
   const manualDiscard = useRef(false);
   const speechAbort = useRef<AbortController | null>(null);
-  const playback = useRef<{
-    audio: HTMLAudioElement;
-    finish: () => void;
-  } | null>(null);
   const speechGeneration = useRef(0);
   const listEnd = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -189,8 +191,6 @@ export function App() {
   }, [refreshModels]);
   const stopAudio = useCallback(() => {
     speechAbort.current?.abort();
-    playback.current?.audio.pause();
-    playback.current?.finish();
     void request("/voice/stop", "POST").catch(() => {});
     channel.current?.postMessage({ type: "speaking", value: false });
     setSpeaking(false);
@@ -319,16 +319,12 @@ export function App() {
     if (signal?.aborted)
       throw new DOMException("Озвучка отменена", "AbortError");
     speechAbort.current?.abort();
-    playback.current?.audio.pause();
-    playback.current?.finish();
     const generation = ++speechGeneration.current;
     const controller = new AbortController();
     speechAbort.current = controller;
     const cancel = () => {
       controller.abort();
       if (generation === speechGeneration.current) {
-        playback.current?.audio.pause();
-        playback.current?.finish();
         void request("/voice/stop", "POST").catch(() => {});
       }
     };
@@ -336,38 +332,20 @@ export function App() {
     setSpeaking(true);
     channel.current?.postMessage({ type: "speaking", value: true });
     try {
-      if (config?.tts_engine === "silero") {
-        const blob = await audioRequest(
-          text,
-          config.tts_voice,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        const url = URL.createObjectURL(blob);
-        try {
-          const audio = new Audio(url);
-          await new Promise<void>((resolve, reject) => {
-            playback.current = { audio, finish: resolve };
-            audio.onended = () => resolve();
-            audio.onerror = () =>
-              reject(new Error("Не удалось воспроизвести озвучку"));
-            void audio.play().catch(reject);
-          });
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-      } else {
-        await request(
-          "/voice/speak",
-          "POST",
-          { text, voice: config?.tts_voice || "" },
-          controller.signal,
-        );
-      }
+      const blob = await audioRequest(
+        text,
+        config?.tts_voice || "",
+        controller.signal,
+        config?.tts_engine,
+      );
+      await playAudio(
+        blob,
+        config?.audio_output_device_id || "",
+        controller.signal,
+      );
     } finally {
       signal?.removeEventListener("abort", cancel);
       if (generation === speechGeneration.current) {
-        playback.current = null;
         setSpeaking(false);
         channel.current?.postMessage({ type: "speaking", value: false });
       }
@@ -468,7 +446,7 @@ export function App() {
       );
       if (epoch !== conversationEpoch.current) return;
       session = new Conversation({
-        capture: new Microphone(),
+        capture: new Microphone(config.audio_input_device_id),
         speech: {
           threshold: config.conversation_threshold,
           silenceMs: config.conversation_silence_ms,
@@ -556,9 +534,19 @@ export function App() {
     manualDiscard.current = false;
     const controller = new AbortController();
     manualAbort.current = controller;
-    const media = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
-    });
+    const config = await request<Settings>(
+      "/settings",
+      "GET",
+      undefined,
+      controller.signal,
+    );
+    controller.signal.throwIfAborted();
+    if (generation !== manualGeneration.current) return;
+    const media = await navigator.mediaDevices
+      .getUserMedia(microphoneConstraints(config.audio_input_device_id))
+      .catch((error) => {
+        throw microphoneError(error);
+      });
     if (generation !== manualGeneration.current) {
       media.getTracks().forEach((track) => track.stop());
       return;
@@ -1710,6 +1698,17 @@ export function App() {
                   Облако подключается только по вашему выбору.
                 </p>
               </div>
+              <AudioDevices
+                settings={settings}
+                onChange={setSettings}
+                disabled={
+                  busy ||
+                  recording ||
+                  uploading ||
+                  speaking ||
+                  conversation.active
+                }
+              />
               <div className="card">
                 <h2>Речь и озвучка</h2>
                 <label>
@@ -1736,6 +1735,7 @@ export function App() {
                 <label>
                   Движок озвучки
                   <select
+                    aria-label="Движок озвучки"
                     value={settings.tts_engine}
                     onChange={(event) =>
                       setSettings({

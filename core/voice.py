@@ -132,20 +132,67 @@ class Voice:
         process = self.speech
         self.speech = None
         if process and process.returncode is None:
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             await process.wait()
 
+    async def render(self, text: str, voice: str, engine: str) -> bytes:
+        if engine == "sapi":
+            return await self._sapi(text, voice, render=True)
+        return await asyncio.to_thread(self.synthesize, text, voice)
+
     async def speak(self, text: str, voice: str):
+        await self._sapi(text, voice, render=False)
+
+    async def _sapi(self, text: str, voice: str, render: bool) -> bytes:
         if os.name != "nt":
             raise ValueError("Системная озвучка доступна в Windows")
         async with self.speak_lock:
             await self.stop()
             # Script is fixed. Text and voice travel as JSON on stdin, never as shell source.
-            script = "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new(); Add-Type -AssemblyName System.Speech; $p = [Console]::In.ReadToEnd() | ConvertFrom-Json; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($p.voice) { $s.SelectVoice($p.voice) }; $s.Speak([string]$p.text)"
-            self.speech = await asyncio.create_subprocess_exec("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+            script = """
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
+Add-Type -AssemblyName System.Speech
+$p = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$ms = $null
+try {
+    if ($p.voice) { $s.SelectVoice([string]$p.voice) }
+    if ($p.render) {
+        $ms = New-Object System.IO.MemoryStream
+        $s.SetOutputToWaveStream($ms)
+    }
+    $s.Speak([string]$p.text)
+    if ($p.render) {
+        $s.SetOutputToNull()
+        $buffer = $ms.ToArray()
+        [Console]::OpenStandardOutput().Write($buffer, 0, $buffer.Length)
+    }
+} finally {
+    $s.Dispose()
+    if ($ms) { $ms.Dispose() }
+}
+"""
+            self.speech = await asyncio.create_subprocess_exec("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
             process = self.speech
-        _, errors = await process.communicate(json.dumps({"text": text[:5000], "voice": voice}, ensure_ascii=False).encode("utf-8"))
-        if process.returncode not in {0, None} and self.speech is process:
-            raise ValueError("Не удалось озвучить ответ выбранным голосом")
-        if self.speech is process:
-            self.speech = None
+        try:
+            audio, _ = await process.communicate(json.dumps({"text": text, "voice": voice, "render": render}, ensure_ascii=False).encode("utf-8"))
+            if self.speech is not process:
+                raise ValueError("Озвучка остановлена")
+            if process.returncode:
+                raise ValueError("Не удалось озвучить ответ выбранным голосом")
+            if render and not audio.startswith(b"RIFF"):
+                raise ValueError("Системный голос не вернул аудиозапись")
+            return audio
+        finally:
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
+            if self.speech is process:
+                self.speech = None

@@ -36,3 +36,14 @@ def test_local_voice_conversation_pipeline(tmp_path):
             assert spoken.status_code == 200, spoken.text[:200]
             assert spoken.content.startswith(b"RIFF") and len(spoken.content) > 10000
             assert len(api.get("/messages").json()) == 2
+
+
+@pytest.mark.skipif(os.environ.get("WILEYAI_LIVE_TESTS") != "1" or os.name != "nt", reason="Requires installed Windows SAPI voice")
+def test_sapi_renders_wav_without_playing_to_default_speakers(tmp_path):
+    headers = {"Authorization": "Bearer live-voice-test-0123456789abcdef"}
+    with patch("core.providers.get_key", return_value=""):
+        with TestClient(create_app(tmp_path, "live-voice-test-0123456789abcdef"), headers=headers) as api:
+            response = api.post("/voice/synthesize", json={"text": "Audio output check.", "engine": "sapi", "voice": ""})
+            assert response.status_code == 200, response.text[:200]
+            assert response.content.startswith(b"RIFF") and response.content[8:12] == b"WAVE"
+            assert len(response.content) > 10000

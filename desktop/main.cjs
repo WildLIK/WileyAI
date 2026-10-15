@@ -149,13 +149,20 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+function isAppUrl(value) {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "app:" && url.host === "wileyai") ||
+      (dev && url.origin === "http://127.0.0.1:5173")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function trusted(event) {
-  const url = new URL(event.senderFrame?.url || "about:blank");
-  if (
-    (url.protocol === "app:" && url.host === "wileyai") ||
-    (dev && url.origin === "http://127.0.0.1:5173")
-  )
-    return;
+  if (isAppUrl(event.senderFrame?.url)) return;
   throw new Error("Недопустимый источник запроса");
 }
 
@@ -299,18 +306,25 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(target).href);
   });
   session.defaultSession.setPermissionRequestHandler(
-    (contents, permission, callback) => {
-      let allowed = false;
-      try {
-        const url = new URL(contents.getURL());
-        allowed =
-          (url.protocol === "app:" && url.host === "wileyai") ||
-          (dev && url.origin === "http://127.0.0.1:5173");
-      } catch {
-        /* Deny malformed origins. */
-      }
-      callback(allowed && permission === "media");
+    (contents, permission, callback, details) => {
+      callback(
+        isAppUrl(contents.getURL()) &&
+          (permission === "speaker-selection" ||
+            (permission === "media" &&
+              details.mediaTypes?.length > 0 &&
+              details.mediaTypes.every((type) => type === "audio"))),
+      );
     },
+  );
+  session.defaultSession.setPermissionCheckHandler(
+    (contents, permission, origin, details) =>
+      Boolean(
+        contents &&
+        isAppUrl(contents.getURL()) &&
+        isAppUrl(details.securityOrigin || origin) &&
+        (permission === "speaker-selection" ||
+          (permission === "media" && details.mediaType === "audio")),
+      ),
   );
   ipcMain.handle("connection", (event) => {
     trusted(event);

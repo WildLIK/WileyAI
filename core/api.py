@@ -48,7 +48,8 @@ class CommandBody(TextBody):
 
 
 class SpeechBody(TextBody):
-    voice: str = Field(default="", max_length=300)
+    voice: str | None = Field(default=None, max_length=300)
+    engine: Literal["silero", "sapi"] | None = None
 
 
 class NoteBody(BaseModel):
@@ -353,7 +354,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.post("/voice/synthesize")
     async def synthesize(body: SpeechBody):
-        audio = await asyncio.to_thread(voice.synthesize, body.text, body.voice or store.settings().tts_voice)
+        config = store.settings()
+        selected_voice = body.voice if body.voice is not None else config.tts_voice
+        audio = await voice.render(body.text, selected_voice, body.engine or config.tts_engine)
         return Response(audio, media_type="audio/wav")
 
     @app.post("/voice/stop")

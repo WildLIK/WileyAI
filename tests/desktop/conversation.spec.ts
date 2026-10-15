@@ -16,8 +16,9 @@ const audioStats = (page: Page) =>
     () => (window as unknown as { testAudioStats: AudioStats }).testAudioStats,
   );
 
-async function launch() {
-  const data = await mkdtemp(join(tmpdir(), "wileyai-conversation-"));
+async function launch(dataDir?: string) {
+  const data =
+    dataDir || (await mkdtemp(join(tmpdir(), "wileyai-conversation-")));
   const sampleRate = 48000;
   const samples = new Float32Array(sampleRate * 5);
   // The fake microphone repeats: a short tone, then enough silence to end a phrase.
@@ -27,6 +28,7 @@ async function launch() {
   await writeFile(input, Buffer.from(wav(samples, sampleRate)));
   const app = await electron.launch({
     args: [
+      "--mute-audio",
       "--use-fake-ui-for-media-stream",
       "--use-fake-device-for-media-stream",
       `--use-file-for-fake-audio-capture=${input}`,
@@ -38,7 +40,7 @@ async function launch() {
   await expect(
     page.getByRole("heading", { name: "Привет, я Уайли." }),
   ).toBeVisible();
-  await page.evaluate(() => {
+  const instrument = () => {
     const stats = { frames: 0, peak: 0, context: "" };
     Object.assign(window, { testAudioStats: stats });
     const Worklet = window.AudioWorkletNode;
@@ -71,11 +73,13 @@ async function launch() {
       tracks.push(...stream.getTracks());
       return stream;
     };
-  });
-  return { app, page };
+  };
+  await page.addInitScript(instrument);
+  await page.evaluate(instrument);
+  return { app, page, data };
 }
 
-async function micStopped(page: Page) {
+async function micStopped(page: Page, count = 1) {
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -84,7 +88,7 @@ async function micStopped(page: Page) {
         ).testMicTracks.map((t) => t.readyState),
       ),
     )
-    .toEqual(["ended"]);
+    .toEqual(Array(count).fill("ended"));
 }
 
 test("conversation: real AudioWorklet, automatic turns, playback, cross-window stop", async () => {
@@ -262,5 +266,213 @@ test("conversation: missing voice component stops before acquiring the microphon
     ).toMatchObject({ active: false });
   } finally {
     await app.close();
+  }
+});
+
+test("audio devices: selected mic in checks/manual/conversation, selected output for both engines, persistence", async () => {
+  const { app, page, data } = await launch();
+  let inputId = "";
+  let outputId = "";
+  try {
+    let transcriptions = 0;
+    await page.route("**/voice/transcribe", (route) => {
+      transcriptions++;
+      return route.fulfill({ json: { text: "Проверка микрофона" } });
+    });
+    // Optional models are not needed to verify routing through the UI.
+    await page.route("**/voice", (route) =>
+      route.fulfill({
+        json: {
+          available: true,
+          installed_stt: ["small"],
+          silero_installed: true,
+          tts_available: true,
+          voices: [{ name: "Test SAPI", language: "ru" }],
+        },
+      }),
+    );
+    await page.reload();
+    await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    const mic = page.getByLabel("Микрофон", { exact: true });
+    const speaker = page.getByLabel("Динамик / наушники", { exact: true });
+    await expect(mic).toBeVisible();
+    // Initial permission may conceal device IDs. A user initiated check unlocks labels.
+    await page
+      .getByRole("button", { name: "Проверить микрофон", exact: true })
+      .click();
+    await expect(
+      page.getByRole("meter", { name: "Уровень микрофона" }),
+    ).toBeVisible();
+    await expect.poll(() => mic.locator("option").count()).toBeGreaterThan(1);
+    await page
+      .getByRole("button", { name: "Остановить проверку", exact: true })
+      .click();
+    await micStopped(page);
+    inputId =
+      (await mic
+        .locator('option[value]:not([value=""]):not([value="communications"])')
+        .first()
+        .getAttribute("value")) || "";
+    outputId =
+      (await speaker
+        .locator('option[value]:not([value=""]):not([value="communications"])')
+        .first()
+        .getAttribute("value")) || "";
+    expect(inputId).not.toBe("");
+    expect(outputId).not.toBe("");
+    await mic.selectOption(inputId);
+    await speaker.selectOption(outputId);
+    await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Проверить микрофон", exact: true })
+      .click();
+    await expect(
+      page.getByRole("meter", { name: "Уровень микрофона" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("meter")
+          .evaluate((meter: HTMLMeterElement) => meter.value),
+      )
+      .toBeGreaterThan(0);
+    await page
+      .getByRole("button", { name: "Остановить проверку", exact: true })
+      .click();
+    await micStopped(page, 2);
+    expect(transcriptions).toBe(0);
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as unknown as { testMicTracks: MediaStreamTrack[] }
+          ).testMicTracks[1].getConstraints().deviceId,
+      ),
+    ).toEqual({ exact: inputId });
+
+    await page.evaluate(() => {
+      const ids: string[] = [];
+      Object.assign(window, { testOutputIds: ids });
+      const original = HTMLMediaElement.prototype.setSinkId;
+      HTMLMediaElement.prototype.setSinkId = function (id) {
+        ids.push(id);
+        return original.call(this, id);
+      };
+    });
+    await page
+      .getByRole("button", { name: "Проверить динамик", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Проверить динамик", exact: true }),
+    ).toBeEnabled();
+    const engines: string[] = [];
+    await page.route("**/voice/synthesize", (route) => {
+      engines.push(route.request().postDataJSON().engine);
+      return route.fulfill({
+        contentType: "audio/wav",
+        body: Buffer.from(wav(new Float32Array(4000), 16000)),
+      });
+    });
+    await page
+      .getByRole("button", { name: "♪ Прослушать голос", exact: true })
+      .click();
+    await expect.poll(() => engines).toEqual(["silero"]);
+    await page
+      .getByLabel("Движок озвучки", { exact: true })
+      .selectOption("sapi");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testOutputIds: string[] }).testOutputIds
+              .length,
+        ),
+      )
+      .toBe(2);
+    // Wait until the first playback has ended before testing the second engine.
+    await page.waitForTimeout(350);
+    await page
+      .getByRole("button", { name: "♪ Прослушать голос", exact: true })
+      .click();
+    await expect.poll(() => engines).toEqual(["silero", "sapi"]);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testOutputIds: string[] }).testOutputIds,
+        ),
+      )
+      .toEqual([outputId, outputId, outputId]);
+    await page.waitForTimeout(350);
+    await page.screenshot({
+      path: "local/screenshots/audio-devices.png",
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "◈ Общение" }).click();
+    await page
+      .getByRole("button", { name: "Записать голос", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Остановить запись", exact: true }),
+    ).toBeVisible();
+    await page.waitForTimeout(250);
+    await page
+      .getByRole("button", { name: "Остановить запись", exact: true })
+      .click();
+    await expect(page.getByLabel("Сообщение", { exact: true })).toHaveValue(
+      "Проверка микрофона",
+    );
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as unknown as { testMicTracks: MediaStreamTrack[] }
+          ).testMicTracks[2].getConstraints().deviceId,
+      ),
+    ).toEqual({ exact: inputId });
+    await page.route("**/voice/prepare", (route) =>
+      route.fulfill({ json: { ok: true } }),
+    );
+    await page
+      .getByRole("button", { name: "Начать разговор", exact: true })
+      .click();
+    await expect(page.locator(".conversation-phase")).toHaveText(
+      /Слушаю вас|Слышу вашу фразу/,
+    );
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as unknown as { testMicTracks: MediaStreamTrack[] }
+          ).testMicTracks[3].getConstraints().deviceId,
+      ),
+    ).toEqual({ exact: inputId });
+    await page
+      .getByRole("button", { name: "Завершить разговор", exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { testMicTracks: MediaStreamTrack[] }
+          ).testMicTracks.map((track) => track.readyState),
+        ),
+      )
+      .toEqual(["ended", "ended", "ended", "ended"]);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+  const again = await launch(data);
+  try {
+    await again.page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await expect(
+      again.page.getByLabel("Микрофон", { exact: true }),
+    ).toHaveValue(inputId);
+    await expect(
+      again.page.getByLabel("Динамик / наушники", { exact: true }),
+    ).toHaveValue(outputId);
+  } finally {
+    await again.app.close();
   }
 });
