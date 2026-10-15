@@ -1,0 +1,36 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# User data, model weights and runtime output
+/data/
+/models/
+/logs/
+/backups/
+/downloads/
+/local/
+*.gguf
+*.safetensors
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# JavaScript and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
