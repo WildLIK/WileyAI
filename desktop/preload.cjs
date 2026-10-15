@@ -7,6 +7,14 @@ contextBridge.exposeInMainWorld("wiley", {
   avatarBytes: () => ipcRenderer.invoke("avatar-bytes"),
   clickThrough: (enabled) => ipcRenderer.invoke("avatar-clickthrough", enabled),
   quit: () => ipcRenderer.invoke("quit"),
+  exportBackup: () => ipcRenderer.invoke("backup-export"),
+  previewBackup: () => ipcRenderer.invoke("backup-preview"),
+  restoreBackup: (options) => ipcRenderer.invoke("backup-restore", options),
+  onDataRestored: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("data-restored", listener);
+    return () => ipcRenderer.removeListener("data-restored", listener);
+  },
   conversationState: () => ipcRenderer.invoke("conversation-state"),
   acquireConversation: () => ipcRenderer.invoke("conversation-acquire"),
   updateConversation: (id, phase) =>

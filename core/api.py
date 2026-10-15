@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import time
+import sqlite3
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -23,6 +24,7 @@ from .voice import Voice
 from .capabilities import catalog as capabilities_catalog
 from .scheduler import run_scheduler
 from .workflows import Workflows
+from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 
 
 class TextBody(BaseModel):
@@ -38,6 +40,12 @@ class MemoryBody(BaseModel):
 class MemoryAcceptance(MemoryBody):
     pinned: bool | None = None
     replace_id: str | None = Field(default=None, max_length=64)
+
+
+class RestoreBody(BaseModel):
+    ticket: str = Field(pattern=r"^[a-f0-9]{32}$")
+    connections: bool = False
+    aliases: bool = False
 
 
 class ChatBody(TextBody):
@@ -100,6 +108,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     jobs = ModelJobs(root)
     voice = Voice(root)
     workflows = Workflows(store)
+    backups = Backups(store)
     chat_lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -131,8 +140,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             length = int(request.headers.get("content-length", "0"))
         except ValueError:
             return JSONResponse(status_code=400, content={"detail": "Некорректная длина запроса"})
-        if length > 20 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"detail": "Максимальный размер запроса — 20 МБ"})
+        limit = BACKUP_MAX_BYTES + 1024 * 1024 if request.url.path == "/backups/preview" else 20 * 1024 * 1024
+        if length > limit:
+            return JSONResponse(status_code=413, content={"detail": "Превышен максимальный размер запроса"})
         return await call_next(request)
 
     @app.exception_handler(ValueError)
@@ -173,6 +183,31 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             return {"connected": True, "installed": installed, "error": None}
         except Exception as error:
             return {"connected": False, "installed": [], "error": providers.describe_error(error)}
+
+    @app.get("/backups/export")
+    def export_backup():
+        return Response(backups.export(), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+    @app.post("/backups/preview")
+    async def preview_backup(file: UploadFile = File(...)):
+        content = await file.read(BACKUP_MAX_BYTES + 1)
+        await file.close()
+        return await asyncio.to_thread(backups.preview, content)
+
+    @app.post("/backups/restore")
+    async def restore_backup(body: RestoreBody):
+        if chat_lock.locked():
+            raise HTTPException(409, "Дождитесь ответа или остановите генерацию перед восстановлением")
+        async with chat_lock:
+            operation = asyncio.create_task(asyncio.to_thread(backups.restore, body.ticket, body.connections, body.aliases))
+            try:
+                try:
+                    return await asyncio.shield(operation)
+                except asyncio.CancelledError:
+                    await operation
+                    raise
+            except sqlite3.Error as error:
+                raise ValueError("Не удалось записать восстановленные данные. Изменения отменены; проверьте доступ к диску и свободное место") from error
 
     @app.get("/catalog")
     def catalog():

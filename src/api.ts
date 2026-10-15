@@ -83,6 +83,19 @@ export interface VoiceInfo {
   tts_available: boolean;
   silero_installed: boolean;
 }
+export interface BackupPreview {
+  ticket: string;
+  filename: string;
+  created: string;
+  counts: Record<string, number>;
+  current_counts: Record<string, number>;
+  pending_suggestions: number;
+  current_pending_suggestions: number;
+  name: string;
+  provider: string;
+  model: string;
+  base_url: string;
+}
 declare global {
   interface Window {
     wiley: {
@@ -92,6 +105,14 @@ declare global {
       avatarBytes(): Promise<Uint8Array | null>;
       clickThrough(enabled: boolean): Promise<void>;
       quit(): Promise<void>;
+      exportBackup(): Promise<{ path: string; bytes: number } | null>;
+      previewBackup(): Promise<BackupPreview | null>;
+      restoreBackup(options: {
+        ticket: string;
+        connections: boolean;
+        aliases: boolean;
+      }): Promise<{ recovery_path: string }>;
+      onDataRestored(callback: () => void): () => void;
       conversationState(): Promise<ConversationState>;
       acquireConversation(): Promise<string>;
       updateConversation(id: string, phase: Phase): Promise<void>;

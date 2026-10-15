@@ -19,6 +19,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { ConversationLease } = require("./conversation.cjs");
 const { liveContents, sendToWindow } = require("./window-messages.cjs");
+const { installBackups } = require("./backups.cjs");
 
 const root = path.resolve(__dirname, "..");
 const dev = process.env.WILEYAI_DEV === "1";
@@ -33,6 +34,7 @@ let quitting = false;
 let ollamaProcess;
 let notificationTimer;
 let notificationPolling = false;
+let backups;
 const conversation = new ConversationLease(() => {
   if (quitting) return;
   for (const window of windows.values()) {
@@ -47,7 +49,8 @@ const conversation = new ConversationLease(() => {
 });
 
 async function deliverNotifications() {
-  if (!connection || notificationPolling || quitting) return;
+  if (!connection || notificationPolling || backups?.restoring || quitting)
+    return;
   notificationPolling = true;
   try {
     const headers = { Authorization: "Bearer " + connection.token };
@@ -336,6 +339,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("conversation-acquire", (event) => {
     trusted(event);
+    if (backups?.restoring)
+      throw new Error("Дождитесь окончания восстановления");
     return conversation.acquire(event.sender.id);
   });
   ipcMain.handle("conversation-update", (event, id, phase) => {
@@ -396,6 +401,18 @@ app.whenReady().then(async () => {
   ipcMain.handle("quit", (event) => {
     trusted(event);
     app.quit();
+  });
+  backups = installBackups({
+    ipcMain,
+    dialog,
+    BrowserWindow,
+    trusted,
+    getConnection: () => connection,
+    isBusy: () => Boolean(conversation.lease || notificationPolling),
+    restored: () => {
+      for (const window of windows.values())
+        sendToWindow(window, "data-restored");
+    },
   });
   try {
     await startCore();

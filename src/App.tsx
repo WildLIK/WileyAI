@@ -22,6 +22,7 @@ import {
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
 import { MemoryPanel, MemorySuggestions } from "./Memory";
+import { BackupPanel } from "./Backups";
 import {
   Conversation,
   phaseLabels,
@@ -106,6 +107,8 @@ export function App() {
     [],
   );
   const memoryRefreshEpoch = useRef(0);
+  const dataEpoch = useRef(0);
+  const [restoredVersion, setRestoredVersion] = useState(0);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [modelCategory, setModelCategory] = useState("llm");
   const [installed, setInstalled] = useState<{ id: string; size: number }[]>(
@@ -165,13 +168,16 @@ export function App() {
     }
   };
   const refreshModels = useCallback(async () => {
+    const epoch = dataEpoch.current;
     const data = await request<{
       connected: boolean;
       installed: { id: string; size: number }[];
       error?: string;
     }>("/models");
-    setConnected(data.connected);
-    setInstalled(data.installed);
+    if (epoch === dataEpoch.current) {
+      setConnected(data.connected);
+      setInstalled(data.installed);
+    }
     return data;
   }, []);
   const refreshMemories = useCallback(async () => {
@@ -202,6 +208,7 @@ export function App() {
     channel.current?.postMessage({ type: "memory-changed" });
   }, [refreshMemories]);
   const refresh = useCallback(async () => {
+    const epoch = dataEpoch.current;
     const [config, history, facts, files, items, aliases, voices, candidates] =
       await Promise.all([
         request<Settings>("/settings"),
@@ -213,6 +220,7 @@ export function App() {
         request<VoiceInfo>("/voice"),
         request<MemoryCandidate[]>("/memory-candidates"),
       ]);
+    if (epoch !== dataEpoch.current) return;
     setSettings(config);
     setMessages(history);
     setMemories(facts);
@@ -264,8 +272,14 @@ export function App() {
     void refresh().catch(fail);
     channel.current = new BroadcastChannel("wiley-ui");
     channel.current.onmessage = (event) => {
-      if (event.data.type === "settings")
-        void request<Settings>("/settings").then(setSettings).catch(fail);
+      if (event.data.type === "settings") {
+        const epoch = dataEpoch.current;
+        void request<Settings>("/settings")
+          .then((config) => {
+            if (epoch === dataEpoch.current) setSettings(config);
+          })
+          .catch(fail);
+      }
       if (event.data.type === "speaking")
         setSpeaking(Boolean(event.data.value));
       if (event.data.type === "draft") {
@@ -274,7 +288,12 @@ export function App() {
       }
       if (event.data.type === "stop") stop();
       if (event.data.type === "chat-updated") {
-        void request<Message[]>("/messages").then(setMessages).catch(fail);
+        const epoch = dataEpoch.current;
+        void request<Message[]>("/messages")
+          .then((history) => {
+            if (epoch === dataEpoch.current) setMessages(history);
+          })
+          .catch(fail);
         void refreshMemories().catch(fail);
       }
       if (event.data.type === "memory-changed")
@@ -290,11 +309,26 @@ export function App() {
       stop();
       setError("Ядро остановилось. Перезапустите WileyAI.");
     });
+    const offRestored = window.wiley.onDataRestored(() => {
+      dataEpoch.current++;
+      stop();
+      setSelectedDocs([]);
+      setDraft("");
+      setApiKey("");
+      setKeyTouched(false);
+      setAlias({ name: "", kind: "folder", target: "" });
+      setRestoredVersion((value) => value + 1);
+      setError("");
+      memoryRefreshEpoch.current++;
+      void refresh().catch(fail);
+      window.dispatchEvent(new Event("wiley-data-updated"));
+    });
     return () => {
       offStop();
       offConversation();
       offReminder();
       offOffline();
+      offRestored();
       channel.current?.close();
       audioStream.current?.getTracks().forEach((track) => track.stop());
       const current = conversationRef.current;
@@ -927,6 +961,7 @@ export function App() {
                   </article>
                 )}
                 <MemorySuggestions
+                  key={restoredVersion}
                   compact
                   memories={memories}
                   candidates={memoryCandidates}
@@ -1406,12 +1441,13 @@ export function App() {
         )}
 
         {(tab === "tasks" || tab === "notes") && (
-          <Productivity key={tab} mode={tab} onError={fail} />
+          <Productivity key={tab + restoredVersion} mode={tab} onError={fail} />
         )}
         {tab === "capabilities" && <Capabilities onError={fail} />}
 
         {tab === "memory" && (
           <MemoryPanel
+            key={restoredVersion}
             memories={memories}
             candidates={memoryCandidates}
             onChanged={memoryChanged}
@@ -1888,6 +1924,17 @@ export function App() {
                   аватару.
                 </p>
               </div>
+              <BackupPanel
+                disabled={
+                  busy ||
+                  conversation.active ||
+                  recording ||
+                  uploading ||
+                  speaking
+                }
+                onError={fail}
+                onNotice={setNotice}
+              />
             </div>
           </section>
         )}

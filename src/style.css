@@ -1397,3 +1397,22 @@ html:has(.pet-window) {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+.backup-card {
+  grid-column: 1 / -1;
+}
+.backup-preview {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.backup-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+}
+.backup-preview th,
+.backup-preview td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
