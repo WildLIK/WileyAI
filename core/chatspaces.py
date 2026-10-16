@@ -142,7 +142,7 @@ class Spaces:
             db.execute("DELETE FROM message_memories WHERE memory_id IN (SELECT id FROM memories WHERE scope_id=?)", (project_id,))
             db.execute("DELETE FROM memories_fts WHERE id IN (SELECT id FROM memories WHERE scope_id=?)", (project_id,))
             db.execute("DELETE FROM notifications WHERE task_id IN (SELECT id FROM tasks WHERE scope_id=?)", (project_id,))
-            for table in ("memories", "memory_candidates", "tasks", "notes", "routines"):
+            for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events"):
                 db.execute(f"DELETE FROM {table} WHERE scope_id=?", (project_id,))
             db.execute("DELETE FROM projects WHERE id=?", (project_id,))
             self._ensure_chat(db)

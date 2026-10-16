@@ -1769,6 +1769,76 @@ html:has(.pet-window) {
   gap: 10px;
   align-items: flex-end;
 }
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+.calendar-layout > .card {
+  margin: 0;
+  min-width: 0;
+}
+.calendar-form fieldset {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.calendar-form input,
+.calendar-form textarea {
+  min-width: 0;
+}
+.calendar-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.calendar-navigation label {
+  margin: 0;
+  flex: 1;
+  min-width: 145px;
+}
+.calendar-navigation button {
+  flex-shrink: 0;
+}
+.calendar-day {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 16px;
+}
+.calendar-day h3 {
+  color: var(--mint);
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.calendar-event {
+  border-left: 2px solid var(--mint);
+  padding: 8px 12px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.calendar-event small {
+  display: block;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.calendar-event .button-row {
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.calendar-conflict {
+  display: inline-block;
+  color: #e6b778;
+  font-size: 12px;
+  margin-top: 6px;
+}
+@media (max-width: 1050px) {
+  .calendar-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .routine-add label {
   flex: 1;
   min-width: 200px;

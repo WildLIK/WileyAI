@@ -51,5 +51,5 @@ def test_task_timezone_validation_and_capability_status(tmp_path):
         assert task['due'] == '2026-10-16T05:00:00+00:00'
         items={item['id']:item for item in api.get('/capabilities').json()}
         assert len(items) == 14
-        assert items['calendar']['status'] == 'planned'
+        assert items['calendar']['status'] == 'partial'
         assert items['tasks']['status'] == 'available'

@@ -27,7 +27,7 @@ class Workflows:
         now = (now or datetime.now(timezone.utc)).astimezone(zone_info)
         state = self.store.dialogue()
         if now.timestamp() - state.get("updated", 0) > CONTEXT_SECONDS or state.get("zone", str(zone_info)) != str(zone_info):
-            state = {}
+            state = {"calendar": state["calendar"]} if "calendar" in state else {}
         value = re.sub(r"\s+", " ", text.strip()).strip()
         value = re.sub(r"^" + re.escape(name) + r"[,!]?[ ]+", "", value, flags=re.I)
         value = re.sub(r"^пожалуйста[, ]+", "", value, flags=re.I)

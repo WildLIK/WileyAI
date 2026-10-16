@@ -39,6 +39,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS message_memories (message_id TEXT NOT NULL, memory_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(message_id,memory_id));
                 CREATE TABLE IF NOT EXISTS web_searches (message_id TEXT PRIMARY KEY, query TEXT NOT NULL, provider TEXT NOT NULL, checked_at TEXT NOT NULL, results TEXT NOT NULL, partial INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS routines (id TEXT PRIMARY KEY,name TEXT NOT NULL,name_key TEXT NOT NULL,steps TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',created TEXT NOT NULL,updated TEXT NOT NULL,UNIQUE(scope_id,name_key));
+                CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY,title TEXT NOT NULL,starts_at TEXT NOT NULL,ends_at TEXT NOT NULL,timezone TEXT NOT NULL,location TEXT NOT NULL,description TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',created TEXT NOT NULL,updated TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS calendar_scope_time ON calendar_events(scope_id,starts_at,ends_at);
                 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(id UNINDEXED, text);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}

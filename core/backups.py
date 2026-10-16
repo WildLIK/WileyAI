@@ -20,6 +20,7 @@ from .websearch import public_url
 from .routines import Step, RoutineBody
 from .commands import normalize
 from .tools import ACCESS_FIELDS
+from .calendar import EventBody
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -107,6 +108,17 @@ class Task(Dated):
     scope_id: ScopeId = ""
 
 
+class CalendarEvent(Dated):
+    title: str = Field(min_length=1, max_length=200)
+    starts_at: Annotated[Timestamp, AfterValidator(lambda value: datetime.fromisoformat(value).isoformat(timespec="microseconds"))]
+    ends_at: Annotated[Timestamp, AfterValidator(lambda value: datetime.fromisoformat(value).isoformat(timespec="microseconds"))]
+    timezone: str = Field(min_length=1, max_length=100)
+    location: str = Field(max_length=500)
+    description: str = Field(max_length=10000)
+    scope_id: ScopeId = ""
+    updated: Timestamp
+
+
 class Project(Dated):
     name: str = Field(min_length=1, max_length=100)
     updated: Timestamp
@@ -161,6 +173,7 @@ TABLES = {
     "notes": Note, "tasks": Task, "notifications": Notification,
     "web_searches": WebSearch,
     "routines": Routine,
+    "calendar_events": CalendarEvent,
 }
 
 
@@ -178,11 +191,12 @@ class Data(Record):
     notifications: list[Notification]
     web_searches: list[WebSearch] = Field(default_factory=list)
     routines: list[Routine] = Field(default_factory=list)
+    calendar_events: list[CalendarEvent] = Field(default_factory=list)
 
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3]
+    version: Literal[1, 2, 3, 4]
     created: Timestamp
     settings: dict
     data: Data
@@ -213,6 +227,8 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 4 and bundle.data.calendar_events:
+            raise ValueError("Календарь требует формат 4")
         if bundle.version < 3 and bundle.data.routines:
             raise ValueError("Сценарии требуют формат 3")
         if bundle.version == 1:
@@ -239,9 +255,14 @@ def parse(data: bytes) -> Bundle:
         for table in ("messages", "documents"):
             if any(row["conversation_id"] not in chats for row in tables[table]):
                 raise ValueError("Запись без чата")
-        for table in ("memories", "memory_candidates", "tasks", "notes", "routines"):
+        for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events"):
             if any(row["scope_id"] and row["scope_id"] not in projects for row in tables[table]):
                 raise ValueError("Запись без проекта")
+        for row in tables["calendar_events"]:
+            body = EventBody.model_validate({key: row[key] for key in EventBody.model_fields})
+            # Keep lexically sortable canonical UTC times after importing any offset.
+            row.update(body.model_dump())
+        bundle.data.calendar_events = [CalendarEvent.model_validate(row) for row in tables["calendar_events"]]
         routine_keys = set()
         for row in tables["routines"]:
             body = RoutineBody.model_validate({"name": row["name"], "steps": row["steps"]})
@@ -302,7 +323,7 @@ def snapshot(db) -> dict:
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 3, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 4, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:

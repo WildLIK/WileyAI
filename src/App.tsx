@@ -29,6 +29,7 @@ import { BackupPanel } from "./Backups";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
+import { CalendarPanel } from "./Calendar";
 import {
   Conversation,
   phaseLabels,
@@ -47,6 +48,7 @@ const tabs = [
   { id: "chat", icon: "◈", label: "Общение" },
   { id: "models", icon: "⬡", label: "Модели" },
   { id: "tasks", icon: "◷", label: "Задачи" },
+  { id: "calendar", icon: "▦", label: "Календарь" },
   { id: "notes", icon: "▤", label: "Заметки" },
   { id: "memory", icon: "◎", label: "Память" },
   { id: "commands", icon: "⌘", label: "Команды" },
@@ -1720,6 +1722,14 @@ export function App() {
             key={tab + restoredVersion + activeChatId}
             mode={tab}
             conversationId={activeChatId}
+            onError={fail}
+          />
+        )}
+        {tab === "calendar" && activeChatId && !chatLoading && (
+          <CalendarPanel
+            key={restoredVersion + activeChatId + scopeName}
+            conversationId={activeChatId}
+            scopeName={scopeName}
             onError={fail}
           />
         )}

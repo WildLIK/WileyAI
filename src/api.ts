@@ -204,7 +204,10 @@ export async function request<T = unknown>(
     throw new Error(
       typeof error.detail === "string"
         ? error.detail
-        : "Проверьте введённые параметры",
+        : Array.isArray(error.detail) &&
+            typeof error.detail[0]?.msg === "string"
+          ? error.detail[0].msg.replace(/^Value error, /, "")
+          : "Проверьте введённые параметры",
     );
   }
   return response.json();
