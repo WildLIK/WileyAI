@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psutil
 from anyio import CancelScope
 
-from . import commands, documents, providers, websearch
+from . import commands, documents, providers, websearch, intents
 from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate
 from .models import ModelJobs
 from .storage import Store
@@ -125,6 +125,7 @@ class OpenAccessBody(BaseModel):
     allow_file_open: bool
     allow_app_open: bool
     allow_web_open: bool
+    command_understanding: bool | None = None
 
 
 def event(kind: str, **data) -> str:
@@ -439,12 +440,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.get("/tools")
     def opening_tools():
-        return {"tools": open_tools.catalog(), "access": {field: getattr(store.settings(), field) for field in ACCESS_FIELDS}, "choices": open_tools.choices()}
+        return {"tools": open_tools.catalog(), "access": {field: getattr(store.settings(), field) for field in ACCESS_FIELDS}, "choices": open_tools.choices(), "command_understanding": store.settings().command_understanding}
 
     @app.put("/tools/access")
     async def opening_access(body: OpenAccessBody):
         current = store.settings()
-        store.save_settings(current.model_copy(update=body.model_dump()))
+        store.save_settings(current.model_copy(update=body.model_dump(exclude_none=True)))
         return {"ok": True}
 
     @app.get("/routines")
@@ -598,7 +599,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         text = body.text.strip()
         search_query = websearch.requested_query(text, body.web_search)
         routine_name = requested_name(text) if search_query is None else None
-        command = commands.resolve(text, store.list("aliases", 1000))
+        opening_text = intents.opening_request(text, current.name)
+        command = commands.resolve(opening_text or text, store.list("aliases", 1000))
         await chat_lock.acquire()
         try:
             user = chat_store.add_message("user", text)
@@ -616,8 +618,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             web_result = None
             routine_progress = []
             routine_header = ""
+            open_progress = []
+            pending_choices = []
             try:
                 yield event("user", message=user)
+                followup = intents.consume(chat_store, text, open_tools, current.name)
                 if current.memory_suggestions and search_query is None and not text.casefold().startswith("запомни:"):
                     chat_store.suggest_memories(user["id"])
                 if search_query is not None:
@@ -635,6 +640,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             yield event("delta", text=answer)
                     if await request.is_disconnected():
                         return
+                elif followup is not None:
+                    if followup.command:
+                        await run_step(open_tools, {"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}, open_progress)
+                        answer = open_progress[-1].removeprefix("1. ")
+                    else:
+                        pending_choices = followup.choices
+                        answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else followup.text
+                    yield event("delta", text=answer)
                 elif text.casefold().startswith("запомни: "):
                     chat_store.add_memory(text.split(":", 1)[1].strip(), source_message_id=user["id"])
                     answer = "Запомнил. Посмотреть и удалить запись можно в разделе «Память»."
@@ -670,10 +683,24 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer, changed = workflow.text, workflow.changed
                     yield event("delta", text=answer)
                 elif command:
-                    answer = await asyncio.to_thread(run_command, command)
+                    await run_step(open_tools, {"kind": command.kind, "target": command.target, "label": command.label}, open_progress)
+                    answer = open_progress[-1].removeprefix("1. ")
                     yield event("delta", text=answer)
-                elif commands.normalize(text).startswith(("открой ", "запусти ", "покажи папку ")) and "?" not in text:
+                elif opening_text is not None:
                     answer = "Не нашёл точное соответствие. Добавьте название и путь в разделе «Команды» или укажите полный путь/адрес сайта."
+                    if current.command_understanding:
+                        yield event("stage", text="Подбираю команду из каталога…")
+                        try:
+                            proposed = await intents.propose(current, opening_text, open_tools)
+                            pending_choices = await asyncio.to_thread(intents.validate_choices, open_tools, proposed)
+                            if pending_choices:
+                                answer = intents.question(pending_choices, voice=body.mode == "conversation")
+                            else:
+                                answer = "Не нашёл подходящую доступную команду в каталоге. Добавьте нужное название и путь в разделе «Команды»."
+                            store.audit("command.resolve", current.model, "proposed" if pending_choices else "not_found")
+                        except Exception as error:
+                            answer = "Не удалось подобрать команду. " + providers.describe_error(error) + " Ничего не открывал."
+                            store.audit("command.resolve", current.model, "error")
                     yield event("delta", text=answer)
                 if not answer:
                     selected = [doc for doc in chat_store.list("documents", 100) if doc["id"] in body.document_ids]
@@ -718,10 +745,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         yield event("delta", text=fallback)
                 if answer:
                     assistant = chat_store.add_message("assistant", answer, memory_context, web_result)
+                    if pending_choices:
+                        intents.remember(chat_store, assistant["id"], pending_choices)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
             except asyncio.CancelledError:
+                if open_progress:
+                    with CancelScope(shield=True):
+                        chat_store.add_message("assistant", open_progress[-1].removeprefix("1. ") + "\nУже переданная Windows команда открытия не отменяется.")
                 if routine_progress:
                     with CancelScope(shield=True):
                         chat_store.add_message("assistant", routine_header + "\n".join(routine_progress) + "\nСценарий остановлен. Уже переданные Windows команды не отменяются.")

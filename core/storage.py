@@ -87,8 +87,10 @@ class Store:
         ordering = "name" if table == "aliases" else "created"
         where, args = ("WHERE conversation_id=?", (self.conversation_id,)) if table in {"messages", "documents"} else ("WHERE scope_id=?", (self.scope_id,)) if table in {"memories", "tasks", "notes"} else ("", ())
         with self.db() as db:
-            rows = db.execute(f"SELECT * FROM (SELECT * FROM {table} {where} ORDER BY {ordering} DESC,rowid DESC LIMIT ?) ORDER BY {ordering}", (*args, limit)).fetchall()
-        return [dict(row) for row in rows]
+            rows = db.execute(f"SELECT * FROM {table} {where} ORDER BY {ordering} DESC,rowid DESC LIMIT ?", (*args, limit)).fetchall()
+        # Windows can assign the same timestamp to consecutive messages. Preserve
+        # insertion order for ties, including when choosing the last dialogue turn.
+        return [dict(row) for row in reversed(rows)]
 
     def add_message(self, role: str, content: str, memory_context: list[dict] | None = None, web_search: dict | None = None) -> dict:
         item = dict(id=uuid.uuid4().hex, role=role, content=content, created=now())

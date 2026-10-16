@@ -7,8 +7,13 @@ type Access = {
   allow_file_open: boolean;
   allow_app_open: boolean;
   allow_web_open: boolean;
+  command_understanding: boolean;
 };
-type ToolInfo = { access: Access; choices: Step[] };
+type ToolInfo = {
+  access: Omit<Access, "command_understanding">;
+  command_understanding: boolean;
+  choices: Step[];
+};
 const kinds: Record<string, string> = {
   folder: "Папка",
   file: "Файл",
@@ -29,7 +34,12 @@ export function ToolAccess({
   useEffect(() => {
     const load = () =>
       void request<ToolInfo>("/tools")
-        .then((data) => setAccess(data.access))
+        .then((data) =>
+          setAccess({
+            ...data.access,
+            command_understanding: data.command_understanding,
+          }),
+        )
         .catch(onError);
     load();
     const channel = new BroadcastChannel("wiley-ui");
@@ -66,6 +76,27 @@ export function ToolAccess({
           {label}
         </label>
       ))}
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={access.command_understanding}
+          disabled={working}
+          onChange={(event) => {
+            setAccess({
+              ...access,
+              command_understanding: event.target.checked,
+            });
+            setSaved(false);
+          }}
+        />
+        Понимать свободные команды с помощью модели
+      </label>
+      <p className="help">
+        Если точная команда не найдена, выбранная модель получит вашу фразу и
+        названия доступных команд. Она предложит варианты из каталога; для
+        открытия ответьте «да» или номером. История, память и документы в этот
+        разбор не добавляются. Предложение действует 5 минут.
+      </p>
       <div className="button-row">
         <button
           className="outline"

@@ -112,7 +112,7 @@ class Workflows:
                 if pending.get("task_id"):
                     return self._reschedule(pending["task_id"], draft, state, now, remember)
                 return self._create(draft, state, now, remember)
-            if not pending["draft"].get("title") and not re.match(r"(?:открой|запусти|запомни|привет|спасибо|расскажи|покажи|перенеси|отмени|удали|что|как|почему)\b", normalized):
+            if not pending["draft"].get("title") and not re.match(r"(?:открой|запусти|запомни|привет|спасибо|расскажи|покажи|перенеси|отмени|удали|что|как|почему|можешь|ты)\b", normalized):
                 draft = {**pending["draft"], "title": value}
                 return self._create(draft, state, now, remember)
 

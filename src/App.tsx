@@ -103,6 +103,9 @@ export function App() {
     localStorage.getItem("wiley-active-chat") || "",
   );
   const activeChatRef = useRef(activeChatId);
+  const [chatLoading, setChatLoading] = useState(true);
+  const chatLoadingRef = useRef(true);
+  const chatLoadEpoch = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     localStorage.getItem("wiley-sidebar-collapsed") === "true",
   );
@@ -249,36 +252,48 @@ export function App() {
     channel.current?.postMessage({ type: "memory-changed" });
   }, [refreshMemories]);
   const refresh = useCallback(async () => {
-    const epoch = dataEpoch.current;
-    const [chatList, projectList] = await Promise.all([
-      request<Chat[]>("/conversations"),
-      request<Project[]>("/projects"),
-    ]);
-    if (epoch !== dataEpoch.current) return;
-    setChats(chatList);
-    setProjects(projectList);
-    const id = chatList.some((chat) => chat.id === activeChatRef.current)
-      ? activeChatRef.current
-      : chatList[0]?.id;
-    if (!id) return;
-    if (id !== activeChatRef.current) {
-      setDraft(chatDrafts.current.get(id) || "");
-      setSelectedDocs([]);
-      setSearchNext(false);
-      setMessages([]);
-      setDocuments([]);
-      setMemories([]);
-      setMemoryCandidates([]);
-    }
-    for (const key of chatDrafts.current.keys()) {
-      if (!chatList.some((chat) => chat.id === key))
-        chatDrafts.current.delete(key);
-    }
-    activeChatRef.current = id;
-    setActiveChatId(id);
-    localStorage.setItem("wiley-active-chat", id);
-    const [config, history, facts, files, items, aliases, voices, candidates] =
-      await Promise.all([
+    const loading = ++chatLoadEpoch.current;
+    chatLoadingRef.current = true;
+    setChatLoading(true);
+    try {
+      const epoch = dataEpoch.current;
+      const [chatList, projectList] = await Promise.all([
+        request<Chat[]>("/conversations"),
+        request<Project[]>("/projects"),
+      ]);
+      if (epoch !== dataEpoch.current) return;
+      setChats(chatList);
+      setProjects(projectList);
+      const id = chatList.some((chat) => chat.id === activeChatRef.current)
+        ? activeChatRef.current
+        : chatList[0]?.id;
+      if (!id) return;
+      if (id !== activeChatRef.current) {
+        setDraft(chatDrafts.current.get(id) || "");
+        setSelectedDocs([]);
+        setSearchNext(false);
+        setMessages([]);
+        setDocuments([]);
+        setMemories([]);
+        setMemoryCandidates([]);
+      }
+      for (const key of chatDrafts.current.keys()) {
+        if (!chatList.some((chat) => chat.id === key))
+          chatDrafts.current.delete(key);
+      }
+      activeChatRef.current = id;
+      setActiveChatId(id);
+      localStorage.setItem("wiley-active-chat", id);
+      const [
+        config,
+        history,
+        facts,
+        files,
+        items,
+        aliases,
+        voices,
+        candidates,
+      ] = await Promise.all([
         request<Settings>("/settings"),
         request<Message[]>(scoped("/messages", id)),
         request<Memory[]>(scoped("/memories", id)),
@@ -288,16 +303,22 @@ export function App() {
         request<VoiceInfo>("/voice"),
         request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
       ]);
-    if (epoch !== dataEpoch.current) return;
-    setSettings(config);
-    setMessages(history);
-    setMemories(facts);
-    setMemoryCandidates(candidates);
-    setDocuments(files);
-    setCatalog(items);
-    setAliasList(aliases.custom);
-    setVoice(voices);
-    void refreshModels().catch(fail);
+      if (epoch !== dataEpoch.current) return;
+      setSettings(config);
+      setMessages(history);
+      setMemories(facts);
+      setMemoryCandidates(candidates);
+      setDocuments(files);
+      setCatalog(items);
+      setAliasList(aliases.custom);
+      setVoice(voices);
+      void refreshModels().catch(fail);
+    } finally {
+      if (loading === chatLoadEpoch.current) {
+        chatLoadingRef.current = false;
+        setChatLoading(false);
+      }
+    }
   }, [refreshModels]);
   const selectChat = useCallback(
     async (id: string, broadcast = true) => {
@@ -553,7 +574,7 @@ export function App() {
   ) {
     if (options.signal?.aborted)
       throw new DOMException("Ответ отменён", "AbortError");
-    if (!text.trim() || busyRef.current) return "";
+    if (!text.trim() || busyRef.current || chatLoadingRef.current) return "";
     if (conversation.active && !options.conversation) {
       setNotice("Завершите разговор для ручной отправки сообщения.");
       return "";
@@ -638,6 +659,7 @@ export function App() {
     }
     if (
       conversationRef.current ||
+      chatLoadingRef.current ||
       busyRef.current ||
       recording ||
       uploading ||
@@ -737,6 +759,7 @@ export function App() {
       recorder.current?.stop();
       return;
     }
+    if (chatLoadingRef.current) return;
     if (conversation.active || conversationRef.current)
       throw new Error("Сначала завершите режим разговора.");
     if (!voice.available)
@@ -955,7 +978,9 @@ export function App() {
           chats={chats}
           projects={projects}
           active={activeChatId}
-          disabled={busy || conversation.active || uploading || recording}
+          disabled={
+            busy || conversation.active || uploading || recording || chatLoading
+          }
           onSelect={selectChat}
           onChanged={spacesChanged}
           onError={fail}
@@ -1068,11 +1093,14 @@ export function App() {
                   state={conversation}
                   onToggle={() => run(toggleConversation)}
                   onInterrupt={interruptConversation}
-                  disabled={busy || recording || uploading || speaking}
+                  disabled={
+                    busy || recording || uploading || speaking || chatLoading
+                  }
                 />
               </div>
               <div className="messages" aria-live="polite">
-                {!messages.length && (
+                {chatLoading && <p className="help">Загружаю чат…</p>}
+                {!chatLoading && !messages.length && (
                   <div className="welcome">
                     <h2>Привет, я {settings.name}.</h2>
                     <p>
@@ -1220,15 +1248,17 @@ export function App() {
                   <textarea
                     ref={input}
                     aria-label="Сообщение"
-                    disabled={conversation.active}
+                    disabled={conversation.active || chatLoading}
                     placeholder={
-                      conversation.active
-                        ? "Идёт голосовой разговор…"
-                        : recording
-                          ? "Идёт запись с микрофона…"
-                          : searchNext
-                            ? "Что найти в интернете?"
-                            : "Напишите сообщение или команду…"
+                      chatLoading
+                        ? "Загружаю чат…"
+                        : conversation.active
+                          ? "Идёт голосовой разговор…"
+                          : recording
+                            ? "Идёт запись с микрофона…"
+                            : searchNext
+                              ? "Что найти в интернете?"
+                              : "Напишите сообщение или команду…"
                     }
                     value={draft}
                     rows={2}
@@ -1246,7 +1276,9 @@ export function App() {
                         type="button"
                         className="icon-button"
                         aria-label="Прикрепить документ"
-                        disabled={uploading || conversation.active}
+                        disabled={
+                          uploading || conversation.active || chatLoading
+                        }
                         onClick={() => upload.current?.click()}
                       >
                         ＋
@@ -1259,7 +1291,12 @@ export function App() {
                         aria-label={
                           recording ? "Остановить запись" : "Записать голос"
                         }
-                        disabled={busy || uploading || conversation.active}
+                        disabled={
+                          busy ||
+                          uploading ||
+                          conversation.active ||
+                          (!recording && chatLoading)
+                        }
                         onClick={() => run(toggleRecording)}
                       >
                         {recording ? "■" : "♩"}
@@ -1305,7 +1342,10 @@ export function App() {
                         className="send"
                         type="submit"
                         disabled={
-                          !draft.trim() || recording || conversation.active
+                          !draft.trim() ||
+                          recording ||
+                          conversation.active ||
+                          chatLoading
                         }
                         aria-label="Отправить"
                       >
@@ -1728,7 +1768,13 @@ export function App() {
               conversationId={activeChatId}
               scopeName={scopeName}
               aliasesVersion={JSON.stringify(aliasList)}
-              disabled={busy || conversation.active || recording || uploading}
+              disabled={
+                busy ||
+                conversation.active ||
+                recording ||
+                uploading ||
+                chatLoading
+              }
               onError={fail}
               onRun={async (text) => {
                 setTab("chat");

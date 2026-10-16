@@ -14,7 +14,7 @@ class Capability:
 
 CAPABILITIES = [
     Capability("speech", "Распознавание и синтез речи", "available", "Whisper, Silero и системная озвучка; отдельный выбор компонентов, разговор по очереди и прерывание кнопкой.", ("voice.input", "voice.output"), ("faster-whisper", "silero", "windows-sapi")),
-    Capability("language", "Понимание языка и контекста", "partial", "Потоковое общение, контекст, команды Windows и локальный разбор русских команд для задач. Произвольные намерения LLM ещё не исполняются.", ("model.chat",), ("ollama", "compatible-api", "local-intents")),
+    Capability("language", "Понимание языка и контекста", "partial", "Потоковое общение, точные команды Windows и локальный разбор задач. Свободные команды открытия: модель предлагает ID из каталога, выбор подтверждается ответом «да» или номером. Произвольные действия из текста модели не исполняются.", ("model.chat",), ("ollama", "compatible-api", "local-intents", "catalog-intents")),
     Capability("tasks", "Задачи и напоминания", "available", "Локальные задачи, напоминания, таймеры и будильники; создание, перенос, отмена и завершение командами чата или через форму.", ("tasks.write",), ("local-scheduler",)),
     Capability("calendar", "Календарь и планирование", "planned", "Контракт для событий и адаптеров Google Calendar, Outlook и CalDAV. Синхронизация ещё не реализована.", ("calendar.read", "calendar.write"), ("google-calendar", "outlook", "caldav")),
     Capability("communications", "Сообщения, почта и контакты", "planned", "Будущие адаптеры почты, мессенджеров, звонков и контактов. Отправка потребует настроенного подключения.", ("messages.read", "messages.send", "contacts.read")),

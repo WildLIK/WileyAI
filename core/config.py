@@ -26,6 +26,7 @@ class Settings(BaseModel):
     allow_file_open: bool = True
     allow_app_open: bool = True
     allow_web_open: bool = True
+    command_understanding: bool = False
     search_enabled: bool = False
     search_provider: Literal["searxng", "brave"] = "searxng"
     search_base_url: str = "http://127.0.0.1:8080"

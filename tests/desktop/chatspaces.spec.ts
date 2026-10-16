@@ -124,12 +124,28 @@ test("chats and projects: independent context, create/rename/move/delete, compac
     await expect(
       page.getByRole("button", { name: "▤ project.txt", exact: true }),
     ).toBeVisible();
+    let releaseChatLoad!: () => void;
+    const chatLoadGate = new Promise<void>((resolve) => {
+      releaseChatLoad = resolve;
+    });
+    await page.route("**/conversations", async (route) => {
+      if (route.request().method() === "GET") await chatLoadGate;
+      await route.continue();
+    });
     await page
       .getByRole("button", {
         name: "Новый чат в проекте «Изолированный проект»",
       })
       .click();
-    await expect(page.locator(".message")).toHaveCount(0);
+    try {
+      await expect(page.locator(".message")).toHaveCount(0);
+      await expect(
+        page.getByLabel("Сообщение", { exact: true }),
+      ).toBeDisabled();
+    } finally {
+      releaseChatLoad();
+    }
+    await page.unrouteAll({ behavior: "wait" });
     await expect(
       page.getByRole("button", { name: "▤ project.txt", exact: true }),
     ).toHaveCount(0);
