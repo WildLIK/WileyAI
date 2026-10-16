@@ -14,6 +14,9 @@ export interface Settings {
   tts_voice: string;
   speak_answers: boolean;
   memory_suggestions: boolean;
+  allow_file_open: boolean;
+  allow_app_open: boolean;
+  allow_web_open: boolean;
   search_enabled: boolean;
   search_provider: "searxng" | "brave";
   search_base_url: string;

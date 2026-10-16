@@ -17,6 +17,9 @@ from .config import Settings
 from .memory import fingerprint, normalized
 from .storage import Store, now
 from .websearch import public_url
+from .routines import Step, RoutineBody
+from .commands import normalize
+from .tools import ACCESS_FIELDS
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -115,6 +118,14 @@ class Conversation(Dated):
     updated: Timestamp
 
 
+class Routine(Dated):
+    name: str = Field(min_length=1, max_length=80)
+    name_key: str = Field(min_length=1, max_length=240)
+    steps: list[Step] = Field(min_length=1, max_length=12)
+    scope_id: ScopeId = ""
+    updated: Timestamp
+
+
 class Notification(Dated):
     task_id: Id
     title: str = Field(max_length=500)
@@ -149,6 +160,7 @@ TABLES = {
     "message_memories": Reference, "aliases": Alias, "documents": Document,
     "notes": Note, "tasks": Task, "notifications": Notification,
     "web_searches": WebSearch,
+    "routines": Routine,
 }
 
 
@@ -165,11 +177,12 @@ class Data(Record):
     tasks: list[Task]
     notifications: list[Notification]
     web_searches: list[WebSearch] = Field(default_factory=list)
+    routines: list[Routine] = Field(default_factory=list)
 
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2]
+    version: Literal[1, 2, 3]
     created: Timestamp
     settings: dict
     data: Data
@@ -200,6 +213,8 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 3 and bundle.data.routines:
+            raise ValueError("Сценарии требуют формат 3")
         if bundle.version == 1:
             if bundle.data.projects or bundle.data.conversations:
                 raise ValueError("Проекты требуют формат 2")
@@ -224,9 +239,16 @@ def parse(data: bytes) -> Bundle:
         for table in ("messages", "documents"):
             if any(row["conversation_id"] not in chats for row in tables[table]):
                 raise ValueError("Запись без чата")
-        for table in ("memories", "memory_candidates", "tasks", "notes"):
+        for table in ("memories", "memory_candidates", "tasks", "notes", "routines"):
             if any(row["scope_id"] and row["scope_id"] not in projects for row in tables[table]):
                 raise ValueError("Запись без проекта")
+        routine_keys = set()
+        for row in tables["routines"]:
+            body = RoutineBody.model_validate({"name": row["name"], "steps": row["steps"]})
+            key = (row["scope_id"], row["name_key"])
+            if body.name != row["name"] or normalize(row["name"]) != row["name_key"] or key in routine_keys:
+                raise ValueError("Неверное или повторяющееся название сценария")
+            routine_keys.add(key)
         def message_scope(message_id):
             source = messages.get(message_id)
             return (chats[source["conversation_id"]]["project_id"] or "") if source else None
@@ -277,7 +299,10 @@ def snapshot(db) -> dict:
         if name == "web_searches":
             for item in tables[name]:
                 item["results"] = json.loads(item["results"])
-    return {"format": "wileyai.backup", "version": 2, "created": now(), "settings": settings.model_dump(), "data": tables}
+        if name == "routines":
+            for item in tables[name]:
+                item["steps"] = json.loads(item["steps"])
+    return {"format": "wileyai.backup", "version": 3, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:
@@ -364,6 +389,8 @@ class Backups:
                     rows = [{**row, "fingerprint": fingerprint(row["content"])} for row in rows]
                 if name == "web_searches":
                     rows = [{**row, "results": json.dumps(row["results"], ensure_ascii=False)} for row in rows]
+                if name == "routines":
+                    rows = [{**row, "steps": json.dumps(row["steps"], ensure_ascii=False)} for row in rows]
                 if rows:
                     db.executemany(f"INSERT INTO {name} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [tuple(row[column] for column in columns) for row in rows])
             db.execute("DELETE FROM memories_fts")
@@ -371,6 +398,7 @@ class Backups:
             db.execute("DELETE FROM dialogue_state")
             db.execute("DELETE FROM chat_dialogue")
             settings = {**bundle.settings, "search_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "memory_suggestions")}}
+            settings.update({field: previous["settings"][field] for field in ACCESS_FIELDS})
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
             db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
         return {"recovery_path": str(path.resolve()), "counts": {name: len(rows) for name, rows in tables.items()}, "connections": connections, "aliases": aliases}

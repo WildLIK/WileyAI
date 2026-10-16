@@ -28,6 +28,7 @@ import { MemoryPanel, MemorySuggestions } from "./Memory";
 import { BackupPanel } from "./Backups";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
+import { RoutinePanel, ToolAccess } from "./Routines";
 import {
   Conversation,
   phaseLabels,
@@ -610,6 +611,16 @@ export function App() {
       return "";
     } finally {
       options.signal?.removeEventListener("abort", cancel);
+      if (controller.signal.aborted && chatId === activeChatRef.current) {
+        const epoch = dataEpoch.current;
+        try {
+          const history = await request<Message[]>(scoped("/messages", chatId));
+          if (epoch === dataEpoch.current && chatId === activeChatRef.current)
+            setMessages(history);
+        } catch {
+          /* The core may be shutting down. */
+        }
+      }
       setBusy(false);
       busyRef.current = false;
       setAnswer("");
@@ -1692,7 +1703,7 @@ export function App() {
             <div className="page-heading">
               <div>
                 <span className="eyebrow">ПОНЯТНЫЕ ДЕЙСТВИЯ</span>
-                <h1>Команды Windows</h1>
+                <h1>Команды и сценарии</h1>
                 <p>
                   Привычные названия для папок, файлов, приложений и сайтов.
                 </p>
@@ -1705,6 +1716,25 @@ export function App() {
                 «Открой https://example.com»
               </p>
             </div>
+            <ToolAccess
+              onError={fail}
+              onSaved={async () => {
+                setSettings(await request<Settings>("/settings"));
+                channel.current?.postMessage({ type: "settings" });
+              }}
+            />
+            <RoutinePanel
+              key={activeChatId + ":" + restoredVersion}
+              conversationId={activeChatId}
+              scopeName={scopeName}
+              aliasesVersion={JSON.stringify(aliasList)}
+              disabled={busy || conversation.active || recording || uploading}
+              onError={fail}
+              onRun={async (text) => {
+                setTab("chat");
+                await send(text);
+              }}
+            />
             <form
               className="card"
               onSubmit={(event) => {

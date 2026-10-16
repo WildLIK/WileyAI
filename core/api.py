@@ -27,6 +27,8 @@ from .scheduler import run_scheduler
 from .workflows import Workflows
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
+from .tools import OpenTools, ACCESS_FIELDS
+from .routines import Routines, RoutineBody, requested_name, run_step
 
 
 class TextBody(BaseModel):
@@ -119,6 +121,12 @@ class ConversationBody(BaseModel):
     project_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
+class OpenAccessBody(BaseModel):
+    allow_file_open: bool
+    allow_app_open: bool
+    allow_web_open: bool
+
+
 def event(kind: str, **data) -> str:
     return "data: " + json.dumps({"type": kind, **data}, ensure_ascii=False) + "\n\n"
 
@@ -132,6 +140,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     voice = Voice(root)
     backups = Backups(store)
     spaces = Spaces(store)
+    open_tools = OpenTools(store)
     chat_lock = asyncio.Lock()
     active_chat = None
     stopped_requests = {}
@@ -261,7 +270,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     def idle_for_structure():
         if chat_lock.locked():
-            raise HTTPException(409, "Дождитесь ответа или остановите его перед изменением чатов и проектов")
+            raise HTTPException(409, "Дождитесь ответа или остановите его перед изменением чатов, проектов и сценариев")
 
     @app.put("/projects/{item_id}")
     async def rename_project(item_id: str, body: ProjectBody):
@@ -426,14 +435,44 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def actions():
         return store.list("actions", 100)
 
-    def run_command(command, dry_run=False):
-        try:
-            result = commands.execute(command, dry_run=dry_run)
-        except Exception:
-            store.audit(command.kind, command.target, "error")
-            raise
-        store.audit(command.kind, command.target, "preview" if dry_run else "launched")
-        return result
+    run_command = open_tools.execute
+
+    @app.get("/tools")
+    def opening_tools():
+        return {"tools": open_tools.catalog(), "access": {field: getattr(store.settings(), field) for field in ACCESS_FIELDS}, "choices": open_tools.choices()}
+
+    @app.put("/tools/access")
+    async def opening_access(body: OpenAccessBody):
+        current = store.settings()
+        store.save_settings(current.model_copy(update=body.model_dump()))
+        return {"ok": True}
+
+    @app.get("/routines")
+    def routines(conversation_id: str | None = None):
+        return Routines(store.for_chat(conversation_id)).list()
+
+    @app.post("/routines")
+    def new_routine(body: RoutineBody, conversation_id: str | None = None):
+        return Routines(store.for_chat(conversation_id)).save(body)
+
+    @app.put("/routines/{item_id}")
+    async def edit_routine(item_id: str, body: RoutineBody, conversation_id: str | None = None):
+        idle_for_structure()
+        return Routines(store.for_chat(conversation_id)).save(body, item_id)
+
+    @app.delete("/routines/{item_id}")
+    async def delete_routine(item_id: str, conversation_id: str | None = None):
+        idle_for_structure()
+        Routines(store.for_chat(conversation_id)).remove(item_id)
+        return {"ok": True}
+
+    @app.post("/routines/{item_id}/check")
+    def check_routine(item_id: str, conversation_id: str | None = None):
+        manager = Routines(store.for_chat(conversation_id))
+        item = manager.get(item_id)
+        if item is None:
+            raise HTTPException(404, "Сценарий не найден")
+        return manager.check(item)
 
     @app.post("/web/open-source")
     async def open_web_source(body: WebSourceBody, conversation_id: str | None = None):
@@ -558,6 +597,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         chat_store = store.for_chat(body.conversation_id)
         text = body.text.strip()
         search_query = websearch.requested_query(text, body.web_search)
+        routine_name = requested_name(text) if search_query is None else None
         command = commands.resolve(text, store.list("aliases", 1000))
         await chat_lock.acquire()
         try:
@@ -574,6 +614,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             changed = []
             memory_context = []
             web_result = None
+            routine_progress = []
+            routine_header = ""
             try:
                 yield event("user", message=user)
                 if current.memory_suggestions and search_query is None and not text.casefold().startswith("запомни:"):
@@ -598,6 +640,32 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer = "Запомнил. Посмотреть и удалить запись можно в разделе «Память»."
                     changed = ["memories"]
                     yield event("delta", text=answer)
+                elif routine_name is not None:
+                    manager = Routines(chat_store)
+                    routine = manager.find(routine_name)
+                    if routine is None:
+                        answer = "Сценарий не найден в текущем пространстве. Создайте его в разделе «Команды»."
+                        yield event("delta", text=answer)
+                    else:
+                        routine_header = f"Сценарий «{routine['name']}».\n"
+                        try:
+                            manager.check(routine)
+                        except ValueError as error:
+                            answer = f"Сценарий не запущен. {error}"
+                            yield event("delta", text=answer)
+                        else:
+                            yield event("delta", text=routine_header)
+                            for index, step in enumerate(routine["steps"], 1):
+                                if state["cancel"].is_set() or await request.is_disconnected():
+                                    raise asyncio.CancelledError
+                                yield event("stage", text=f"Шаг {index}/{len(routine['steps'])}: {step['label']}")
+                                success = await run_step(open_tools, step, routine_progress)
+                                yield event("delta", text=routine_progress[-1] + "\n")
+                                if not success:
+                                    routine_progress.append("Сценарий остановлен после ошибки. Остальные действия не выполнялись.")
+                                    yield event("delta", text=routine_progress[-1])
+                                    break
+                            answer = routine_header + "\n".join(routine_progress)
                 elif (workflow := await asyncio.to_thread(Workflows(chat_store).handle, text, body.timezone, None, current.name)) is not None:
                     answer, changed = workflow.text, workflow.changed
                     yield event("delta", text=answer)
@@ -654,6 +722,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
             except asyncio.CancelledError:
+                if routine_progress:
+                    with CancelScope(shield=True):
+                        chat_store.add_message("assistant", routine_header + "\n".join(routine_progress) + "\nСценарий остановлен. Уже переданные Windows команды не отменяются.")
                 raise
             except Exception as error:
                 if web_result is not None:

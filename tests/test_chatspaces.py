@@ -158,13 +158,13 @@ def test_existing_single_chat_and_draft_migrate_without_deletion(tmp_path, inter
     assert Store(tmp_path).messages() == store.messages()
 
 
-def test_backup_v2_roundtrip_scopes_and_v1_conversion(tmp_path):
+def test_backup_current_roundtrip_scopes_and_v1_conversion(tmp_path):
     source, _, _, _, a, _, c = setup(tmp_path / "source")
     source.for_chat(a["id"]).add_message("user", "Только первый проект")
     source.for_chat(a["id"]).add_memory("Первый факт")
     source.for_chat(c["id"]).add_memory("Другой факт")
     archive = Backups(source).export()
-    assert json.loads(archive)["version"] == 2
+    assert json.loads(archive)["version"] == 3
     target = Store(tmp_path / "target")
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])

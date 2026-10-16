@@ -1736,6 +1736,47 @@ html:has(.pet-window) {
   color: var(--mint);
   margin: 8px 0;
 }
+.routine-entry {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.routine-entry h3 {
+  margin: 0 0 10px;
+}
+.routine-entry li {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.routine-entry li small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.routine-step {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+  min-width: 0;
+}
+.routine-step legend {
+  color: var(--mint);
+  padding: 0 8px;
+}
+.routine-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.routine-add label {
+  flex: 1;
+  min-width: 200px;
+  margin-bottom: 0;
+}
+.routine-section .button-row {
+  flex-wrap: wrap;
+}
 .space-dialog-backdrop {
   position: fixed;
   inset: 0;

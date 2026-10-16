@@ -23,6 +23,9 @@ class Settings(BaseModel):
     tts_voice: str = Field(default="", max_length=300)
     speak_answers: bool = False
     memory_suggestions: bool = True
+    allow_file_open: bool = True
+    allow_app_open: bool = True
+    allow_web_open: bool = True
     search_enabled: bool = False
     search_provider: Literal["searxng", "brave"] = "searxng"
     search_base_url: str = "http://127.0.0.1:8080"
