@@ -21,6 +21,7 @@ from .routines import Step, RoutineBody
 from .commands import normalize
 from .tools import ACCESS_FIELDS
 from .calendar import EventBody
+from .notifications import reminder_time
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -37,6 +38,7 @@ def utc(value: str) -> str:
 
 
 Timestamp = Annotated[str, AfterValidator(utc)]
+CalendarTimestamp = Annotated[Timestamp, AfterValidator(lambda value: datetime.fromisoformat(value).isoformat(timespec="microseconds"))]
 
 
 class Record(BaseModel):
@@ -110,13 +112,22 @@ class Task(Dated):
 
 class CalendarEvent(Dated):
     title: str = Field(min_length=1, max_length=200)
-    starts_at: Annotated[Timestamp, AfterValidator(lambda value: datetime.fromisoformat(value).isoformat(timespec="microseconds"))]
-    ends_at: Annotated[Timestamp, AfterValidator(lambda value: datetime.fromisoformat(value).isoformat(timespec="microseconds"))]
+    starts_at: CalendarTimestamp
+    ends_at: CalendarTimestamp
     timezone: str = Field(min_length=1, max_length=100)
     location: str = Field(max_length=500)
     description: str = Field(max_length=10000)
     scope_id: ScopeId = ""
     updated: Timestamp
+    reminder_minutes: Annotated[int, Field(strict=True, ge=0, le=10080)] | None = None
+    reminder_at: CalendarTimestamp | None = None
+    reminder_sent: Bit = 0
+
+
+class CalendarAlert(Dated):
+    event_id: Id
+    scheduled_for: CalendarTimestamp
+    delivered: Bit
 
 
 class Project(Dated):
@@ -174,6 +185,7 @@ TABLES = {
     "web_searches": WebSearch,
     "routines": Routine,
     "calendar_events": CalendarEvent,
+    "calendar_alerts": CalendarAlert,
 }
 
 
@@ -192,11 +204,12 @@ class Data(Record):
     web_searches: list[WebSearch] = Field(default_factory=list)
     routines: list[Routine] = Field(default_factory=list)
     calendar_events: list[CalendarEvent] = Field(default_factory=list)
+    calendar_alerts: list[CalendarAlert] = Field(default_factory=list)
 
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3, 4]
+    version: Literal[1, 2, 3, 4, 5]
     created: Timestamp
     settings: dict
     data: Data
@@ -227,6 +240,8 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 5 and (bundle.data.calendar_alerts or any(row.reminder_minutes is not None or row.reminder_at is not None or row.reminder_sent for row in bundle.data.calendar_events)):
+            raise ValueError("Уведомления календаря требуют формат 5")
         if bundle.version < 4 and bundle.data.calendar_events:
             raise ValueError("Календарь требует формат 4")
         if bundle.version < 3 and bundle.data.routines:
@@ -262,7 +277,23 @@ def parse(data: bytes) -> Bundle:
             body = EventBody.model_validate({key: row[key] for key in EventBody.model_fields})
             # Keep lexically sortable canonical UTC times after importing any offset.
             row.update(body.model_dump())
+            actual = reminder_time(row["starts_at"], row["reminder_minutes"])
+            if actual != (reminder_time(row["reminder_at"], 0) if row["reminder_at"] else None) or (actual is None and row["reminder_sent"]):
+                raise ValueError("Неверное время напоминания события")
+            row["reminder_at"] = actual
         bundle.data.calendar_events = [CalendarEvent.model_validate(row) for row in tables["calendar_events"]]
+        events = {row["id"]: row for row in tables["calendar_events"]}
+        pending_alerts = set()
+        if {row["id"] for row in tables["notifications"]} & {row["id"] for row in tables["calendar_alerts"]}:
+            raise ValueError("Повторяющийся ID уведомления")
+        for alert in tables["calendar_alerts"]:
+            parent = events.get(alert["event_id"])
+            if parent is None:
+                raise ValueError("Уведомление без события")
+            if not alert["delivered"]:
+                if alert["event_id"] in pending_alerts or not parent["reminder_sent"] or reminder_time(alert["scheduled_for"], 0) != parent["reminder_at"]:
+                    raise ValueError("Неверное ожидающее уведомление")
+                pending_alerts.add(alert["event_id"])
         routine_keys = set()
         for row in tables["routines"]:
             body = RoutineBody.model_validate({"name": row["name"], "steps": row["steps"]})
@@ -323,7 +354,7 @@ def snapshot(db) -> dict:
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 4, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 5, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:

@@ -9,6 +9,7 @@ type Event = {
   timezone: string;
   location: string;
   description: string;
+  reminder_minutes: number | null;
   updated: string;
   conflict: boolean;
 };
@@ -59,6 +60,8 @@ export function CalendarPanel({
   const [end, setEnd] = useState(today() + "T11:00");
   const [place, setPlace] = useState("");
   const [description, setDescription] = useState("");
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderMinutes, setReminderMinutes] = useState("15");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
@@ -132,6 +135,8 @@ export function CalendarPanel({
     setTitle("");
     setPlace("");
     setDescription("");
+    setReminderEnabled(false);
+    setReminderMinutes("15");
     setStart(resetDay + "T10:00");
     setEnd(resetDay + "T11:00");
   }
@@ -171,6 +176,7 @@ export function CalendarPanel({
       timezone: zone,
       location: place,
       description,
+      reminder_minutes: reminderEnabled ? Number(reminderMinutes) : null,
     });
     if (mounted.current) {
       clear(start.slice(0, 10));
@@ -192,8 +198,7 @@ export function CalendarPanel({
             · {zone}
           </p>
           <p className="help">
-            Локальные события. Google и Outlook не подключены. Для уведомления
-            создайте отдельное напоминание в «Задачах».
+            Локальные события и напоминания. Google и Outlook не подключены.
           </p>
         </div>
       </div>
@@ -244,6 +249,29 @@ export function CalendarPanel({
                 placeholder="Офис или ссылка на встречу"
               />
             </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={reminderEnabled}
+                onChange={(event) => setReminderEnabled(event.target.checked)}
+              />
+              Напомнить о встрече
+            </label>
+            {reminderEnabled && (
+              <label>
+                За сколько минут до начала
+                <input
+                  type="number"
+                  min={0}
+                  max={10080}
+                  step={1}
+                  required
+                  value={reminderMinutes}
+                  onChange={(event) => setReminderMinutes(event.target.value)}
+                />
+                <small>0 — в начале встречи. До 7 дней заранее.</small>
+              </label>
+            )}
             <label>
               Описание
               <textarea
@@ -271,6 +299,11 @@ export function CalendarPanel({
           <p className="help">
             В чате: «создай встречу Обсуждение проекта завтра в 10 на 30 минут»,
             затем «перенеси встречу на 11». Без длительности — один час.
+          </p>
+          <p className="help">
+            Уведомления работают, пока WileyAI запущен, включая трей.
+            Пропущенные показываются до окончания встречи. Перенос обновляет
+            время напоминания.
           </p>
           {notice && <p role="status">{notice}</p>}
         </form>
@@ -353,6 +386,15 @@ export function CalendarPanel({
                             {timeLabel(item.starts_at)} —{" "}
                             {timeLabel(item.ends_at)}
                           </small>
+                          {item.reminder_minutes !== null && (
+                            <small>
+                              {item.reminder_minutes === 0
+                                ? "Напоминание в начале встречи"
+                                : "Напоминание за " +
+                                  item.reminder_minutes +
+                                  " мин. до начала"}
+                            </small>
+                          )}
                           {item.conflict ? (
                             <span className="calendar-conflict">
                               Пересечение по времени
@@ -375,6 +417,12 @@ export function CalendarPanel({
                               setEnd(local(new Date(item.ends_at)));
                               setPlace(item.location);
                               setDescription(item.description);
+                              setReminderEnabled(
+                                item.reminder_minutes !== null,
+                              );
+                              setReminderMinutes(
+                                String(item.reminder_minutes ?? 15),
+                              );
                               setNotice("");
                             }}
                           >

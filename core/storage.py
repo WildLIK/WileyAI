@@ -11,6 +11,7 @@ from copy import copy
 from .config import Settings
 from .memory import CATEGORIES, fingerprint, infer_category, normalized, search_expression, suggestions
 from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
+from . import notifications
 
 
 def now() -> str:
@@ -52,6 +53,7 @@ class Store:
             for row in db.execute("SELECT id,content FROM memories WHERE id NOT IN (SELECT id FROM memories_fts)").fetchall():
                 db.execute("INSERT INTO memories_fts VALUES (?,?)", (row["id"], normalized(row["content"])))
             migrate_chats(db)
+            notifications.migrate(db)
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -349,8 +351,20 @@ class Store:
                 db.execute("INSERT INTO notifications (id,task_id,title,created) VALUES (:id,:task_id,:title,:created)", item)
                 db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task["id"],))
                 pending.append(item)
+            pending.extend(notifications.queue_calendar(db, now()))
         return pending
+
+    def pending_notifications(self):
+        with self.db() as db:
+            db.execute("BEGIN")
+            return notifications.pending(db, now())
+
+    def claim_notification(self, item_id):
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            return notifications.claim(db, item_id, now())
 
     def acknowledge_notification(self, item_id: str):
         with self.db() as db:
             db.execute("UPDATE notifications SET delivered=1 WHERE id=?", (item_id,))
+            db.execute("UPDATE calendar_alerts SET delivered=1 WHERE id=?", (item_id,))

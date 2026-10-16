@@ -20,6 +20,7 @@ const { pathToFileURL } = require("node:url");
 const { ConversationLease } = require("./conversation.cjs");
 const { liveContents, sendToWindow } = require("./window-messages.cjs");
 const { installBackups } = require("./backups.cjs");
+const { createNotificationDelivery } = require("./notifications.cjs");
 
 const root = path.resolve(__dirname, "..");
 const dev = process.env.WILEYAI_DEV === "1";
@@ -33,7 +34,6 @@ let tray;
 let quitting = false;
 let ollamaProcess;
 let notificationTimer;
-let notificationPolling = false;
 let backups;
 const conversation = new ConversationLease(() => {
   if (quitting) return;
@@ -48,40 +48,30 @@ const conversation = new ConversationLease(() => {
     );
 });
 
-async function deliverNotifications() {
-  if (!connection || notificationPolling || backups?.restoring || quitting)
-    return;
-  notificationPolling = true;
-  try {
-    const headers = { Authorization: "Bearer " + connection.token };
-    const response = await fetch(connection.url + "/notifications", {
-      headers,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!response.ok) return;
-    for (const item of await response.json()) {
+const deliverNotifications = createNotificationDelivery({
+  connection: () => connection,
+  enabled: () => !backups?.restoring && !quitting,
+  display: (item) => {
+    try {
       if (Notification.isSupported()) {
         const notification = new Notification({
-          title: "WileyAI · Напоминание",
+          title:
+            item.kind === "calendar"
+              ? "WileyAI · Встреча"
+              : "WileyAI · Напоминание",
           body: item.title,
           icon: path.join(__dirname, "icon.png"),
         });
         notification.on("click", () => showWindow("chat"));
         notification.show();
       }
-      for (const window of windows.values())
-        sendToWindow(window, "reminder", item.title);
-      await fetch(connection.url + "/notifications/" + item.id + "/ack", {
-        method: "POST",
-        headers,
-      });
+    } catch {
+      /* In-app notices remain available if Windows notifications fail. */
     }
-  } catch {
-    /* Keep pending notifications in SQLite and retry on the next tick. */
-  } finally {
-    notificationPolling = false;
-  }
-}
+    for (const window of windows.values())
+      sendToWindow(window, "reminder", item.title);
+  },
+});
 
 async function startManagedOllama() {
   if (test) return;
@@ -408,7 +398,7 @@ app.whenReady().then(async () => {
     BrowserWindow,
     trusted,
     getConnection: () => connection,
-    isBusy: () => Boolean(conversation.lease || notificationPolling),
+    isBusy: () => Boolean(conversation.lease || deliverNotifications.active),
     restored: () => {
       for (const window of windows.values())
         sendToWindow(window, "data-restored");
