@@ -100,7 +100,12 @@ class ChatStopBody(BaseModel):
 
 class SpeechBody(TextBody):
     voice: str | None = Field(default=None, max_length=300)
-    engine: Literal["silero", "sapi"] | None = None
+    engine: Literal["silero", "silero_v5_6", "piper", "sapi"] | None = None
+    request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class SpeechStopBody(BaseModel):
+    request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class NoteBody(BaseModel):
@@ -553,12 +558,19 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.get("/voice")
     async def voice_info():
-        return {"available": voice.available(), "voices": await voice.voices(), "tts_available": voice.tts_available(), "silero_installed": voice.tts_installed(), "installed_stt": [size for size in ["tiny", "base", "small"] if (root / "models" / "whisper" / size / "model.bin").is_file()]}
+        from .piper import VOICES
+        return {"available": voice.available(), "voices": await voice.voices(), "tts_available": voice.tts_available(), "silero_installed": voice.tts_installed(), "silero_v5_6_installed": voice.tts_installed("v5_6_ru"), "piper_available": voice.piper.available(), "piper_voices": [{"name": key, "label": value[0], "installed": voice.piper.installed(key)} for key, value in VOICES.items()], "installed_stt": [size for size in ["tiny", "base", "small"] if (root / "models" / "whisper" / size / "model.bin").is_file()]}
 
     @app.post("/voice/download")
     async def voice_download(body: ModelBody):
         if body.model == "silero-v5-ru":
             await asyncio.to_thread(voice.download_tts)
+            return {"ok": True}
+        if body.model == "silero-v5.6-ru":
+            await asyncio.to_thread(voice.download_tts, "v5_6_ru")
+            return {"ok": True}
+        if body.model.startswith("piper-"):
+            await asyncio.to_thread(voice.piper.download, body.model.removeprefix("piper-"))
             return {"ok": True}
         if body.model not in {"tiny", "base", "small"}:
             raise HTTPException(400, "Неподдерживаемая модель Whisper")
@@ -580,7 +592,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if config.tts_engine == "sapi" and not await voice.voices():
             raise ValueError("Системные голоса недоступны. Выберите Silero в настройках.")
         try:
-            await asyncio.gather(asyncio.to_thread(voice.prepare, config.stt_model, config.tts_engine), providers.prepare(config))
+            await asyncio.gather(asyncio.to_thread(voice.prepare, config.stt_model, config.tts_engine, config.tts_voice), providers.prepare(config))
         except ValueError:
             raise
         except Exception as error:
@@ -593,15 +605,28 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.post("/voice/synthesize")
-    async def synthesize(body: SpeechBody):
+    async def synthesize(body: SpeechBody, request: Request):
         config = store.settings()
         selected_voice = body.voice if body.voice is not None else config.tts_voice
-        audio = await voice.render(body.text, selected_voice, body.engine or config.tts_engine)
-        return Response(audio, media_type="audio/wav")
+        import uuid
+        request_id = body.request_id or uuid.uuid4().hex
+        task = asyncio.create_task(voice.render(body.text, selected_voice, body.engine or config.tts_engine, request_id))
+        try:
+            while not task.done():
+                if await request.is_disconnected():
+                    raise HTTPException(499, "Озвучка отменена")
+                await asyncio.wait({task}, timeout=0.1)
+            return Response(await task, media_type="audio/wav")
+        finally:
+            if not task.done():
+                with CancelScope(shield=True):
+                    await voice.stop(request_id)
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
 
     @app.post("/voice/stop")
-    async def stop_voice():
-        await voice.stop()
+    async def stop_voice(body: SpeechStopBody | None = None):
+        await voice.stop(body.request_id if body else None)
         return {"ok": True}
 
     @app.post("/chat/stop")

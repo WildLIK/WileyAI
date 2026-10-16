@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 voice = ["faster-whisper>=1.1,<2", "av>=11,<17"]
 tts = ["torch>=2.6,<3", "scipy>=1.15,<2", "numpy>=2,<3"]
+piper = ["piper-tts>=1.8,<2"]
 dev = ["pytest>=8,<10"]
 
 [tool.pytest.ini_options]

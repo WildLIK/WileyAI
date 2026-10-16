@@ -9,8 +9,21 @@ import threading
 import io
 import wave
 import textwrap
+import time
+import uuid
+import hashlib
 
 import httpx
+from .piper import Piper
+
+
+class SpeechCancelled(ValueError):
+    pass
+
+
+def check_cancelled(cancel):
+    if cancel is not None and cancel.is_set():
+        raise SpeechCancelled("Озвучка остановлена")
 
 
 class Voice:
@@ -22,6 +35,13 @@ class Voice:
         self.speak_lock = asyncio.Lock()
         self.tts_lock = threading.Lock()
         self.tts_model = None
+        self.tts_version = ""
+        self.piper = Piper(root)
+        self.synthesis_jobs: dict[str, threading.Event] = {}
+        self.stopped: dict[str, float] = {}
+        self.speech_id = None
+        self.download_lock = threading.Lock()
+        self.render_lock = asyncio.Lock()
 
     def available(self):
         return importlib.util.find_spec("faster_whisper") is not None
@@ -59,64 +79,106 @@ class Voice:
     def tts_available(self):
         return importlib.util.find_spec("torch") is not None
 
-    def tts_installed(self):
-        return (self.root / "models" / "silero" / "v5_ru.pt").is_file()
+    def tts_installed(self, version="v5_ru"):
+        return (self.root / "models" / "silero" / f"{version}.pt").is_file()
 
-    def _load_tts(self):
-        if not self.tts_available() or not self.tts_installed():
+    def _load_tts(self, version="v5_ru"):
+        if not self.tts_available() or not self.tts_installed(version):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
         import torch
-        if self.tts_model is None:
+        if self.tts_model is None or self.tts_version != version:
             torch.set_num_threads(min(4, os.cpu_count() or 2))
-            self.tts_model = torch.package.PackageImporter(str(self.root / "models" / "silero" / "v5_ru.pt")).load_pickle("tts_models", "model")
+            self.tts_model = torch.package.PackageImporter(str(self.root / "models" / "silero" / f"{version}.pt")).load_pickle("tts_models", "model")
             self.tts_model.to(torch.device("cpu"))
+            self.tts_version = version
 
-    def prepare(self, model: str, tts_engine: str):
+    def prepare(self, model: str, tts_engine: str, speaker: str = ""):
         # Load without speaking, recording, downloading weights, or generating a message.
-        if tts_engine == "silero" and (not self.tts_available() or not self.tts_installed()):
+        version = "v5_6_ru" if tts_engine == "silero_v5_6" else "v5_ru"
+        if tts_engine.startswith("silero") and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
         with self.lock:
             self._load_stt(model)
-        if tts_engine == "silero":
+        if tts_engine.startswith("silero"):
             with self.tts_lock:
-                self._load_tts()
+                self._load_tts(version)
+        elif tts_engine == "piper":
+            with self.tts_lock:
+                self.piper.load(speaker)
 
-    def download_tts(self):
+    def download_tts(self, version="v5_ru"):
+        if version not in {"v5_ru", "v5_6_ru"}:
+            raise ValueError("Неизвестная версия Silero")
         if not self.tts_available():
             raise ValueError("Сначала установите модуль озвучки: uv sync --extra dev --extra voice --extra tts")
-        target = self.root / "models" / "silero" / "v5_ru.pt"
+        with self.download_lock:
+            self._download_tts(version)
+
+    def _download_tts(self, version):
+        target = self.root / "models" / "silero" / f"{version}.pt"
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file():
             return
         partial = target.with_suffix(".part")
-        with httpx.stream("GET", "https://models.silero.ai/models/tts/ru/v5_ru.pt", timeout=180, follow_redirects=True) as response:
-            response.raise_for_status()
-            with partial.open("wb") as file:
-                for chunk in response.iter_bytes():
-                    file.write(chunk)
-        partial.replace(target)
+        try:
+            digest = hashlib.sha256()
+            size = 0
+            with httpx.stream("GET", f"https://models.silero.ai/models/tts/ru/{version}.pt", timeout=180, follow_redirects=True) as response:
+                response.raise_for_status()
+                with partial.open("wb") as file:
+                    for chunk in response.iter_bytes():
+                        size += len(chunk)
+                        if size > 200_000_000:
+                            raise ValueError("Файл Silero превышает ожидаемый размер")
+                        digest.update(chunk)
+                        file.write(chunk)
+            if version == "v5_6_ru" and digest.hexdigest() != "04cc9b1d08ce38bcaa9d02c488d80d3e6806d17f7eaa7c95982f36a3cbf50b2e":
+                raise ValueError("Контрольная сумма Silero не совпала. Повторите загрузку")
+            partial.replace(target)
+        finally:
+            partial.unlink(missing_ok=True)
 
-    def synthesize(self, text: str, speaker: str) -> bytes:
-        if not self.tts_available() or not self.tts_installed():
+    def synthesize(self, text: str, speaker: str, cancel=None, engine="silero") -> bytes:
+        version = "v5_6_ru" if engine == "silero_v5_6" else "v5_ru"
+        if engine != "piper" and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
-        if speaker not in {"aidar", "baya", "kseniya", "xenia", "eugene", ""}:
+        if engine != "piper" and speaker not in {"aidar", "baya", "kseniya", "xenia", "eugene", ""}:
             raise ValueError("Неизвестный голос Silero")
-        with self.tts_lock:
-            import torch
-            import numpy as np
-            self._load_tts()
-            parts = textwrap.wrap(text, width=700, break_long_words=False, replace_whitespace=False)
+        # A cancelled request must not wait behind a long synthesis or generate more chunks.
+        while not self.tts_lock.acquire(timeout=0.05):
+            check_cancelled(cancel)
+        try:
+            check_cancelled(cancel)
+            if engine == "piper":
+                model = self.piper.load(speaker)
+            else:
+                self._load_tts(version)
+            parts = textwrap.wrap(text, width=240, break_long_words=True, replace_whitespace=False)
             if not parts:
                 raise ValueError("Нет текста для озвучки")
-            audio = torch.cat([self.tts_model.apply_tts(text=part, speaker=speaker or "xenia", sample_rate=48000) for part in parts])
-            pcm = (np.clip(audio.numpy(), -1, 1) * 32767).astype("<i2").tobytes()
+            pcm_parts = []
+            rate = 48000
+            for part in parts:
+                check_cancelled(cancel)
+                if engine == "piper":
+                    for chunk in model.synthesize(part):
+                        check_cancelled(cancel)
+                        rate = chunk.sample_rate
+                        pcm_parts.append(chunk.audio_int16_bytes)
+                else:
+                    import numpy as np
+                    audio = self.tts_model.apply_tts(text=part, speaker=speaker or "xenia", sample_rate=48000)
+                    pcm_parts.append((np.clip(audio.numpy(), -1, 1) * 32767).astype("<i2").tobytes())
+            check_cancelled(cancel)
             result = io.BytesIO()
             with wave.open(result, "wb") as output:
                 output.setnchannels(1)
                 output.setsampwidth(2)
-                output.setframerate(48000)
-                output.writeframes(pcm)
+                output.setframerate(rate)
+                output.writeframes(b"".join(pcm_parts))
             return result.getvalue()
+        finally:
+            self.tts_lock.release()
 
     async def voices(self) -> list[dict]:
         if os.name != "nt":
@@ -128,7 +190,17 @@ class Voice:
         data = json.loads(out.decode("utf-8-sig") or "[]")
         return data if isinstance(data, list) else [data]
 
-    async def stop(self):
+    async def stop(self, request_id: str | None = None):
+        self.stopped = {key: when for key, when in self.stopped.items() if time.monotonic() - when < 30}
+        if request_id:
+            self.stopped[request_id] = time.monotonic()
+            if len(self.stopped) > 128:
+                self.stopped.pop(next(iter(self.stopped)))
+        for key, event in list(self.synthesis_jobs.items()):
+            if request_id is None or request_id == key:
+                event.set()
+        if request_id is not None and self.speech_id != request_id:
+            return
         process = self.speech
         self.speech = None
         if process and process.returncode is None:
@@ -138,19 +210,39 @@ class Voice:
                 pass
             await process.wait()
 
-    async def render(self, text: str, voice: str, engine: str) -> bytes:
-        if engine == "sapi":
-            return await self._sapi(text, voice, render=True)
-        return await asyncio.to_thread(self.synthesize, text, voice)
+    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None) -> bytes:
+        request_id = request_id or uuid.uuid4().hex
+        if request_id in self.synthesis_jobs:
+            raise ValueError("Озвучка с таким идентификатором уже выполняется")
+        if time.monotonic() - self.stopped.get(request_id, -100) < 30:
+            raise SpeechCancelled("Озвучка остановлена")
+        async with self.render_lock:
+            if request_id in self.synthesis_jobs:
+                raise ValueError("Озвучка с таким идентификатором уже выполняется")
+            if time.monotonic() - self.stopped.get(request_id, -100) < 30:
+                raise SpeechCancelled("Озвучка остановлена")
+            await self.stop()
+            if time.monotonic() - self.stopped.get(request_id, -100) < 30:
+                raise SpeechCancelled("Озвучка остановлена")
+            cancel = threading.Event()
+            self.synthesis_jobs[request_id] = cancel
+        try:
+            if engine == "sapi":
+                return await self._sapi(text, voice, render=True, request_id=request_id, cancel=cancel)
+            return await asyncio.to_thread(self.synthesize, text, voice, cancel, engine)
+        finally:
+            cancel.set()
+            self.synthesis_jobs.pop(request_id, None)
 
     async def speak(self, text: str, voice: str):
+        await self.stop()
         await self._sapi(text, voice, render=False)
 
-    async def _sapi(self, text: str, voice: str, render: bool) -> bytes:
+    async def _sapi(self, text: str, voice: str, render: bool, request_id=None, cancel=None) -> bytes:
         if os.name != "nt":
             raise ValueError("Системная озвучка доступна в Windows")
         async with self.speak_lock:
-            await self.stop()
+            check_cancelled(cancel)
             # Script is fixed. Text and voice travel as JSON on stdin, never as shell source.
             script = """
 $ErrorActionPreference = 'Stop'
@@ -178,7 +270,9 @@ try {
 """
             self.speech = await asyncio.create_subprocess_exec("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
             process = self.speech
+            self.speech_id = request_id
         try:
+            check_cancelled(cancel)
             audio, _ = await process.communicate(json.dumps({"text": text, "voice": voice, "render": render}, ensure_ascii=False).encode("utf-8"))
             if self.speech is not process:
                 raise ValueError("Озвучка остановлена")

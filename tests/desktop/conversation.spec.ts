@@ -168,7 +168,9 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     await expect
       .poll(() => syntheses, { timeout: 12000 })
       .toBeGreaterThanOrEqual(2);
-    await page.getByRole("button", { name: "Перебить", exact: true }).click();
+    await page
+      .getByRole("button", { name: "■ Остановить озвучку", exact: true })
+      .click();
     await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
     const opened = app.waitForEvent("window");
     await page
@@ -288,6 +290,11 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
           available: true,
           installed_stt: ["small"],
           silero_installed: true,
+          silero_v5_6_installed: true,
+          piper_available: true,
+          piper_voices: [
+            { name: "irina", label: "Ирина · женский", installed: true },
+          ],
           tts_available: true,
           voices: [{ name: "Test SAPI", language: "ru" }],
         },
@@ -368,8 +375,10 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
       page.getByRole("button", { name: "Проверить динамик", exact: true }),
     ).toBeEnabled();
     const engines: string[] = [];
+    const selectedVoices: string[] = [];
     await page.route("**/voice/synthesize", (route) => {
       engines.push(route.request().postDataJSON().engine);
+      selectedVoices.push(route.request().postDataJSON().voice);
       return route.fulfill({
         contentType: "audio/wav",
         body: Buffer.from(wav(new Float32Array(4000), 16000)),
@@ -410,6 +419,42 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
       path: "local/screenshots/audio-devices.png",
       fullPage: true,
     });
+    for (const [engine, voiceName] of [
+      ["piper", "irina"],
+      ["silero_v5_6", "baya"],
+    ]) {
+      await page
+        .getByLabel("Движок озвучки", { exact: true })
+        .selectOption(engine);
+      await page
+        .getByLabel("Голос ассистента", { exact: true })
+        .selectOption(voiceName);
+      await page
+        .getByRole("button", { name: "♪ Прослушать голос", exact: true })
+        .click();
+      await expect.poll(() => engines.at(-1)).toBe(engine);
+      await expect.poll(() => selectedVoices.at(-1)).toBe(voiceName);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { testOutputIds: string[] }).testOutputIds
+                .length,
+          ),
+        )
+        .toBe(engine === "piper" ? 4 : 5);
+      await expect(
+        page.getByRole("button", { name: "■ Остановить озвучку", exact: true }),
+      ).toBeHidden();
+    }
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testOutputIds: string[] }).testOutputIds,
+        ),
+      )
+      .toEqual(Array(5).fill(outputId));
     await page.getByRole("button", { name: "◈ Общение" }).click();
     await page
       .getByRole("button", { name: "Записать голос", exact: true })
@@ -476,5 +521,139 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
     ).toHaveValue(outputId);
   } finally {
     await again.app.close();
+  }
+});
+
+test("speech can be stopped during synthesis and playback, with Escape and from the avatar", async ({}, testInfo) => {
+  const { app, page } = await launch();
+  try {
+    const cancelled: string[] = [];
+    let synthesisId = "";
+    let release: () => void = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let count = 0;
+    const sound = Buffer.from(wav(new Float32Array(16000 * 60), 16000));
+    await app.context().route("**/voice/stop", async (route) => {
+      cancelled.push(route.request().postDataJSON()?.request_id);
+      await route.fulfill({ json: { ok: true } });
+    });
+    await app.context().route("**/voice/synthesize", async (route) => {
+      count++;
+      if (count === 1) {
+        synthesisId = route.request().postDataJSON().request_id;
+        await waiting;
+      }
+      await route
+        .fulfill({ contentType: "audio/wav", body: sound })
+        .catch(() => {});
+    });
+    await page.evaluate(() => {
+      const audios: HTMLAudioElement[] = [];
+      Object.assign(window, { testTtsAudios: audios });
+      const AudioClass = window.Audio;
+      window.Audio = class extends AudioClass {
+        constructor(src?: string) {
+          super(src);
+          audios.push(this);
+        }
+      };
+    });
+    await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    const preview = page.getByRole("button", {
+      name: "♪ Прослушать голос",
+      exact: true,
+    });
+    const stop = page.getByRole("button", {
+      name: "■ Остановить озвучку",
+      exact: true,
+    });
+    await preview.click();
+    await expect.poll(() => synthesisId).not.toBe("");
+    await expect(stop).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(stop).toBeHidden();
+    await expect.poll(() => cancelled).toContain(synthesisId);
+    release();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testTtsAudios: HTMLAudioElement[] })
+              .testTtsAudios.length,
+        ),
+      )
+      .toBe(0);
+
+    await preview.click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testTtsAudios: HTMLAudioElement[] })
+              .testTtsAudios[0]?.paused,
+        ),
+      )
+      .toBe(false);
+    await stop.click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { testTtsAudios: HTMLAudioElement[] })
+              .testTtsAudios[0]?.paused,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { testTtsAudios: HTMLAudioElement[] }
+          ).testTtsAudios[0]?.getAttribute("src"),
+        ),
+      )
+      .toBe(null);
+
+    await preview.click();
+    await expect(stop).toBeVisible();
+    await testInfo.attach("speech-stop-settings", {
+      body: await page.screenshot({
+        path: "local/screenshots/speech-stop-settings.png",
+      }),
+      contentType: "image/png",
+    });
+    // Opening another window mid-playback must recover the speaking state.
+    const opened = app.waitForEvent("window");
+    await page
+      .getByRole("button", { name: "Показать аватара", exact: true })
+      .click();
+    const avatar = await opened;
+    await expect(
+      avatar.getByRole("button", { name: "■ Остановить озвучку", exact: true }),
+    ).toBeVisible();
+    await testInfo.attach("speech-stop-avatar", {
+      body: await avatar.screenshot({
+        path: "local/screenshots/speech-stop-avatar.png",
+      }),
+      contentType: "image/png",
+    });
+    await avatar
+      .getByRole("button", { name: "■ Остановить озвучку", exact: true })
+      .click();
+    await expect(stop).toBeHidden();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { testTtsAudios: HTMLAudioElement[] }
+          ).testTtsAudios.every((a) => a.paused),
+        ),
+      )
+      .toBe(true);
+    await expect(page.getByRole("alert")).toBeHidden();
+  } finally {
+    await app.close();
   }
 });

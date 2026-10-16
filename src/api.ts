@@ -10,7 +10,7 @@ export interface Settings {
   context_tokens: number;
   temperature: number;
   stt_model: "tiny" | "base" | "small";
-  tts_engine: "silero" | "sapi";
+  tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi";
   tts_voice: string;
   speak_answers: boolean;
   memory_suggestions: boolean;
@@ -112,6 +112,7 @@ export interface Job {
   completed: number;
 }
 export interface CatalogItem {
+  voice?: string;
   id: string;
   name: string;
   kind: string;
@@ -134,6 +135,9 @@ export interface VoiceInfo {
   installed_stt: string[];
   tts_available: boolean;
   silero_installed: boolean;
+  silero_v5_6_installed: boolean;
+  piper_available: boolean;
+  piper_voices: { name: string; label: string; installed: boolean }[];
 }
 export interface BackupPreview {
   ticket: string;
@@ -221,20 +225,30 @@ export async function audioRequest(
   signal: AbortSignal,
   engine: Settings["tts_engine"] = "silero",
 ): Promise<Blob> {
-  const response = await fetch(connection.url + "/voice/synthesize", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + connection.token,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ text, voice, engine }),
-    signal,
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Ошибка синтеза речи");
+  signal.throwIfAborted();
+  const request_id = crypto.randomUUID();
+  const cancel = () => {
+    void request("/voice/stop", "POST", { request_id }).catch(() => {});
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    const response = await fetch(connection.url + "/voice/synthesize", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + connection.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text, voice, engine, request_id }),
+      signal,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Ошибка синтеза речи");
+    }
+    return await response.blob();
+  } finally {
+    signal.removeEventListener("abort", cancel);
   }
-  return response.blob();
 }
 export async function stream(
   text: string,

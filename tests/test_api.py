@@ -127,12 +127,12 @@ def test_conversation_uses_personality_memory_and_previous_turn(api, monkeypatch
 
 def test_voice_prepare_loads_selected_components_without_dialogue(api, monkeypatch):
     calls = []
-    monkeypatch.setattr(Voice, "prepare", lambda self, model, engine: calls.append((model, engine)))
+    monkeypatch.setattr(Voice, "prepare", lambda self, model, engine, speaker: calls.append((model, engine, speaker)))
     async def prepare(settings):
         calls.append(settings.model)
     monkeypatch.setattr(providers, "prepare", prepare)
     assert api.post("/voice/prepare").json() == {"ok": True}
-    assert ("small", "silero") in calls
+    assert ("small", "silero", "") in calls
     assert "qwen3.5:4b" in calls
     assert api.get("/messages").json() == []
 
@@ -167,10 +167,11 @@ def test_conversation_settings_reject_invalid_audio_limits(api, field, value):
     assert api.put("/settings", json=settings).status_code == 422
 
 
-@pytest.mark.parametrize("engine", ["silero", "sapi"])
+@pytest.mark.parametrize("engine", ["silero", "silero_v5_6", "piper", "sapi"])
 def test_both_tts_engines_return_audio_for_selected_browser_output(api, monkeypatch, engine):
     captured = []
-    async def render(self, text, voice, engine):
+    async def render(self, text, voice, engine, request_id):
+        assert request_id
         captured.append((text, voice, engine))
         return b"RIFFaudio"
     monkeypatch.setattr(Voice, "render", render)
@@ -179,3 +180,14 @@ def test_both_tts_engines_return_audio_for_selected_browser_output(api, monkeypa
     assert response.headers["content-type"] == "audio/wav"
     assert response.content == b"RIFFaudio"
     assert captured == [("Проверка", "", engine)]
+
+
+def test_voice_stop_preserves_request_scope(api, monkeypatch):
+    calls = []
+    async def stop(self, request_id=None):
+        calls.append(request_id)
+    monkeypatch.setattr(Voice, "stop", stop)
+    assert api.post("/voice/stop", json={"request_id": "old-speech"}).status_code == 200
+    assert api.post("/voice/stop").status_code == 200
+    assert calls == ["old-speech", None]
+    assert api.post("/voice/stop", json={"request_id": "../invalid"}).status_code == 422

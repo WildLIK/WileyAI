@@ -55,6 +55,11 @@
   border-color: #5c7d6a;
   color: #b7dfc9;
 }
+.speech-stop {
+  color: #ffcfbe;
+  border-color: #886456;
+  flex-shrink: 0;
+}
 .conversation-phase {
   display: flex;
   align-items: center;

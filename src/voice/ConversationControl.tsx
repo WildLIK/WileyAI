@@ -6,12 +6,14 @@ export function ConversationControl({
   onInterrupt,
   compact = false,
   disabled = false,
+  speaking = false,
 }: {
   state: ConversationState;
   onToggle: () => void;
   onInterrupt: () => void;
   compact?: boolean;
   disabled?: boolean;
+  speaking?: boolean;
 }) {
   return (
     <div
@@ -35,12 +37,18 @@ export function ConversationControl({
             <i />
             {state.owner ? phaseLabels[state.phase] : "Разговор в другом окне"}
           </span>
-          {state.owner && ["thinking", "speaking"].includes(state.phase) && (
-            <button className="subtle" onClick={onInterrupt}>
-              Перебить
-            </button>
-          )}
         </>
+      )}
+      {(speaking ||
+        (state.active &&
+          ["transcribing", "thinking", "speaking"].includes(state.phase))) && (
+        <button
+          className="outline speech-stop"
+          onClick={onInterrupt}
+          title="Escape — остановить; Ctrl+Shift+Esc — из любого приложения"
+        >
+          {speaking ? "■ Остановить озвучку" : "Перебить"}
+        </button>
       )}
     </div>
   );

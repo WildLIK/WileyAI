@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 import os
 
 from pydantic import BaseModel, Field, field_validator
+from .piper import catalog as piper_catalog
 
 
 DATA_DIR = Path(os.environ.get("WILEYAI_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
@@ -19,7 +20,7 @@ class Settings(BaseModel):
     context_tokens: int = Field(default=4096, ge=1024, le=32768)
     temperature: float = Field(default=0.7, ge=0, le=2)
     stt_model: Literal["tiny", "base", "small"] = "small"
-    tts_engine: Literal["silero", "sapi"] = "silero"
+    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi"] = "silero"
     tts_voice: str = Field(default="", max_length=300)
     speak_answers: bool = False
     memory_suggestions: bool = True
@@ -70,3 +71,7 @@ CATALOG = [
     {"id": "windows-sapi", "name": "Системные голоса Windows", "kind": "tts", "engine": "sapi", "description": "Стартовый локальный адаптер без скачивания весов. Доступные языки зависят от установленных голосов Windows.", "size": "Уже в системе", "languages": "По установленным голосам", "source": "https://learn.microsoft.com/dotnet/api/system.speech.synthesis.speechsynthesizer", "license": "Компонент Windows"},
     {"id": "silero-v5-ru", "name": "Silero · русский голос", "kind": "tts", "engine": "silero", "description": "Локальная озвучка на CPU. Голоса: Ксения, Айдар, Бая. Нужен модуль tts.", "size": "≈ 140 МБ + движок", "languages": "Русский", "source": "https://github.com/snakers4/silero-models", "license": "CC BY-NC 4.0; см. лицензию модели"},
 ]
+CATALOG.extend([
+    {"id": "silero-v5.6-ru", "name": "Silero 5.6 · выразительный русский", "kind": "tts", "engine": "silero_v5_6", "description": "Обновлённая интонация вопросов и восклицаний. Ксения, Бая, Айдар и Евгений. CPU, модуль tts.", "size": "≈ 148 МБ + движок", "languages": "Русский", "source": "https://github.com/snakers4/silero-models#v5", "license": "CC BY-NC 4.0"},
+    *piper_catalog(),
+])

@@ -166,6 +166,9 @@ export function App() {
     installed_stt: [],
     tts_available: false,
     silero_installed: false,
+    silero_v5_6_installed: false,
+    piper_available: false,
+    piper_voices: [],
   });
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -192,6 +195,8 @@ export function App() {
   const manualGeneration = useRef(0);
   const manualDiscard = useRef(false);
   const speechAbort = useRef<AbortController | null>(null);
+  const localSpeechId = useRef("");
+  const activeSpeechIds = useRef(new Set<string>());
   const speechGeneration = useRef(0);
   const listEnd = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -412,12 +417,43 @@ export function App() {
     },
     [refresh, selectChat],
   );
+  const reportSpeech = useCallback(
+    (id: string, value: boolean, broadcast = true) => {
+      if (value) activeSpeechIds.current.add(id);
+      else activeSpeechIds.current.delete(id);
+      setSpeaking(activeSpeechIds.current.size > 0);
+      if (broadcast)
+        channel.current?.postMessage({ type: "speaking", id, value });
+    },
+    [],
+  );
   const stopAudio = useCallback(() => {
     speechAbort.current?.abort();
-    void request("/voice/stop", "POST").catch(() => {});
-    channel.current?.postMessage({ type: "speaking", value: false });
-    setSpeaking(false);
-  }, []);
+    if (localSpeechId.current) reportSpeech(localSpeechId.current, false);
+  }, [reportSpeech]);
+  const interruptLocal = useCallback(() => {
+    if (conversationRef.current) {
+      conversationRef.current.session.interrupt();
+      abort.current?.abort();
+    }
+    stopAudio();
+  }, [stopAudio]);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.metaKey
+      )
+        return;
+      interruptLocal();
+      channel.current?.postMessage({ type: "interrupt-speech" });
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [interruptLocal]);
   const endConversation = useCallback(async () => {
     conversationEpoch.current++;
     const starting = conversationStarting.current;
@@ -465,7 +501,22 @@ export function App() {
           .catch(fail);
       }
       if (event.data.type === "speaking")
-        setSpeaking(Boolean(event.data.value));
+        reportSpeech(
+          String(event.data.id || "legacy"),
+          Boolean(event.data.value),
+          false,
+        );
+      if (event.data.type === "interrupt-speech") interruptLocal();
+      if (
+        event.data.type === "speech-state-request" &&
+        speechAbort.current &&
+        !speechAbort.current.signal.aborted
+      )
+        channel.current?.postMessage({
+          type: "speaking",
+          id: localSpeechId.current,
+          value: true,
+        });
       if (event.data.type === "draft") {
         setDraft(String(event.data.text));
         setTab("chat");
@@ -494,6 +545,7 @@ export function App() {
       if (event.data.type === "documents-changed")
         void refreshDocuments().catch(fail);
     };
+    channel.current.postMessage({ type: "speech-state-request" });
     const offStop = window.wiley.onStop(stop);
     const offConversation = window.wiley.onConversation(setConversation);
     void window.wiley.conversationState().then(setConversation).catch(fail);
@@ -590,19 +642,18 @@ export function App() {
       throw new Error("Сначала завершите текущий разговор.");
     if (signal?.aborted)
       throw new DOMException("Озвучка отменена", "AbortError");
-    speechAbort.current?.abort();
+    channel.current?.postMessage({ type: "interrupt-speech" });
+    stopAudio();
     const generation = ++speechGeneration.current;
+    const speechId = crypto.randomUUID();
+    localSpeechId.current = speechId;
     const controller = new AbortController();
     speechAbort.current = controller;
     const cancel = () => {
       controller.abort();
-      if (generation === speechGeneration.current) {
-        void request("/voice/stop", "POST").catch(() => {});
-      }
     };
     signal?.addEventListener("abort", cancel, { once: true });
-    setSpeaking(true);
-    channel.current?.postMessage({ type: "speaking", value: true });
+    reportSpeech(speechId, true);
     try {
       const blob = await audioRequest(
         text,
@@ -617,9 +668,10 @@ export function App() {
       );
     } finally {
       signal?.removeEventListener("abort", cancel);
+      reportSpeech(speechId, false);
       if (generation === speechGeneration.current) {
-        setSpeaking(false);
-        channel.current?.postMessage({ type: "speaking", value: false });
+        speechAbort.current = null;
+        localSpeechId.current = "";
       }
     }
   }
@@ -816,9 +868,8 @@ export function App() {
     }
   }
   function interruptConversation() {
-    conversationRef.current?.session.interrupt();
-    abort.current?.abort();
-    stopAudio();
+    interruptLocal();
+    channel.current?.postMessage({ type: "interrupt-speech" });
   }
   async function toggleRecording() {
     if (recording) {
@@ -977,6 +1028,7 @@ export function App() {
         <ConversationControl
           compact
           state={conversation}
+          speaking={speaking}
           onToggle={() => run(toggleConversation)}
           onInterrupt={interruptConversation}
           disabled={busy || recording || uploading || speaking}
@@ -1121,11 +1173,21 @@ export function App() {
             <i />
             {connected ? settings.model : "Модель не подключена"}
           </div>
+          {tab !== "chat" && !conversation.active && speaking && (
+            <button
+              className="outline speech-stop"
+              onClick={interruptConversation}
+              title="Escape — остановить озвучку"
+            >
+              ■ Остановить озвучку
+            </button>
+          )}
         </header>
         {tab !== "chat" && conversation.active && (
           <div className="voice-toolbar">
             <ConversationControl
               state={conversation}
+              speaking={speaking}
               onToggle={() => run(toggleConversation)}
               onInterrupt={interruptConversation}
               disabled={busy || recording || uploading || speaking}
@@ -1157,6 +1219,7 @@ export function App() {
                 <ConversationControl
                   compact
                   state={conversation}
+                  speaking={speaking}
                   onToggle={() => run(toggleConversation)}
                   onInterrupt={interruptConversation}
                   disabled={
@@ -1584,7 +1647,14 @@ export function App() {
                         ? voice.installed_stt.includes(item.id)
                         : item.engine === "silero"
                           ? voice.silero_installed
-                          : voice.voices.length > 0;
+                          : item.engine === "silero_v5_6"
+                            ? voice.silero_v5_6_installed
+                            : item.engine === "piper"
+                              ? voice.piper_available &&
+                                voice.piper_voices?.some(
+                                  (v) => v.name === item.voice && v.installed,
+                                )
+                              : voice.voices.length > 0;
                   const downloading =
                     jobs.some(
                       (job) =>
@@ -1625,7 +1695,7 @@ export function App() {
                                   ...settings,
                                   tts_engine:
                                     item.engine as Settings["tts_engine"],
-                                  tts_voice: "",
+                                  tts_voice: item.voice || "",
                                 });
                                 setTab("settings");
                               })
@@ -2191,12 +2261,17 @@ export function App() {
                     }
                   >
                     <option value="silero">Silero · русский язык</option>
+                    <option value="silero_v5_6">
+                      Silero 5.6 · выразительная интонация
+                    </option>
+                    <option value="piper">Piper · дополнительные голоса</option>
                     <option value="sapi">Системные голоса Windows</option>
                   </select>
                 </label>
                 <label>
                   Голос ассистента
                   <select
+                    aria-label="Голос ассистента"
                     value={settings.tts_voice}
                     onChange={(event) =>
                       setSettings({
@@ -2206,21 +2281,33 @@ export function App() {
                     }
                   >
                     <option value="">
-                      {settings.tts_engine === "silero"
+                      {settings.tts_engine.startsWith("silero")
                         ? "Ксения · по умолчанию"
-                        : "Голос Windows по умолчанию"}
+                        : settings.tts_engine === "piper"
+                          ? "Ирина · по умолчанию"
+                          : "Голос Windows по умолчанию"}
                     </option>
-                    {(settings.tts_engine === "silero"
+                    {(settings.tts_engine.startsWith("silero")
                       ? [
                           { name: "xenia", language: "Ксения · русский" },
                           { name: "baya", language: "Бая · русский" },
                           { name: "aidar", language: "Айдар · русский" },
+                          { name: "eugene", language: "Евгений · русский" },
                           {
                             name: "kseniya",
                             language: "Ксения, вариант · русский",
                           },
                         ]
-                      : voice.voices
+                      : settings.tts_engine === "piper"
+                        ? (voice.piper_voices || []).map((v) => ({
+                            name: v.name,
+                            language:
+                              v.label +
+                              (v.installed
+                                ? " · установлен"
+                                : " · нужно скачать"),
+                          }))
+                        : voice.voices
                     ).map((item) => (
                       <option key={item.name} value={item.name}>
                         {item.name} · {item.language}
@@ -2249,6 +2336,12 @@ export function App() {
                 >
                   ♪ Прослушать голос
                 </button>
+                <p className="help">
+                  Escape останавливает озвучку. Ctrl+Shift+Esc работает и в
+                  других приложениях. Голоса скачиваются отдельно в «Модели →
+                  Озвучка». Для мягкого женского тембра сравните Баю, Ксению и
+                  Ирину.
+                </p>
                 <p className="help">
                   После записи распознанный текст появится в поле сообщения: его
                   можно исправить перед отправкой.
