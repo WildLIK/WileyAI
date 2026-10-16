@@ -8,13 +8,13 @@ import tempfile
 import threading
 import io
 import wave
-import textwrap
 import time
 import uuid
 import hashlib
 
 import httpx
 from .piper import Piper
+from .speech_text import plain_speech, speech_chunks
 
 
 class SpeechCancelled(ValueError):
@@ -139,6 +139,7 @@ class Voice:
             partial.unlink(missing_ok=True)
 
     def synthesize(self, text: str, speaker: str, cancel=None, engine="silero") -> bytes:
+        text = plain_speech(text)
         version = "v5_6_ru" if engine == "silero_v5_6" else "v5_ru"
         if engine != "piper" and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
@@ -153,7 +154,7 @@ class Voice:
                 model = self.piper.load(speaker)
             else:
                 self._load_tts(version)
-            parts = textwrap.wrap(text, width=240, break_long_words=True, replace_whitespace=False)
+            parts = speech_chunks(text)
             if not parts:
                 raise ValueError("Нет текста для озвучки")
             pcm_parts = []
@@ -239,6 +240,7 @@ class Voice:
         await self._sapi(text, voice, render=False)
 
     async def _sapi(self, text: str, voice: str, render: bool, request_id=None, cancel=None) -> bytes:
+        text = plain_speech(text)
         if os.name != "nt":
             raise ValueError("Системная озвучка доступна в Windows")
         async with self.speak_lock:
