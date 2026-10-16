@@ -22,6 +22,7 @@ from .commands import normalize
 from .tools import ACCESS_FIELDS
 from .calendar import EventBody
 from .notifications import reminder_time
+from .document_library import rebuild_index as rebuild_document_index
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -93,6 +94,12 @@ class Document(Dated):
     name: str = Field(min_length=1, max_length=4096)
     content: str = Field(max_length=1_000_000)
     conversation_id: Id = "legacy"
+
+
+class ProjectDocument(Dated):
+    name: str = Field(min_length=1, max_length=4096)
+    content: str = Field(min_length=1, max_length=1_000_000)
+    project_id: Id
 
 
 class Note(Dated):
@@ -186,6 +193,7 @@ TABLES = {
     "routines": Routine,
     "calendar_events": CalendarEvent,
     "calendar_alerts": CalendarAlert,
+    "project_documents": ProjectDocument,
 }
 
 
@@ -205,11 +213,12 @@ class Data(Record):
     routines: list[Routine] = Field(default_factory=list)
     calendar_events: list[CalendarEvent] = Field(default_factory=list)
     calendar_alerts: list[CalendarAlert] = Field(default_factory=list)
+    project_documents: list[ProjectDocument] = Field(default_factory=list)
 
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3, 4, 5]
+    version: Literal[1, 2, 3, 4, 5, 6]
     created: Timestamp
     settings: dict
     data: Data
@@ -240,6 +249,8 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 6 and bundle.data.project_documents:
+            raise ValueError("Документы проекта требуют формат 6")
         if bundle.version < 5 and (bundle.data.calendar_alerts or any(row.reminder_minutes is not None or row.reminder_at is not None or row.reminder_sent for row in bundle.data.calendar_events)):
             raise ValueError("Уведомления календаря требуют формат 5")
         if bundle.version < 4 and bundle.data.calendar_events:
@@ -265,6 +276,12 @@ def parse(data: bytes) -> Bundle:
         tasks = {row["id"]: row for row in tables["tasks"]}
         projects = {row["id"] for row in tables["projects"]}
         chats = {row["id"]: row for row in tables["conversations"]}
+        if any(row["project_id"] not in projects for row in tables["project_documents"]):
+            raise ValueError("Документ без проекта")
+        if any(not row["content"].strip() for row in tables["project_documents"]):
+            raise ValueError("Пустой текст документа проекта")
+        if {row["id"] for row in tables["documents"]} & {row["id"] for row in tables["project_documents"]}:
+            raise ValueError("Повторяющийся ID документа")
         if not chats or any(row["project_id"] is not None and row["project_id"] not in projects for row in chats.values()):
             raise ValueError("Неверный проект чата")
         for table in ("messages", "documents"):
@@ -354,7 +371,7 @@ def snapshot(db) -> dict:
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 5, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 6, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:
@@ -446,6 +463,7 @@ class Backups:
                 if rows:
                     db.executemany(f"INSERT INTO {name} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [tuple(row[column] for column in columns) for row in rows])
             db.execute("DELETE FROM memories_fts")
+            rebuild_document_index(db)
             db.executemany("INSERT INTO memories_fts VALUES (?,?)", [(row["id"], normalized(row["content"])) for row in tables["memories"]])
             db.execute("DELETE FROM dialogue_state")
             db.execute("DELETE FROM chat_dialogue")

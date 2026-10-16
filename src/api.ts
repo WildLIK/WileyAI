@@ -99,6 +99,9 @@ export interface Doc {
   id: string;
   name: string;
   characters: number;
+  scope: "chat" | "project";
+  project_id: string | null;
+  preview?: string;
 }
 export interface Job {
   id: string;

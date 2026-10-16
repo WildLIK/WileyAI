@@ -164,7 +164,7 @@ def test_backup_current_roundtrip_scopes_and_v1_conversion(tmp_path):
     source.for_chat(a["id"]).add_memory("Первый факт")
     source.for_chat(c["id"]).add_memory("Другой факт")
     archive = Backups(source).export()
-    assert json.loads(archive)["version"] == 5
+    assert json.loads(archive)["version"] == 6
     target = Store(tmp_path / "target")
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])
@@ -199,7 +199,8 @@ def test_api_model_never_receives_other_chat_history_or_general_memory_in_projec
         api.post("/chat", json={"text": "Запомни: КОД-ПРОЕКТА", "conversation_id": first["id"]})
         api.post("/chat", json={"text": "СЕКРЕТ-ИСТОРИИ-ПЕРВОГО-ЧАТА", "conversation_id": first["id"]})
         doc = api.post("/documents?conversation_id=" + first["id"], files={"file": ("secret.txt", b"PRIVATE-FIRST-DOC")}).json()
-        api.post("/chat", json={"text": "Что помнишь?", "conversation_id": second["id"], "document_ids": [doc["id"]]})
+        assert api.post("/chat", json={"text": "Что помнишь?", "conversation_id": second["id"], "document_ids": [doc["id"]]}).status_code == 400
+        api.post("/chat", json={"text": "Что помнишь?", "conversation_id": second["id"]})
         payload = str(captured[-1])
         assert "КОД-ПРОЕКТА" in payload
         assert "СЕКРЕТ-ОБЩИЙ" not in payload and "СЕКРЕТ-ИСТОРИИ" not in payload and "PRIVATE-FIRST-DOC" not in payload

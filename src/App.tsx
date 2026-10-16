@@ -30,6 +30,7 @@ import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { CalendarPanel } from "./Calendar";
+import { DocumentPanel } from "./Documents";
 import {
   Conversation,
   phaseLabels,
@@ -50,6 +51,7 @@ const tabs = [
   { id: "tasks", icon: "◷", label: "Задачи" },
   { id: "calendar", icon: "▦", label: "Календарь" },
   { id: "notes", icon: "▤", label: "Заметки" },
+  { id: "documents", icon: "▧", label: "Документы" },
   { id: "memory", icon: "◎", label: "Память" },
   { id: "commands", icon: "⌘", label: "Команды" },
   { id: "capabilities", icon: "✳", label: "Возможности" },
@@ -139,6 +141,9 @@ export function App() {
     : "Общая память";
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const selectedDocsRef = useRef(selectedDocs);
+  selectedDocsRef.current = selectedDocs;
+  const documentRefreshEpoch = useRef(0);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>(
     [],
@@ -253,7 +258,44 @@ export function App() {
     await refreshMemories();
     channel.current?.postMessage({ type: "memory-changed" });
   }, [refreshMemories]);
+  const refreshDocuments = useCallback(async () => {
+    const ticket = ++documentRefreshEpoch.current;
+    const epoch = dataEpoch.current;
+    const chatId = activeChatRef.current;
+    const include = encodeURIComponent(selectedDocsRef.current.join(","));
+    const files = await request<Doc[]>(
+      scoped("/documents?include=" + include, chatId),
+    );
+    if (
+      ticket !== documentRefreshEpoch.current ||
+      epoch !== dataEpoch.current ||
+      chatId !== activeChatRef.current
+    )
+      return;
+    setDocuments(files);
+    setSelectedDocs((ids) =>
+      ids.filter((id) => files.some((file) => file.id === id)),
+    );
+  }, []);
+  const documentsChanged = useCallback(async () => {
+    await refreshDocuments();
+    channel.current?.postMessage({ type: "documents-changed" });
+  }, [refreshDocuments]);
+  function toggleDocument(doc: Doc) {
+    documentRefreshEpoch.current++;
+    setDocuments((items) =>
+      items.some((item) => item.id === doc.id) ? items : [...items, doc],
+    );
+    setSelectedDocs((ids) =>
+      ids.includes(doc.id)
+        ? ids.filter((id) => id !== doc.id)
+        : ids.length < 10
+          ? [...ids, doc.id]
+          : ids,
+    );
+  }
   const refresh = useCallback(async () => {
+    documentRefreshEpoch.current++;
     const loading = ++chatLoadEpoch.current;
     chatLoadingRef.current = true;
     setChatLoading(true);
@@ -299,7 +341,13 @@ export function App() {
         request<Settings>("/settings"),
         request<Message[]>(scoped("/messages", id)),
         request<Memory[]>(scoped("/memories", id)),
-        request<Doc[]>(scoped("/documents", id)),
+        request<Doc[]>(
+          scoped(
+            "/documents?include=" +
+              encodeURIComponent(selectedDocsRef.current.join(",")),
+            id,
+          ),
+        ),
         request<CatalogItem[]>("/catalog"),
         request<{ custom: Alias[] }>("/aliases"),
         request<VoiceInfo>("/voice"),
@@ -311,6 +359,9 @@ export function App() {
       setMemories(facts);
       setMemoryCandidates(candidates);
       setDocuments(files);
+      setSelectedDocs((ids) =>
+        ids.filter((id) => files.some((file) => file.id === id)),
+      );
       setCatalog(items);
       setAliasList(aliases.custom);
       setVoice(voices);
@@ -440,6 +491,8 @@ export function App() {
       }
       if (event.data.type === "memory-changed")
         void refreshMemories().catch(fail);
+      if (event.data.type === "documents-changed")
+        void refreshDocuments().catch(fail);
     };
     const offStop = window.wiley.onStop(stop);
     const offConversation = window.wiley.onConversation(setConversation);
@@ -491,7 +544,7 @@ export function App() {
         void window.wiley.releaseConversation(starting.lease);
       }
     };
-  }, [refresh, refreshMemories, selectChat, stop]);
+  }, [refresh, refreshMemories, refreshDocuments, selectChat, stop]);
   useEffect(() => {
     listEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, answer, memoryCandidates.length]);
@@ -596,6 +649,7 @@ export function App() {
     let completed = "";
     const chatId = activeChatRef.current;
     let streamError = "";
+    let userAccepted = false;
     try {
       await stream(
         text,
@@ -603,8 +657,10 @@ export function App() {
         controller.signal,
         (event) => {
           if (chatId !== activeChatRef.current) return;
-          if (event.type === "user" && event.message)
+          if (event.type === "user" && event.message) {
+            userAccepted = true;
             setMessages((items) => [...items, event.message!]);
+          }
           if (event.type === "delta") setAnswer((value) => value + event.text);
           if (event.type === "stage") setStage(event.text || "Отвечает…");
           if (event.type === "error") {
@@ -629,8 +685,16 @@ export function App() {
       return completed;
     } catch (error) {
       if (options.conversation) throw error;
-      if (!(error instanceof DOMException && error.name === "AbortError"))
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        if (
+          !userAccepted &&
+          chatId === activeChatRef.current &&
+          !draftRef.current
+        )
+          setDraft(text);
+        if (!userAccepted) void refreshDocuments().catch(() => {});
         fail(error);
+      }
       return "";
     } finally {
       options.signal?.removeEventListener("abort", cancel);
@@ -1191,52 +1255,33 @@ export function App() {
                 />
                 <div ref={listEnd} />
               </div>
-              {documents.length > 0 && (
+              {selectedDocs.length > 0 && (
                 <div className="document-strip">
-                  {documents.map((doc) => (
-                    <div
-                      className={
-                        "doc-chip " +
-                        (selectedDocs.includes(doc.id) ? "selected" : "")
-                      }
-                      key={doc.id}
-                    >
-                      <button
-                        title="Включить документ в следующий вопрос"
-                        onClick={() =>
-                          setSelectedDocs((ids) =>
-                            ids.includes(doc.id)
-                              ? ids.filter((id) => id !== doc.id)
-                              : [...ids, doc.id],
-                          )
+                  {documents
+                    .filter((doc) => selectedDocs.includes(doc.id))
+                    .map((doc) => (
+                      <div
+                        className={
+                          "doc-chip " +
+                          (selectedDocs.includes(doc.id) ? "selected" : "")
                         }
+                        key={doc.id}
                       >
-                        ▤ {doc.name}
-                      </button>
-                      <button
-                        aria-label={"Удалить " + doc.name}
-                        onClick={() =>
-                          run(async () => {
-                            await request(
-                              scoped(
-                                "/documents/" + doc.id,
-                                activeChatRef.current,
-                              ),
-                              "DELETE",
-                            );
-                            setDocuments((items) =>
-                              items.filter((item) => item.id !== doc.id),
-                            );
-                            setSelectedDocs((ids) =>
-                              ids.filter((id) => id !== doc.id),
-                            );
-                          })
-                        }
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                        <button
+                          title="Открыть библиотеку документов"
+                          onClick={() => setTab("documents")}
+                        >
+                          ▤ {doc.name}
+                        </button>
+                        <button
+                          aria-label={"Убрать из вопроса " + doc.name}
+                          disabled={busy || conversation.active || chatLoading}
+                          onClick={() => toggleDocument(doc)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
                 </div>
               )}
               <div className="composer-area">
@@ -1387,9 +1432,14 @@ export function App() {
                     );
                     if (chatId !== activeChatRef.current) return;
                     setDocuments((items) => [...items, doc]);
-                    setSelectedDocs((ids) => [...ids, doc.id]);
+                    setSelectedDocs((ids) =>
+                      ids.length < 10 ? [...ids, doc.id] : ids,
+                    );
+                    channel.current?.postMessage({ type: "documents-changed" });
                     setNotice(
-                      "Документ добавлен. Задайте вопрос по содержимому.",
+                      selectedDocsRef.current.length < 10
+                        ? "Документ добавлен. Задайте вопрос по содержимому."
+                        : "Документ загружен. Для вопроса можно выбрать до 10 файлов в разделе «Документы».",
                     );
                   }).finally(() => setUploading(false));
                   event.target.value = "";
@@ -1722,6 +1772,25 @@ export function App() {
             key={tab + restoredVersion + activeChatId}
             mode={tab}
             conversationId={activeChatId}
+            onError={fail}
+          />
+        )}
+        {tab === "documents" && activeChatId && !chatLoading && (
+          <DocumentPanel
+            key={restoredVersion + activeChatId + scopeName}
+            conversationId={activeChatId}
+            projectName={currentProject?.name}
+            selected={selectedDocs}
+            disabled={
+              busy ||
+              conversation.active ||
+              uploading ||
+              recording ||
+              chatLoading
+            }
+            onToggle={toggleDocument}
+            onChanged={documentsChanged}
+            onChat={() => setTab("chat")}
             onError={fail}
           />
         )}

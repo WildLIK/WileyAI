@@ -11,7 +11,8 @@ const labels: [string, string][] = [
   ["calendar_events", "События календаря"],
   ["calendar_alerts", "Уведомления календаря"],
   ["routines", "Сценарии запуска"],
-  ["documents", "Документы с извлечённым текстом"],
+  ["documents", "Документы чатов"],
+  ["project_documents", "Документы проектов"],
   ["aliases", "Команды открытия — по выбору"],
 ];
 

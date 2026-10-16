@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import json
@@ -12,6 +12,7 @@ from .config import Settings
 from .memory import CATEGORIES, fingerprint, infer_category, normalized, search_expression, suggestions
 from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
 from . import notifications
+from .document_library import migrate as migrate_documents
 
 
 def now() -> str:
@@ -54,6 +55,7 @@ class Store:
                 db.execute("INSERT INTO memories_fts VALUES (?,?)", (row["id"], normalized(row["content"])))
             migrate_chats(db)
             notifications.migrate(db)
+            migrate_documents(db)
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -72,9 +74,10 @@ class Store:
 
     @contextmanager
     def db(self):
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db:
             db.row_factory = sqlite3.Row
-            yield db
+            with db:
+                yield db
 
     def settings(self) -> Settings:
         with self.db() as db:

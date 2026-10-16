@@ -9,7 +9,7 @@ import time
 import sqlite3
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -27,6 +27,7 @@ from .scheduler import run_scheduler
 from .workflows import Workflows
 from .calendar import Calendar, EventBody
 from .calendar_workflows import CalendarWorkflows
+from .document_library import Library
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
@@ -514,11 +515,24 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"text": run_command(command, dry_run=body.dry_run), "kind": command.kind, "target": command.target}
 
     @app.get("/documents")
-    def list_documents(conversation_id: str | None = None):
-        return [{"id": item["id"], "name": item["name"], "created": item["created"], "characters": len(item["content"])} for item in store.for_chat(conversation_id).list("documents", 100)]
+    def list_documents(conversation_id: str | None = None, include: str = Query(default="", max_length=650)):
+        return Library(store.for_chat(conversation_id)).recent([value for value in include.split(",") if value])
+
+    @app.get("/documents/library")
+    def document_library(conversation_id: str | None = None, q: str = Query(default="", max_length=200), scope: Literal["all", "chat", "project"] = "all", offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100)):
+        return Library(store.for_chat(conversation_id)).list(q, scope, offset, limit)
+
+    @app.get("/documents/{item_id}/text")
+    def document_text(item_id: str, conversation_id: str | None = None, offset: int = Query(default=0, ge=0), limit: int = Query(default=12000, ge=1, le=20000)):
+        return Library(store.for_chat(conversation_id)).read(item_id, offset, limit)
+
+    @app.post("/documents/{item_id}/publish")
+    def publish_document(item_id: str, conversation_id: str | None = None):
+        return Library(store.for_chat(conversation_id)).publish(item_id)
 
     @app.post("/documents")
-    async def upload_document(file: UploadFile = File(...), conversation_id: str | None = None):
+    async def upload_document(file: UploadFile = File(...), conversation_id: str | None = None, destination: Literal["chat", "project"] = "chat"):
+        library = Library(store.for_chat(conversation_id))
         data = await file.read(15 * 1024 * 1024 + 1)
         await file.close()
         if len(data) > 15 * 1024 * 1024:
@@ -530,12 +544,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise
         except Exception as error:
             raise HTTPException(400, "Не удалось прочитать документ: проверьте формат и целостность файла") from error
-        item = store.for_chat(conversation_id).add_document(name, text)
-        return {"id": item["id"], "name": item["name"], "characters": len(text)}
+        return library.add(name, text, destination)
 
     @app.delete("/documents/{item_id}")
     def delete_document(item_id: str, conversation_id: str | None = None):
-        store.for_chat(conversation_id).remove("documents", item_id)
+        Library(store.for_chat(conversation_id)).remove(item_id)
         return {"ok": True}
 
     @app.get("/voice")
@@ -619,6 +632,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise HTTPException(400, "Сообщение пустое")
         current = store.settings()
         chat_store = store.for_chat(body.conversation_id)
+        Library(chat_store).selected(body.document_ids, content=False)
         text = body.text.strip()
         search_query = websearch.requested_query(text, body.web_search)
         routine_name = requested_name(text) if search_query is None else None
@@ -730,10 +744,10 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             store.audit("command.resolve", current.model, "error")
                     yield event("delta", text=answer)
                 if not answer:
-                    selected = [doc for doc in chat_store.list("documents", 100) if doc["id"] in body.document_ids]
+                    selected = Library(chat_store).selected(body.document_ids)
                     memory_context = chat_store.memory_context(text, budget=max(200, min(1600, current.context_tokens // 2)))
                     memory = json.dumps([{"id": item["id"], "content": item["content"], "category": item["category"]} for item in memory_context], ensure_ascii=False)
-                    context = documents.context_for(text, selected, budget=2000) if selected else ""
+                    context = await asyncio.to_thread(documents.context_for, text, selected, 2000) if selected else ""
                     system = current.personality[:3000] + "\nИмя ассистента: " + current.name
                     if body.mode == "conversation":
                         system += "\nСейчас идёт разговор голосом. Отвечай естественно и дружелюбно, обычно одной-тремя короткими фразами. Учитывай предыдущие реплики. Развёрнутые объяснения давай по просьбе. Избегай Markdown, таблиц, длинных списков и постоянных встречных вопросов. Не выдумывай общие воспоминания или человеческий опыт."

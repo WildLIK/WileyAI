@@ -205,7 +205,7 @@ def test_backup_pending_and_delivered_alerts_and_v4_compatibility(tmp_path, cloc
     clock[0] += timedelta(minutes=45)
     alert, = store.queue_due_notifications()
     archive = Backups(store).export()
-    assert json.loads(archive)["version"] == 5
+    assert json.loads(archive)["version"] == 6
     target = Store(tmp_path / "target")
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])

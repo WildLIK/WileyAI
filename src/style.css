@@ -1775,6 +1775,73 @@ html:has(.pet-window) {
   align-items: start;
   gap: 20px;
 }
+.document-upload,
+.document-search {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.document-page .page-heading.compact {
+  padding: 0;
+  margin: 0 0 18px;
+}
+.document-upload label,
+.document-search label {
+  flex: 1;
+  min-width: 190px;
+  margin: 0;
+}
+.document-upload button,
+.document-search button {
+  flex-shrink: 0;
+}
+.document-search {
+  margin-bottom: 20px;
+}
+.document-entry {
+  min-width: 0;
+  margin: 0;
+}
+.document-entry h2,
+.document-preview h2 {
+  overflow-wrap: anywhere;
+}
+.document-entry small {
+  color: var(--muted);
+}
+.document-entry .button-row {
+  flex-wrap: wrap;
+}
+.document-entry .checkbox {
+  overflow-wrap: anywhere;
+}
+.document-entry .checkbox input {
+  flex-shrink: 0;
+}
+.document-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.document-excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow: auto;
+}
+.document-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+  font: inherit;
+  line-height: 1.7;
+}
+.document-preview .button-row {
+  flex-wrap: wrap;
+}
 .calendar-layout > .card {
   margin: 0;
   min-width: 0;
