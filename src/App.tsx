@@ -23,6 +23,7 @@ import {
 import { Productivity, Capabilities } from "./Productivity";
 import { MemoryPanel, MemorySuggestions } from "./Memory";
 import { BackupPanel } from "./Backups";
+import { SearchSettings, SearchSources } from "./WebSearch";
 import {
   Conversation,
   phaseLabels,
@@ -94,6 +95,8 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
+  const [searchNext, setSearchNext] = useState(false);
+  const [stage, setStage] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [conversation, setConversation] = useState<ConversationState>({
     active: false,
@@ -107,6 +110,7 @@ export function App() {
     [],
   );
   const memoryRefreshEpoch = useRef(0);
+  const modelRefreshEpoch = useRef(0);
   const dataEpoch = useRef(0);
   const [restoredVersion, setRestoredVersion] = useState(0);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -128,6 +132,8 @@ export function App() {
   const [uploading, setUploading] = useState(false);
   const [voiceDownloading, setVoiceDownloading] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [searchKey, setSearchKey] = useState("");
+  const [searchKeyTouched, setSearchKeyTouched] = useState(false);
   const [customModel, setCustomModel] = useState("");
   const [keyTouched, setKeyTouched] = useState(false);
   const abort = useRef<AbortController | null>(null);
@@ -168,13 +174,17 @@ export function App() {
     }
   };
   const refreshModels = useCallback(async () => {
-    const epoch = dataEpoch.current;
+    const epoch = ++modelRefreshEpoch.current;
+    const dataVersion = dataEpoch.current;
     const data = await request<{
       connected: boolean;
       installed: { id: string; size: number }[];
       error?: string;
     }>("/models");
-    if (epoch === dataEpoch.current) {
+    if (
+      epoch === modelRefreshEpoch.current &&
+      dataVersion === dataEpoch.current
+    ) {
       setConnected(data.connected);
       setInstalled(data.installed);
     }
@@ -276,7 +286,10 @@ export function App() {
         const epoch = dataEpoch.current;
         void request<Settings>("/settings")
           .then((config) => {
-            if (epoch === dataEpoch.current) setSettings(config);
+            if (epoch === dataEpoch.current) {
+              setSettings(config);
+              void refreshModels().catch(fail);
+            }
           })
           .catch(fail);
       }
@@ -316,6 +329,9 @@ export function App() {
       setDraft("");
       setApiKey("");
       setKeyTouched(false);
+      setSearchKey("");
+      setSearchKeyTouched(false);
+      setSearchNext(false);
       setAlias({ name: "", kind: "folder", target: "" });
       setRestoredVersion((value) => value + 1);
       setError("");
@@ -375,10 +391,13 @@ export function App() {
     const saved = await request<Settings>("/settings", "PUT", {
       ...next,
       ...(keyTouched ? { api_key: apiKey } : {}),
+      ...(searchKeyTouched ? { search_api_key: searchKey } : {}),
     });
     setSettings(saved);
     setApiKey("");
     setKeyTouched(false);
+    setSearchKey("");
+    setSearchKeyTouched(false);
     channel.current?.postMessage({ type: "settings" });
     setNotice("Настройки сохранены");
     await refreshModels();
@@ -436,6 +455,9 @@ export function App() {
     setDraft("");
     setAnswer("");
     setBusy(true);
+    setStage("Отвечает…");
+    const useSearch = !options.conversation && searchNext;
+    if (!options.conversation) setSearchNext(false);
     busyRef.current = true;
     const controller = new AbortController();
     abort.current = controller;
@@ -452,6 +474,7 @@ export function App() {
           if (event.type === "user" && event.message)
             setMessages((items) => [...items, event.message!]);
           if (event.type === "delta") setAnswer((value) => value + event.text);
+          if (event.type === "stage") setStage(event.text || "Отвечает…");
           if (event.type === "error") {
             streamError = event.text || "Ошибка модели";
             setError(streamError);
@@ -463,6 +486,7 @@ export function App() {
           }
         },
         options.conversation ? "conversation" : "text",
+        useSearch,
       );
       if (streamError) throw new Error(streamError);
       if (controller.signal.aborted)
@@ -933,6 +957,11 @@ export function App() {
                         )}
                       </div>
                       <div className="message-text">{message.content}</div>
+                      <SearchSources
+                        message={message}
+                        onError={fail}
+                        onNotice={setNotice}
+                      />
                       {Boolean(message.memory_context?.length) && (
                         <details className="memory-context">
                           <summary>Передано в контекст из памяти</summary>
@@ -952,7 +981,7 @@ export function App() {
                     <div className="message-body">
                       <div className="message-meta">
                         {settings.name}
-                        <span className="thinking">отвечает</span>
+                        <span className="thinking">{stage}</span>
                       </div>
                       <div className="message-text">
                         {answer || <span className="dots">•••</span>}
@@ -1030,7 +1059,9 @@ export function App() {
                         ? "Идёт голосовой разговор…"
                         : recording
                           ? "Идёт запись с микрофона…"
-                          : "Напишите сообщение или команду…"
+                          : searchNext
+                            ? "Что найти в интернете?"
+                            : "Напишите сообщение или команду…"
                     }
                     value={draft}
                     rows={2}
@@ -1074,6 +1105,25 @@ export function App() {
                             : "Shift + Enter — новая строка"}
                       </span>
                     </div>
+                    <button
+                      type="button"
+                      className={
+                        "search-toggle " + (searchNext ? "selected" : "")
+                      }
+                      aria-label="Поиск в интернете для следующего сообщения"
+                      aria-pressed={searchNext}
+                      disabled={busy || conversation.active || recording}
+                      onClick={() => {
+                        if (!settings.search_enabled) {
+                          setTab("settings");
+                          setNotice(
+                            "Подключите поисковый сервис и разрешите веб-поиск в настройках.",
+                          );
+                        } else setSearchNext((value) => !value);
+                      }}
+                    >
+                      ⌕ Поиск
+                    </button>
                     {busy ? (
                       <button
                         className="send"
@@ -1757,6 +1807,15 @@ export function App() {
                   speaking ||
                   conversation.active
                 }
+              />
+              <SearchSettings
+                settings={settings}
+                onChange={setSettings}
+                secret={searchKey}
+                onSecret={(value) => {
+                  setSearchKey(value);
+                  setSearchKeyTouched(true);
+                }}
               />
               <div className="card">
                 <h2>Речь и озвучка</h2>

@@ -1416,3 +1416,52 @@ html:has(.pet-window) {
   text-align: left;
   border-bottom: 1px solid var(--line);
 }
+.search-toggle {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  margin-left: auto;
+  margin-right: 12px;
+}
+.search-toggle.selected {
+  color: var(--mint);
+  border-color: var(--mint);
+  background: #92e0c312;
+}
+.search-sources {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 16px;
+  margin-top: 15px;
+}
+.search-sources ol {
+  padding-left: 24px;
+}
+.search-sources li {
+  margin: 14px 0;
+  padding-left: 4px;
+}
+.search-sources li p {
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.source-link {
+  padding: 0;
+  color: var(--mint);
+  text-align: left;
+}
+.source-link:hover {
+  text-decoration: underline;
+}
+.source-address {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.search-warning {
+  font-size: 12px;
+  color: #e7c893;
+}

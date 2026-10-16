@@ -35,6 +35,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS dialogue_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS memory_candidates (id TEXT PRIMARY KEY, content TEXT NOT NULL, category TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE, source_message_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', memory_id TEXT, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS message_memories (message_id TEXT NOT NULL, memory_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(message_id,memory_id));
+                CREATE TABLE IF NOT EXISTS web_searches (message_id TEXT PRIMARY KEY, query TEXT NOT NULL, provider TEXT NOT NULL, checked_at TEXT NOT NULL, results TEXT NOT NULL, partial INTEGER NOT NULL DEFAULT 0);
                 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(id UNINDEXED, text);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}
@@ -69,13 +70,16 @@ class Store:
             rows = db.execute(f"SELECT * FROM (SELECT * FROM {table} ORDER BY {ordering} DESC LIMIT ?) ORDER BY {ordering}", (limit,)).fetchall()
         return [dict(row) for row in rows]
 
-    def add_message(self, role: str, content: str, memory_context: list[dict] | None = None) -> dict:
+    def add_message(self, role: str, content: str, memory_context: list[dict] | None = None, web_search: dict | None = None) -> dict:
         item = dict(id=uuid.uuid4().hex, role=role, content=content, created=now())
         with self.db() as db:
             db.execute("INSERT INTO messages VALUES (:id,:role,:content,:created)", item)
             for memory in memory_context or []:
                 db.execute("INSERT OR IGNORE INTO message_memories SELECT ?,id,revision FROM memories WHERE id=? AND revision=?", (item["id"], memory["id"], memory["revision"]))
             item["memory_context"] = [dict(row) for row in db.execute("SELECT m.id,m.content,m.revision FROM memories m JOIN message_memories mm ON mm.memory_id=m.id AND mm.revision=m.revision WHERE mm.message_id=?", (item["id"],))]
+            if web_search is not None:
+                db.execute("INSERT INTO web_searches VALUES (?,?,?,?,?,?)", (item["id"], web_search["query"], web_search["provider"], web_search["checked_at"], json.dumps(web_search["results"], ensure_ascii=False), int(web_search["partial"])))
+                item["web_search"] = web_search
         return item
 
     def messages(self, limit: int = 250) -> list[dict]:
@@ -86,9 +90,18 @@ class Store:
                 item["memory_context"] = []
             with self.db() as db:
                 rows = db.execute(f"SELECT mm.message_id,m.id,m.content,m.revision FROM message_memories mm JOIN memories m ON m.id=mm.memory_id AND m.revision=mm.revision WHERE mm.message_id IN ({','.join('?' for _ in items)})", tuple(by_id)).fetchall()
+                searches = db.execute(f"SELECT * FROM web_searches WHERE message_id IN ({','.join('?' for _ in items)})", tuple(by_id)).fetchall()
             for row in rows:
                 by_id[row["message_id"]]["memory_context"].append({"id": row["id"], "content": row["content"], "revision": row["revision"]})
+            for row in searches:
+                by_id[row["message_id"]]["web_search"] = {"query": row["query"], "provider": row["provider"], "checked_at": row["checked_at"], "results": json.loads(row["results"]), "partial": bool(row["partial"])}
         return items
+
+    def web_source(self, message_id: str, index: int) -> dict | None:
+        with self.db() as db:
+            row = db.execute("SELECT results FROM web_searches WHERE message_id=?", (message_id,)).fetchone()
+        results = json.loads(row[0]) if row else []
+        return results[index] if 0 <= index < len(results) else None
 
     def _write_memory(self, db, content, category, pinned=False, source_message_id=None, item_id=None):
         content = content.strip()

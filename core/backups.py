@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 from .config import Settings
 from .memory import fingerprint, normalized
 from .storage import Store, now
+from .websearch import public_url
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -101,10 +102,33 @@ class Notification(Dated):
     delivered: Bit
 
 
+def valid_source_url(value: str) -> str:
+    result = public_url(value)
+    if not result:
+        raise ValueError("Недопустимый URL источника")
+    return result
+
+
+class WebResult(Record):
+    title: str = Field(min_length=1, max_length=180)
+    url: Annotated[str, AfterValidator(valid_source_url)]
+    snippet: str = Field(max_length=600)
+
+
+class WebSearch(Record):
+    message_id: Id
+    query: str = Field(min_length=2, max_length=500)
+    provider: Literal["brave", "searxng"]
+    checked_at: Timestamp
+    results: list[WebResult] = Field(max_length=5)
+    partial: Bit
+
+
 TABLES = {
     "messages": Message, "memories": Memory, "memory_candidates": Candidate,
     "message_memories": Reference, "aliases": Alias, "documents": Document,
     "notes": Note, "tasks": Task, "notifications": Notification,
+    "web_searches": WebSearch,
 }
 
 
@@ -118,6 +142,7 @@ class Data(Record):
     notes: list[Note]
     tasks: list[Task]
     notifications: list[Notification]
+    web_searches: list[WebSearch] = Field(default_factory=list)
 
 
 class Bundle(Record):
@@ -160,12 +185,15 @@ def parse(data: bytes) -> Bundle:
         if sum(map(len, tables.values())) > MAX_RECORDS:
             raise ValueError("Слишком много записей")
         for name, rows in tables.items():
-            keys = [(row["message_id"], row["memory_id"]) if name == "message_memories" else row["id"] for row in rows]
+            keys = [(row["message_id"], row["memory_id"]) if name == "message_memories" else row["message_id"] if name == "web_searches" else row["id"] for row in rows]
             if len(keys) != len(set(keys)):
                 raise ValueError("Повторяющиеся записи")
         messages = {row["id"]: row for row in tables["messages"]}
         memories = {row["id"]: row for row in tables["memories"]}
         tasks = {row["id"]: row for row in tables["tasks"]}
+        for search in tables["web_searches"]:
+            if messages.get(search["message_id"], {}).get("role") != "assistant":
+                raise ValueError("Поиск без ответа ассистента")
         for memory in memories.values():
             if memory["source_message_id"] is not None and messages.get(memory["source_message_id"], {}).get("role") != "user":
                 raise ValueError("Неверный источник памяти")
@@ -203,6 +231,9 @@ def snapshot(db) -> dict:
     for name, schema in TABLES.items():
         columns = ",".join(schema.model_fields)
         tables[name] = [dict(row) for row in db.execute(f"SELECT {columns} FROM {name} ORDER BY rowid")]
+        if name == "web_searches":
+            for item in tables[name]:
+                item["results"] = json.loads(item["results"])
     return {"format": "wileyai.backup", "version": 1, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
@@ -287,12 +318,14 @@ class Backups:
                 if name == "memories":
                     columns.append("fingerprint")
                     rows = [{**row, "fingerprint": fingerprint(row["content"])} for row in rows]
+                if name == "web_searches":
+                    rows = [{**row, "results": json.dumps(row["results"], ensure_ascii=False)} for row in rows]
                 if rows:
                     db.executemany(f"INSERT INTO {name} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [tuple(row[column] for column in columns) for row in rows])
             db.execute("DELETE FROM memories_fts")
             db.executemany("INSERT INTO memories_fts VALUES (?,?)", [(row["id"], normalized(row["content"])) for row in tables["memories"]])
             db.execute("DELETE FROM dialogue_state")
-            settings = bundle.settings if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "memory_suggestions")}}
+            settings = {**bundle.settings, "search_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "memory_suggestions")}}
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
             db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
         return {"recovery_path": str(path.resolve()), "counts": {name: len(rows) for name, rows in tables.items()}, "connections": connections, "aliases": aliases}

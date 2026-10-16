@@ -14,6 +14,10 @@ export interface Settings {
   tts_voice: string;
   speak_answers: boolean;
   memory_suggestions: boolean;
+  search_enabled: boolean;
+  search_provider: "searxng" | "brave";
+  search_base_url: string;
+  search_filter: "off" | "moderate" | "strict";
   audio_input_device_id: string;
   audio_output_device_id: string;
   conversation_silence_ms: number;
@@ -21,6 +25,8 @@ export interface Settings {
   avatar_path: string;
   has_api_key?: boolean;
   api_key?: string;
+  has_search_api_key?: boolean;
+  search_api_key?: string;
 }
 export interface Message {
   id: string;
@@ -28,6 +34,14 @@ export interface Message {
   content: string;
   created: string;
   memory_context?: { id: string; content: string; revision: number }[];
+  web_search?: WebSearch;
+}
+export interface WebSearch {
+  query: string;
+  provider: string;
+  checked_at: string;
+  partial: boolean;
+  results: { title: string; url: string; snippet: string }[];
 }
 export interface Memory {
   id: string;
@@ -193,35 +207,49 @@ export async function stream(
     changed?: string[];
   }) => void,
   mode: "text" | "conversation" = "text",
+  web_search = false,
 ) {
-  const response = await fetch(connection.url + "/chat", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + connection.token,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-      document_ids,
-      mode,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }),
-    signal,
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Не удалось отправить сообщение");
-  }
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let pending = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    pending += decoder.decode(value, { stream: true });
-    const parts = pending.split("\n\n");
-    pending = parts.pop() || "";
-    for (const part of parts)
-      if (part.startsWith("data: ")) onEvent(JSON.parse(part.slice(6)));
+  const request_id = crypto.randomUUID();
+  let stopping: Promise<unknown> | undefined;
+  const cancel = () => {
+    stopping = request("/chat/stop", "POST", { request_id }).catch(() => {});
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    const response = await fetch(connection.url + "/chat", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + connection.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        document_ids,
+        mode,
+        web_search,
+        request_id,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+      signal,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Не удалось отправить сообщение");
+    }
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const parts = pending.split("\n\n");
+      pending = parts.pop() || "";
+      for (const part of parts)
+        if (part.startsWith("data: ")) onEvent(JSON.parse(part.slice(6)));
+    }
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await stopping;
   }
 }

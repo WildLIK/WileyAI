@@ -23,6 +23,10 @@ class Settings(BaseModel):
     tts_voice: str = Field(default="", max_length=300)
     speak_answers: bool = False
     memory_suggestions: bool = True
+    search_enabled: bool = False
+    search_provider: Literal["searxng", "brave"] = "searxng"
+    search_base_url: str = "http://127.0.0.1:8080"
+    search_filter: Literal["off", "moderate", "strict"] = "off"
     audio_input_device_id: str = Field(default="", max_length=512)
     audio_output_device_id: str = Field(default="", max_length=512)
     conversation_silence_ms: int = Field(default=1000, ge=500, le=2500)
@@ -39,9 +43,20 @@ class Settings(BaseModel):
             raise ValueError("Для удалённого сервера нужен HTTPS; HTTP разрешён для localhost")
         return value.rstrip("/")
 
+    @field_validator("search_base_url")
+    @classmethod
+    def valid_search_endpoint(cls, value: str) -> str:
+        if len(value) > 2048 or "\\" in value or any(ord(char) < 33 for char in value):
+            raise ValueError("Укажите корректный адрес SearXNG")
+        parsed = urlparse(value)
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError("Укажите корректный порт SearXNG")
+        return cls.valid_endpoint(value)
+
 
 class SettingsUpdate(Settings):
     api_key: str | None = Field(default=None, max_length=4096)
+    search_api_key: str | None = Field(default=None, max_length=4096)
 
 
 CATALOG = [
