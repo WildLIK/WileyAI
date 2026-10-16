@@ -210,6 +210,9 @@ def test_only_a_saved_source_can_be_opened_and_nothing_runs_from_search_text(api
     assert opened == [] and api.get("/memory-candidates").json() == []
     assert api.post("/web/open-source", json={"message_id": answer["id"], "index": 0}).status_code == 200
     assert opened == ["https://example.com"]
+    other = api.post("/conversations", json={}).json()
+    assert api.post("/web/open-source?conversation_id=" + other["id"], json={"message_id": answer["id"], "index": 0}).status_code == 404
+    assert opened == ["https://example.com"]
     assert api.post("/web/open-source", json={"message_id": "a" * 32, "index": 0}).status_code == 404
     assert api.post("/web/open-source", json={"message_id": answer["id"], "index": 2}).status_code == 404
 

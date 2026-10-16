@@ -164,7 +164,7 @@ test("web search: explicit opt-in, real provider HTTP, citations, one-shot butto
       }),
     ).toBeVisible();
     const openedSources: unknown[] = [];
-    await page.route("**/web/open-source", (route) => {
+    await page.route("**/web/open-source*", (route) => {
       openedSources.push(route.request().postDataJSON());
       return route.fulfill({ json: { text: "Передал браузеру источник" } });
     });

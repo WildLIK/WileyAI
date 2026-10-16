@@ -220,9 +220,9 @@ test("backups: native save/open, preview, stale guard, protective copy, all-wind
   app = await launch();
   try {
     const page = await app.firstWindow();
-    await expect(
-      page.getByRole("heading", { name: "Привет, я Уайли из копии." }),
-    ).toBeVisible();
+    await expect(page.locator(".companion-panel h2")).toHaveText(
+      "Уайли из копии",
+    );
     await page.getByRole("button", { name: "◷ Задачи" }).click();
     await expect(page.locator(".alias-row")).toContainText("Задача из копии");
     await page.getByRole("button", { name: "▤ Заметки" }).click();

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { request } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { request, scopedRequest } from "./api";
 
 type Task = {
   id: string;
@@ -28,10 +28,16 @@ const kinds: Record<string, string> = {
 export function Productivity({
   mode,
   onError,
+  conversationId,
 }: {
   mode: "tasks" | "notes";
   onError: (error: unknown) => void;
+  conversationId: string;
 }) {
+  const request = useMemo(
+    () => scopedRequest(conversationId),
+    [conversationId],
+  );
   const [tasks, setTasks] = useState<Task[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [title, setTitle] = useState("");
@@ -44,7 +50,7 @@ export function Productivity({
   const load = useCallback(async () => {
     if (mode === "tasks") setTasks(await request("/tasks"));
     else setNotes(await request("/notes"));
-  }, [mode]);
+  }, [mode, request]);
   useEffect(() => {
     setTitle("");
     setContent("");

@@ -1,6 +1,7 @@
 """Portable data snapshots. Imports are data, never SQLite files or executable code."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -20,6 +21,7 @@ from .websearch import public_url
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
 Id = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
+ScopeId = Id | Literal[""]
 Bit = Annotated[int, Field(ge=0, le=1)]
 
 
@@ -45,6 +47,7 @@ class Dated(Record):
 class Message(Dated):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=1_000_000)
+    conversation_id: Id = "legacy"
 
 
 class Memory(Dated):
@@ -54,6 +57,7 @@ class Memory(Dated):
     source_message_id: Id | None
     updated: Timestamp
     revision: int = Field(ge=1)
+    scope_id: ScopeId = ""
 
 
 class Candidate(Dated):
@@ -63,6 +67,7 @@ class Candidate(Dated):
     source_message_id: Id
     status: Literal["pending", "accepted", "dismissed"]
     memory_id: Id | None
+    scope_id: ScopeId = ""
 
 
 class Reference(Record):
@@ -81,11 +86,13 @@ class Alias(Record):
 class Document(Dated):
     name: str = Field(min_length=1, max_length=4096)
     content: str = Field(max_length=1_000_000)
+    conversation_id: Id = "legacy"
 
 
 class Note(Dated):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(max_length=20000)
+    scope_id: ScopeId = ""
 
 
 class Task(Dated):
@@ -94,6 +101,18 @@ class Task(Dated):
     due: Timestamp | None
     done: Bit
     notified: Bit
+    scope_id: ScopeId = ""
+
+
+class Project(Dated):
+    name: str = Field(min_length=1, max_length=100)
+    updated: Timestamp
+
+
+class Conversation(Dated):
+    title: str = Field(min_length=1, max_length=100)
+    project_id: Id | None
+    updated: Timestamp
 
 
 class Notification(Dated):
@@ -125,6 +144,7 @@ class WebSearch(Record):
 
 
 TABLES = {
+    "projects": Project, "conversations": Conversation,
     "messages": Message, "memories": Memory, "memory_candidates": Candidate,
     "message_memories": Reference, "aliases": Alias, "documents": Document,
     "notes": Note, "tasks": Task, "notifications": Notification,
@@ -133,6 +153,8 @@ TABLES = {
 
 
 class Data(Record):
+    projects: list[Project] = Field(default_factory=list)
+    conversations: list[Conversation] = Field(default_factory=list)
     messages: list[Message]
     memories: list[Memory]
     memory_candidates: list[Candidate]
@@ -147,7 +169,7 @@ class Data(Record):
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1]
+    version: Literal[1, 2]
     created: Timestamp
     settings: dict
     data: Data
@@ -178,6 +200,10 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version == 1:
+            if bundle.data.projects or bundle.data.conversations:
+                raise ValueError("Проекты требуют формат 2")
+            bundle.data.conversations = [Conversation(id="legacy", title="Переписка до обновления", project_id=None, created=bundle.created, updated=bundle.created)]
         if set(bundle.settings) - Settings.model_fields.keys():
             raise ValueError("Неизвестные настройки")
         bundle.settings = Settings.model_validate(bundle.settings, strict=True).model_dump()
@@ -191,23 +217,40 @@ def parse(data: bytes) -> Bundle:
         messages = {row["id"]: row for row in tables["messages"]}
         memories = {row["id"]: row for row in tables["memories"]}
         tasks = {row["id"]: row for row in tables["tasks"]}
+        projects = {row["id"] for row in tables["projects"]}
+        chats = {row["id"]: row for row in tables["conversations"]}
+        if not chats or any(row["project_id"] is not None and row["project_id"] not in projects for row in chats.values()):
+            raise ValueError("Неверный проект чата")
+        for table in ("messages", "documents"):
+            if any(row["conversation_id"] not in chats for row in tables[table]):
+                raise ValueError("Запись без чата")
+        for table in ("memories", "memory_candidates", "tasks", "notes"):
+            if any(row["scope_id"] and row["scope_id"] not in projects for row in tables[table]):
+                raise ValueError("Запись без проекта")
+        def message_scope(message_id):
+            source = messages.get(message_id)
+            return (chats[source["conversation_id"]]["project_id"] or "") if source else None
         for search in tables["web_searches"]:
             if messages.get(search["message_id"], {}).get("role") != "assistant":
                 raise ValueError("Поиск без ответа ассистента")
         for memory in memories.values():
-            if memory["source_message_id"] is not None and messages.get(memory["source_message_id"], {}).get("role") != "user":
+            if memory["source_message_id"] is not None and (messages.get(memory["source_message_id"], {}).get("role") != "user" or message_scope(memory["source_message_id"]) != memory["scope_id"]):
                 raise ValueError("Неверный источник памяти")
         for ref in tables["message_memories"]:
             if messages.get(ref["message_id"], {}).get("role") != "assistant" or ref["memory_id"] not in memories or ref["revision"] > memories[ref["memory_id"]]["revision"]:
                 raise ValueError("Неверная ссылка памяти")
+            if message_scope(ref["message_id"]) != memories[ref["memory_id"]]["scope_id"]:
+                raise ValueError("Ссылка на память другого проекта")
         candidates = tables["memory_candidates"]
-        if len({row["fingerprint"] for row in candidates}) != len(candidates):
+        if len({(row["scope_id"], row["fingerprint"]) for row in candidates}) != len(candidates):
             raise ValueError("Повторяющиеся предложения")
-        if sum(row["status"] == "pending" for row in candidates) > 50:
+        if any(count > 50 for count in Counter(row["scope_id"] for row in candidates if row["status"] == "pending").values()):
             raise ValueError("Слишком много предложений")
         for row in candidates:
-            if messages.get(row["source_message_id"], {}).get("role") != "user":
+            if messages.get(row["source_message_id"], {}).get("role") != "user" or message_scope(row["source_message_id"]) != row["scope_id"]:
                 raise ValueError("Неверный источник предложения")
+            if row["memory_id"] in memories and memories[row["memory_id"]]["scope_id"] != row["scope_id"]:
+                raise ValueError("Предложение ссылается на чужой проект")
             if row["status"] == "pending":
                 if not row["content"].strip() or fingerprint(row["content"]) != row["fingerprint"] or row["memory_id"] is not None:
                     raise ValueError("Неверное предложение")
@@ -234,12 +277,13 @@ def snapshot(db) -> dict:
         if name == "web_searches":
             for item in tables[name]:
                 item["results"] = json.loads(item["results"])
-    return {"format": "wileyai.backup", "version": 1, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 2, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:
     dialogue = [dict(row) for row in db.execute("SELECT * FROM dialogue_state")]
-    return hashlib.sha256(encode({"settings": value["settings"], "data": value["data"], "dialogue": dialogue})).hexdigest()
+    chats = [dict(row) for row in db.execute("SELECT * FROM chat_dialogue ORDER BY conversation_id")]
+    return hashlib.sha256(encode({"settings": value["settings"], "data": value["data"], "dialogue": dialogue, "chat_dialogue": chats})).hexdigest()
 
 
 class Backups:
@@ -325,6 +369,7 @@ class Backups:
             db.execute("DELETE FROM memories_fts")
             db.executemany("INSERT INTO memories_fts VALUES (?,?)", [(row["id"], normalized(row["content"])) for row in tables["memories"]])
             db.execute("DELETE FROM dialogue_state")
+            db.execute("DELETE FROM chat_dialogue")
             settings = {**bundle.settings, "search_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "memory_suggestions")}}
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
             db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))

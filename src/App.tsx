@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   request,
+  scoped,
   audioRequest,
   stream,
   type Settings,
@@ -19,11 +20,14 @@ import {
   type CatalogItem,
   type Alias,
   type VoiceInfo,
+  type Chat,
+  type Project,
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
 import { MemoryPanel, MemorySuggestions } from "./Memory";
 import { BackupPanel } from "./Backups";
 import { SearchSettings, SearchSources } from "./WebSearch";
+import { ChatSpaces } from "./ChatSpaces";
 import {
   Conversation,
   phaseLabels,
@@ -92,7 +96,23 @@ export function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeChatId, setActiveChatId] = useState(
+    localStorage.getItem("wiley-active-chat") || "",
+  );
+  const activeChatRef = useRef(activeChatId);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    localStorage.getItem("wiley-sidebar-collapsed") === "true",
+  );
+  const [companionOpen, setCompanionOpen] = useState(
+    localStorage.getItem("wiley-companion-open") !== "false",
+  );
+  const conversationEnabled = useRef(false);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const chatDrafts = useRef(new Map<string, string>());
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [searchNext, setSearchNext] = useState(false);
@@ -103,6 +123,14 @@ export function App() {
     owner: false,
     phase: "idle",
   });
+  conversationEnabled.current = conversation.active;
+  const currentChat = chats.find((item) => item.id === activeChatId);
+  const currentProject = projects.find(
+    (item) => item.id === currentChat?.project_id,
+  );
+  const scopeName = currentProject
+    ? "Память проекта «" + currentProject.name + "»"
+    : "Общая память";
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -192,10 +220,12 @@ export function App() {
   }, []);
   const refreshMemories = useCallback(async () => {
     const epoch = ++memoryRefreshEpoch.current;
+    const id = activeChatRef.current;
+    if (!id) return;
     const [facts, candidates, history] = await Promise.all([
-      request<Memory[]>("/memories"),
-      request<MemoryCandidate[]>("/memory-candidates"),
-      request<Message[]>("/messages"),
+      request<Memory[]>(scoped("/memories", id)),
+      request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
+      request<Message[]>(scoped("/messages", id)),
     ]);
     if (epoch !== memoryRefreshEpoch.current) return;
     setMemories(facts);
@@ -219,16 +249,43 @@ export function App() {
   }, [refreshMemories]);
   const refresh = useCallback(async () => {
     const epoch = dataEpoch.current;
+    const [chatList, projectList] = await Promise.all([
+      request<Chat[]>("/conversations"),
+      request<Project[]>("/projects"),
+    ]);
+    if (epoch !== dataEpoch.current) return;
+    setChats(chatList);
+    setProjects(projectList);
+    const id = chatList.some((chat) => chat.id === activeChatRef.current)
+      ? activeChatRef.current
+      : chatList[0]?.id;
+    if (!id) return;
+    if (id !== activeChatRef.current) {
+      setDraft(chatDrafts.current.get(id) || "");
+      setSelectedDocs([]);
+      setSearchNext(false);
+      setMessages([]);
+      setDocuments([]);
+      setMemories([]);
+      setMemoryCandidates([]);
+    }
+    for (const key of chatDrafts.current.keys()) {
+      if (!chatList.some((chat) => chat.id === key))
+        chatDrafts.current.delete(key);
+    }
+    activeChatRef.current = id;
+    setActiveChatId(id);
+    localStorage.setItem("wiley-active-chat", id);
     const [config, history, facts, files, items, aliases, voices, candidates] =
       await Promise.all([
         request<Settings>("/settings"),
-        request<Message[]>("/messages"),
-        request<Memory[]>("/memories"),
-        request<Doc[]>("/documents"),
+        request<Message[]>(scoped("/messages", id)),
+        request<Memory[]>(scoped("/memories", id)),
+        request<Doc[]>(scoped("/documents", id)),
         request<CatalogItem[]>("/catalog"),
         request<{ custom: Alias[] }>("/aliases"),
         request<VoiceInfo>("/voice"),
-        request<MemoryCandidate[]>("/memory-candidates"),
+        request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
       ]);
     if (epoch !== dataEpoch.current) return;
     setSettings(config);
@@ -241,6 +298,45 @@ export function App() {
     setVoice(voices);
     void refreshModels().catch(fail);
   }, [refreshModels]);
+  const selectChat = useCallback(
+    async (id: string, broadcast = true) => {
+      if (busyRef.current || conversationEnabled.current)
+        throw new Error("Завершите ответ или разговор перед сменой чата.");
+      chatDrafts.current.set(activeChatRef.current, draftRef.current);
+      activeChatRef.current = id;
+      setActiveChatId(id);
+      if (broadcast) setTab("chat");
+      setDraft(chatDrafts.current.get(id) || "");
+      setMessages([]);
+      setMemories([]);
+      setMemoryCandidates([]);
+      setSelectedDocs([]);
+      setDocuments([]);
+      setSearchNext(false);
+      setError("");
+      setNotice("");
+      dataEpoch.current++;
+      memoryRefreshEpoch.current++;
+      await refresh();
+      if (broadcast)
+        channel.current?.postMessage({ type: "chat-selected", id });
+    },
+    [refresh],
+  );
+  const spacesChanged = useCallback(
+    async (id?: string) => {
+      setNotice("");
+      if (id) await selectChat(id);
+      else {
+        dataEpoch.current++;
+        memoryRefreshEpoch.current++;
+        setRestoredVersion((value) => value + 1);
+        await refresh();
+      }
+      channel.current?.postMessage({ type: "spaces-changed" });
+    },
+    [refresh, selectChat],
+  );
   const stopAudio = useCallback(() => {
     speechAbort.current?.abort();
     void request("/voice/stop", "POST").catch(() => {});
@@ -300,14 +396,23 @@ export function App() {
         setTab("chat");
       }
       if (event.data.type === "stop") stop();
+      if (event.data.type === "chat-selected")
+        void selectChat(String(event.data.id), false).catch(fail);
+      if (event.data.type === "spaces-changed") {
+        dataEpoch.current++;
+        memoryRefreshEpoch.current++;
+        setRestoredVersion((value) => value + 1);
+        void refresh().catch(fail);
+      }
       if (event.data.type === "chat-updated") {
         const epoch = dataEpoch.current;
-        void request<Message[]>("/messages")
+        void request<Message[]>(scoped("/messages", activeChatRef.current))
           .then((history) => {
             if (epoch === dataEpoch.current) setMessages(history);
           })
           .catch(fail);
         void refreshMemories().catch(fail);
+        void request<Chat[]>("/conversations").then(setChats).catch(fail);
       }
       if (event.data.type === "memory-changed")
         void refreshMemories().catch(fail);
@@ -327,6 +432,7 @@ export function App() {
       stop();
       setSelectedDocs([]);
       setDraft("");
+      chatDrafts.current.clear();
       setApiKey("");
       setKeyTouched(false);
       setSearchKey("");
@@ -361,7 +467,7 @@ export function App() {
         void window.wiley.releaseConversation(starting.lease);
       }
     };
-  }, [refresh, refreshMemories, stop]);
+  }, [refresh, refreshMemories, selectChat, stop]);
   useEffect(() => {
     listEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, answer, memoryCandidates.length]);
@@ -464,6 +570,7 @@ export function App() {
     const cancel = () => controller.abort();
     options.signal?.addEventListener("abort", cancel, { once: true });
     let completed = "";
+    const chatId = activeChatRef.current;
     let streamError = "";
     try {
       await stream(
@@ -471,6 +578,7 @@ export function App() {
         selectedDocs,
         controller.signal,
         (event) => {
+          if (chatId !== activeChatRef.current) return;
           if (event.type === "user" && event.message)
             setMessages((items) => [...items, event.message!]);
           if (event.type === "delta") setAnswer((value) => value + event.text);
@@ -487,6 +595,7 @@ export function App() {
         },
         options.conversation ? "conversation" : "text",
         useSearch,
+        chatId,
       );
       if (streamError) throw new Error(streamError);
       if (controller.signal.aborted)
@@ -506,6 +615,7 @@ export function App() {
       setAnswer("");
       abort.current = null;
       void refreshMemories().catch(fail);
+      void request<Chat[]>("/conversations").then(setChats).catch(fail);
       channel.current?.postMessage({ type: "chat-updated" });
       window.dispatchEvent(new Event("wiley-data-updated"));
     }
@@ -801,74 +911,117 @@ export function App() {
     );
 
   return (
-    <div className="app-shell">
+    <div
+      className={"app-shell " + (sidebarCollapsed ? "sidebar-collapsed" : "")}
+    >
       <aside className="sidebar">
         <div className="brand">
           <div className="logo-mark">W</div>
-          <div>
+          <div className="brand-text">
             Wiley<span>AI</span>
             <small>PERSONAL ASSISTANT</small>
           </div>
         </div>
-        <div className="workspace-label">МОЁ ПРОСТРАНСТВО</div>
         <nav>
           {tabs.map((item) => (
             <button
               key={item.id}
               className={tab === item.id ? "nav-item active" : "nav-item"}
+              aria-label={item.icon + " " + item.label}
+              title={item.label}
               onClick={() => {
                 setTab(item.id);
                 setError("");
               }}
             >
               <span>{item.icon}</span>
-              {item.label}
+              <b className="nav-label">{item.label}</b>
               {item.id === "memory" && <small>{memories.length}</small>}
             </button>
           ))}
         </nav>
+        <ChatSpaces
+          chats={chats}
+          projects={projects}
+          active={activeChatId}
+          disabled={busy || conversation.active || uploading || recording}
+          onSelect={selectChat}
+          onChanged={spacesChanged}
+          onError={fail}
+        />
         <div className="sidebar-bottom">
-          <div className="local-badge">
-            <i />
-            Локальное ядро работает
-          </div>
-          <p>
-            Ваше пространство.
-            <br />
-            Ваш характер. Ваш выбор.
-          </p>
           <button
             className="subtle"
+            aria-label="Показать аватара"
+            title="Показать аватара"
             onClick={() => window.wiley.showWindow("avatar")}
           >
-            ↗ Показать аватара
+            ◈ <span>Показать аватара</span>
           </button>
           <button className="subtle" onClick={() => window.wiley.quit()}>
             Выйти из WileyAI
           </button>
-          <small>v0.1 · первый рабочий прототип</small>
         </div>
       </aside>
       <main className="workspace">
         <header className="topbar">
+          <button
+            className="panel-toggle"
+            aria-label={
+              sidebarCollapsed
+                ? "Развернуть левую панель"
+                : "Свернуть левую панель"
+            }
+            title={
+              sidebarCollapsed
+                ? "Развернуть левую панель"
+                : "Свернуть левую панель"
+            }
+            onClick={() => {
+              setSidebarCollapsed(!sidebarCollapsed);
+              localStorage.setItem(
+                "wiley-sidebar-collapsed",
+                String(!sidebarCollapsed),
+              );
+            }}
+          >
+            ☰
+          </button>
           <div className="breadcrumb">
-            WileyAI <span>/</span> {tabs.find((item) => item.id === tab)?.label}
+            {tab === "chat" ? currentProject?.name || "Общие чаты" : "WileyAI"}{" "}
+            <span>/</span> {tabs.find((item) => item.id === tab)?.label}
           </div>
+          {tab === "chat" && (
+            <button
+              className="panel-toggle"
+              aria-label={
+                companionOpen
+                  ? "Свернуть панель аватара"
+                  : "Развернуть панель аватара"
+              }
+              title={
+                companionOpen
+                  ? "Свернуть панель аватара"
+                  : "Развернуть панель аватара"
+              }
+              onClick={() => {
+                setCompanionOpen(!companionOpen);
+                localStorage.setItem(
+                  "wiley-companion-open",
+                  String(!companionOpen),
+                );
+              }}
+            >
+              ◈
+            </button>
+          )}
           <div className={"connection " + (connected ? "online" : "")}>
             <i />
             {connected ? settings.model : "Модель не подключена"}
           </div>
         </header>
-        {(tab === "chat" || conversation.active) && (
-          <div className="conversation-banner">
-            <div>
-              <strong>Голосовой разговор</strong>
-              <span>
-                {conversation.active
-                  ? "Во время ответа звук с микрофона пропускается · Ctrl + Shift + Esc — завершить"
-                  : "Говорите свободно — реплики отправляются после паузы"}
-              </span>
-            </div>
+        {tab !== "chat" && conversation.active && (
+          <div className="voice-toolbar">
             <ConversationControl
               state={conversation}
               onToggle={() => run(toggleConversation)}
@@ -894,27 +1047,23 @@ export function App() {
         {tab === "chat" && (
           <div className="chat-layout">
             <section className="chat-panel">
-              <div className="page-heading compact">
+              <div className="chat-toolbar">
                 <div>
-                  <span className="eyebrow">ВСЕГДА РЯДОМ</span>
-                  <h1>
-                    Привет, я {settings.name}
-                    <span className="mint">.</span>
-                  </h1>
-                  <p>Поговорим, разберём документ или откроем нужное.</p>
+                  <h1>{currentChat?.title || "Новый чат"}</h1>
+                  <small>{scopeName}</small>
                 </div>
-                <button
-                  className="outline"
-                  onClick={() => window.wiley.showWindow("avatar")}
-                >
-                  ◈ Аватар
-                </button>
+                <ConversationControl
+                  compact
+                  state={conversation}
+                  onToggle={() => run(toggleConversation)}
+                  onInterrupt={interruptConversation}
+                  disabled={busy || recording || uploading || speaking}
+                />
               </div>
               <div className="messages" aria-live="polite">
                 {!messages.length && (
                   <div className="welcome">
-                    <div className="welcome-symbol">✳</div>
-                    <h2>С чего начнём?</h2>
+                    <h2>Привет, я {settings.name}.</h2>
                     <p>
                       Можно просто поговорить. А знакомые команды
                       <br />я выполню даже без подключения нейросети.
@@ -993,6 +1142,7 @@ export function App() {
                   key={restoredVersion}
                   compact
                   memories={memories}
+                  conversationId={activeChatId}
                   candidates={memoryCandidates}
                   onChanged={memoryChanged}
                   onError={fail}
@@ -1026,7 +1176,13 @@ export function App() {
                         aria-label={"Удалить " + doc.name}
                         onClick={() =>
                           run(async () => {
-                            await request("/documents/" + doc.id, "DELETE");
+                            await request(
+                              scoped(
+                                "/documents/" + doc.id,
+                                activeChatRef.current,
+                              ),
+                              "DELETE",
+                            );
                             setDocuments((items) =>
                               items.filter((item) => item.id !== doc.id),
                             );
@@ -1155,7 +1311,7 @@ export function App() {
                       : "Внешний провайдер · "}
                     {settings.model}
                   </span>
-                  <span>Память остаётся в WileyAI</span>
+                  <span>{scopeName}</span>
                 </div>
               </div>
               <input
@@ -1170,7 +1326,13 @@ export function App() {
                   void run(async () => {
                     const data = new FormData();
                     data.append("file", file);
-                    const doc = await request<Doc>("/documents", "POST", data);
+                    const chatId = activeChatRef.current;
+                    const doc = await request<Doc>(
+                      scoped("/documents", chatId),
+                      "POST",
+                      data,
+                    );
+                    if (chatId !== activeChatRef.current) return;
                     setDocuments((items) => [...items, doc]);
                     setSelectedDocs((ids) => [...ids, doc.id]);
                     setNotice(
@@ -1181,58 +1343,70 @@ export function App() {
                 }}
               />
             </section>
-            <aside className="companion-panel">
-              <div className="companion-title">
-                <span>ВАШ АССИСТЕНТ</span>
-                <span className="live-dot" />
-              </div>
-              <Avatar path={settings.avatar_path} speaking={speaking} />
-              <h2>{settings.name}</h2>
-              <p>
-                {speaking
-                  ? "Говорю с вами"
-                  : busy
-                    ? "Обдумываю ответ"
-                    : "Готов помочь"}
-              </p>
-              <div className="companion-details">
-                <div>
-                  <span>Профиль</span>
-                  <strong>
-                    {
-                      {
-                        eco: "Экономичный",
-                        balanced: "Сбалансированный",
-                        quality: "Качество",
-                      }[settings.profile]
-                    }
-                  </strong>
+            {companionOpen && (
+              <aside className="companion-panel">
+                <div className="companion-title">
+                  <span>ВАШ АССИСТЕНТ</span>
+                  <span className="live-dot" />
+                  <button
+                    className="panel-toggle"
+                    aria-label="Скрыть аватара"
+                    onClick={() => {
+                      setCompanionOpen(false);
+                      localStorage.setItem("wiley-companion-open", "false");
+                    }}
+                  >
+                    ×
+                  </button>
                 </div>
-                <div>
-                  <span>Память</span>
-                  <strong>{memories.length} записей</strong>
-                </div>
-                <div>
-                  <span>Голос</span>
-                  <strong>
-                    {settings.speak_answers ? "Ответы вслух" : "По запросу"}
-                  </strong>
-                </div>
-              </div>
-              <button
-                className="outline full"
-                onClick={() => setTab("settings")}
-              >
-                Настроить персонажа
-              </button>
-              <div className="tip">
-                <span>ПОДСКАЗКА</span>
+                <Avatar path={settings.avatar_path} speaking={speaking} />
+                <h2>{settings.name}</h2>
                 <p>
-                  «Запомни: …» — сохранит важное. Вы всегда можете посмотреть и
-                  удалить записи.
+                  {speaking
+                    ? "Говорю с вами"
+                    : busy
+                      ? "Обдумываю ответ"
+                      : "Готов помочь"}
                 </p>
-              </div>
-            </aside>
+                <div className="companion-details">
+                  <div>
+                    <span>Профиль</span>
+                    <strong>
+                      {
+                        {
+                          eco: "Экономичный",
+                          balanced: "Сбалансированный",
+                          quality: "Качество",
+                        }[settings.profile]
+                      }
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Память</span>
+                    <strong>{memories.length} записей</strong>
+                  </div>
+                  <div>
+                    <span>Голос</span>
+                    <strong>
+                      {settings.speak_answers ? "Ответы вслух" : "По запросу"}
+                    </strong>
+                  </div>
+                </div>
+                <button
+                  className="outline full"
+                  onClick={() => setTab("settings")}
+                >
+                  Настроить персонажа
+                </button>
+                <div className="tip">
+                  <span>ПОДСКАЗКА</span>
+                  <p>
+                    «Запомни: …» — сохранит важное. Вы всегда можете посмотреть
+                    и удалить записи.
+                  </p>
+                </div>
+              </aside>
+            )}
           </div>
         )}
 
@@ -1491,14 +1665,21 @@ export function App() {
         )}
 
         {(tab === "tasks" || tab === "notes") && (
-          <Productivity key={tab + restoredVersion} mode={tab} onError={fail} />
+          <Productivity
+            key={tab + restoredVersion + activeChatId}
+            mode={tab}
+            conversationId={activeChatId}
+            onError={fail}
+          />
         )}
         {tab === "capabilities" && <Capabilities onError={fail} />}
 
         {tab === "memory" && (
           <MemoryPanel
-            key={restoredVersion}
+            key={restoredVersion + activeChatId + scopeName}
             memories={memories}
+            conversationId={activeChatId}
+            scopeName={scopeName}
             candidates={memoryCandidates}
             onChanged={memoryChanged}
             onError={fail}

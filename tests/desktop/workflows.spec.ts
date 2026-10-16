@@ -71,7 +71,7 @@ test("local dialogue: clarification, reschedule, notes, live window updates and 
   try {
     const chat = await app.firstWindow();
     await expect(
-      chat.getByRole("heading", { name: "Привет, я Уайли." }),
+      chat.getByRole("button", { name: "Начать разговор", exact: true }),
     ).toBeVisible();
     await send(chat, "завтра в 14", "Напоминание создано");
     await chat.getByRole("button", { name: "◷ Задачи" }).click();

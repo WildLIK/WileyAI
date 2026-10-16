@@ -111,7 +111,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     });
     await app
       .context()
-      .route("**/messages", (route) => route.fulfill({ json: history }));
+      .route("**/messages*", (route) => route.fulfill({ json: history }));
     await app.context().route("**/chat", async (route) => {
       const body = route.request().postDataJSON();
       expect(body.mode).toBe("conversation");
@@ -171,7 +171,9 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     await page.getByRole("button", { name: "Перебить", exact: true }).click();
     await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
     const opened = app.waitForEvent("window");
-    await page.getByRole("button", { name: "◈ Аватар", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Показать аватара", exact: true })
+      .click();
     const avatar = await opened;
     await expect(
       avatar.getByText("Разговор в другом окне", { exact: true }).first(),

@@ -26,6 +26,7 @@ from .capabilities import catalog as capabilities_catalog
 from .scheduler import run_scheduler
 from .workflows import Workflows
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
+from .chatspaces import Spaces
 
 
 class TextBody(BaseModel):
@@ -54,6 +55,7 @@ class ChatBody(TextBody):
     mode: Literal["text", "conversation"] = "text"
     web_search: bool = False
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    conversation_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     timezone: str | None = Field(default=None, max_length=100)
 
     @field_validator("timezone")
@@ -108,6 +110,15 @@ class TaskBody(BaseModel):
     done: bool = False
 
 
+class ProjectBody(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class ConversationBody(BaseModel):
+    title: str = Field(default="Новый чат", min_length=1, max_length=100)
+    project_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
 def event(kind: str, **data) -> str:
     return "data: " + json.dumps({"type": kind, **data}, ensure_ascii=False) + "\n\n"
 
@@ -119,8 +130,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     store = Store(root)
     jobs = ModelJobs(root)
     voice = Voice(root)
-    workflows = Workflows(store)
     backups = Backups(store)
+    spaces = Spaces(store)
     chat_lock = asyncio.Lock()
     active_chat = None
     stopped_requests = {}
@@ -240,50 +251,95 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def capabilities():
         return capabilities_catalog()
 
+    @app.get("/projects")
+    def list_projects():
+        return spaces.projects()
+
+    @app.post("/projects")
+    async def create_project(body: ProjectBody):
+        return spaces.create_project(body.name)
+
+    def idle_for_structure():
+        if chat_lock.locked():
+            raise HTTPException(409, "Дождитесь ответа или остановите его перед изменением чатов и проектов")
+
+    @app.put("/projects/{item_id}")
+    async def rename_project(item_id: str, body: ProjectBody):
+        idle_for_structure()
+        spaces.rename_project(item_id, body.name)
+        return {"ok": True}
+
+    @app.delete("/projects/{item_id}")
+    async def delete_project(item_id: str):
+        idle_for_structure()
+        spaces.delete_project(item_id)
+        return {"ok": True}
+
+    @app.get("/conversations")
+    def list_conversations():
+        return spaces.conversations()
+
+    @app.post("/conversations")
+    async def create_conversation(body: ConversationBody):
+        return spaces.create_chat(body.project_id, body.title)
+
+    @app.put("/conversations/{item_id}")
+    async def update_conversation(item_id: str, body: ConversationBody):
+        idle_for_structure()
+        spaces.update_chat(item_id, body.title, body.project_id)
+        return {"ok": True}
+
+    @app.delete("/conversations/{item_id}")
+    async def delete_conversation(item_id: str):
+        idle_for_structure()
+        spaces.delete_chat(item_id)
+        return {"ok": True}
+
     @app.get("/notes")
-    def notes():
-        return store.list("notes", 500)
+    def notes(conversation_id: str | None = None):
+        return store.for_chat(conversation_id).list("notes", 500)
 
     @app.post("/notes")
-    def new_note(body: NoteBody):
-        return store.save_note(body.title, body.content)
+    def new_note(body: NoteBody, conversation_id: str | None = None):
+        return store.for_chat(conversation_id).save_note(body.title, body.content)
 
     @app.put("/notes/{item_id}")
-    def edit_note(item_id: str, body: NoteBody):
-        if not any(item["id"] == item_id for item in store.list("notes", 500)):
+    def edit_note(item_id: str, body: NoteBody, conversation_id: str | None = None):
+        scoped = store.for_chat(conversation_id)
+        if not any(item["id"] == item_id for item in scoped.list("notes", 500)):
             raise HTTPException(404, "Заметка не найдена")
-        return store.save_note(body.title, body.content, item_id)
+        return scoped.save_note(body.title, body.content, item_id)
 
     @app.delete("/notes/{item_id}")
-    def delete_note(item_id: str):
-        store.remove("notes", item_id)
+    def delete_note(item_id: str, conversation_id: str | None = None):
+        store.for_chat(conversation_id).remove("notes", item_id)
         return {"ok": True}
 
     @app.get("/tasks")
-    def tasks():
-        return store.list("tasks", 500)
+    def tasks(conversation_id: str | None = None):
+        return store.for_chat(conversation_id).list("tasks", 500)
 
-    def write_task(body: TaskBody, item_id: str | None = None):
+    def write_task(body: TaskBody, item_id: str | None = None, conversation_id: str | None = None):
         if body.due is not None and body.due.tzinfo is None:
             raise HTTPException(400, "Передайте время с часовым поясом")
         if body.kind != "todo" and body.due is None:
             raise HTTPException(400, "Для напоминания, таймера или будильника нужно время")
         due = body.due.astimezone(timezone.utc).isoformat() if body.due else None
-        return store.save_task(body.title, body.kind, due, body.done, item_id)
+        return store.for_chat(conversation_id).save_task(body.title, body.kind, due, body.done, item_id)
 
     @app.post("/tasks")
-    def new_task(body: TaskBody):
-        return write_task(body)
+    def new_task(body: TaskBody, conversation_id: str | None = None):
+        return write_task(body, conversation_id=conversation_id)
 
     @app.put("/tasks/{item_id}")
-    def edit_task(item_id: str, body: TaskBody):
-        if not any(item["id"] == item_id for item in store.list("tasks", 500)):
+    def edit_task(item_id: str, body: TaskBody, conversation_id: str | None = None):
+        if not any(item["id"] == item_id for item in store.for_chat(conversation_id).list("tasks", 500)):
             raise HTTPException(404, "Задача не найдена")
-        return write_task(body, item_id)
+        return write_task(body, item_id, conversation_id)
 
     @app.delete("/tasks/{item_id}")
-    def delete_task(item_id: str):
-        store.remove("tasks", item_id)
+    def delete_task(item_id: str, conversation_id: str | None = None):
+        store.for_chat(conversation_id).remove("tasks", item_id)
         return {"ok": True}
 
     @app.get("/notifications")
@@ -319,37 +375,37 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise HTTPException(400, providers.describe_error(error)) from error
 
     @app.get("/messages")
-    def messages():
-        return store.messages()
+    def messages(conversation_id: str | None = None):
+        return store.for_chat(conversation_id).messages()
 
     @app.get("/memories")
-    def memories(q: str = ""):
-        return store.memories(q[:1000])
+    def memories(q: str = "", conversation_id: str | None = None):
+        return store.for_chat(conversation_id).memories(q[:1000])
 
     @app.post("/memories")
-    def add_memory(body: MemoryBody):
-        return store.add_memory(body.text, body.category, body.pinned)
+    def add_memory(body: MemoryBody, conversation_id: str | None = None):
+        return store.for_chat(conversation_id).add_memory(body.text, body.category, body.pinned)
 
     @app.put("/memories/{item_id}")
-    def edit_memory(item_id: str, body: MemoryBody):
-        return store.edit_memory(item_id, body.text, body.category, body.pinned)
+    def edit_memory(item_id: str, body: MemoryBody, conversation_id: str | None = None):
+        return store.for_chat(conversation_id).edit_memory(item_id, body.text, body.category, body.pinned)
 
     @app.get("/memory-candidates")
-    def memory_candidates():
-        return store.memory_candidates()
+    def memory_candidates(conversation_id: str | None = None):
+        return store.for_chat(conversation_id).memory_candidates()
 
     @app.post("/memory-candidates/{item_id}/accept")
-    def accept_memory(item_id: str, body: MemoryAcceptance):
-        return store.accept_memory(item_id, body.text, body.category, body.pinned, body.replace_id)
+    def accept_memory(item_id: str, body: MemoryAcceptance, conversation_id: str | None = None):
+        return store.for_chat(conversation_id).accept_memory(item_id, body.text, body.category, body.pinned, body.replace_id)
 
     @app.delete("/memory-candidates/{item_id}")
-    def dismiss_memory(item_id: str):
-        store.dismiss_memory(item_id)
+    def dismiss_memory(item_id: str, conversation_id: str | None = None):
+        store.for_chat(conversation_id).dismiss_memory(item_id)
         return {"ok": True}
 
     @app.delete("/memories/{item_id}")
-    def delete_memory(item_id: str):
-        store.remove("memories", item_id)
+    def delete_memory(item_id: str, conversation_id: str | None = None):
+        store.for_chat(conversation_id).remove("memories", item_id)
         return {"ok": True}
 
     @app.get("/aliases")
@@ -380,8 +436,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return result
 
     @app.post("/web/open-source")
-    async def open_web_source(body: WebSourceBody):
-        source = store.web_source(body.message_id, body.index)
+    async def open_web_source(body: WebSourceBody, conversation_id: str | None = None):
+        source = store.for_chat(conversation_id).web_source(body.message_id, body.index)
         url = websearch.public_url(source["url"]) if source else None
         if not url:
             raise HTTPException(404, "Источник не найден или его адрес недопустим")
@@ -395,11 +451,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"text": run_command(command, dry_run=body.dry_run), "kind": command.kind, "target": command.target}
 
     @app.get("/documents")
-    def list_documents():
-        return [{"id": item["id"], "name": item["name"], "created": item["created"], "characters": len(item["content"])} for item in store.list("documents", 100)]
+    def list_documents(conversation_id: str | None = None):
+        return [{"id": item["id"], "name": item["name"], "created": item["created"], "characters": len(item["content"])} for item in store.for_chat(conversation_id).list("documents", 100)]
 
     @app.post("/documents")
-    async def upload_document(file: UploadFile = File(...)):
+    async def upload_document(file: UploadFile = File(...), conversation_id: str | None = None):
         data = await file.read(15 * 1024 * 1024 + 1)
         await file.close()
         if len(data) > 15 * 1024 * 1024:
@@ -411,12 +467,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise
         except Exception as error:
             raise HTTPException(400, "Не удалось прочитать документ: проверьте формат и целостность файла") from error
-        item = store.add_document(name, text)
+        item = store.for_chat(conversation_id).add_document(name, text)
         return {"id": item["id"], "name": item["name"], "characters": len(text)}
 
     @app.delete("/documents/{item_id}")
-    def delete_document(item_id: str):
-        store.remove("documents", item_id)
+    def delete_document(item_id: str, conversation_id: str | None = None):
+        store.for_chat(conversation_id).remove("documents", item_id)
         return {"ok": True}
 
     @app.get("/voice")
@@ -499,12 +555,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if not body.text.strip():
             raise HTTPException(400, "Сообщение пустое")
         current = store.settings()
+        chat_store = store.for_chat(body.conversation_id)
         text = body.text.strip()
         search_query = websearch.requested_query(text, body.web_search)
         command = commands.resolve(text, store.list("aliases", 1000))
         await chat_lock.acquire()
         try:
-            user = store.add_message("user", text)
+            user = chat_store.add_message("user", text)
         except Exception:
             chat_lock.release()
             raise
@@ -520,7 +577,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             try:
                 yield event("user", message=user)
                 if current.memory_suggestions and search_query is None and not text.casefold().startswith("запомни:"):
-                    store.suggest_memories(user["id"])
+                    chat_store.suggest_memories(user["id"])
                 if search_query is not None:
                     yield event("stage", text="Ищу в интернете…")
                     try:
@@ -537,11 +594,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     if await request.is_disconnected():
                         return
                 elif text.casefold().startswith("запомни: "):
-                    store.add_memory(text.split(":", 1)[1].strip(), source_message_id=user["id"])
+                    chat_store.add_memory(text.split(":", 1)[1].strip(), source_message_id=user["id"])
                     answer = "Запомнил. Посмотреть и удалить запись можно в разделе «Память»."
                     changed = ["memories"]
                     yield event("delta", text=answer)
-                elif (workflow := await asyncio.to_thread(workflows.handle, text, body.timezone, None, current.name)) is not None:
+                elif (workflow := await asyncio.to_thread(Workflows(chat_store).handle, text, body.timezone, None, current.name)) is not None:
                     answer, changed = workflow.text, workflow.changed
                     yield event("delta", text=answer)
                 elif command:
@@ -551,8 +608,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer = "Не нашёл точное соответствие. Добавьте название и путь в разделе «Команды» или укажите полный путь/адрес сайта."
                     yield event("delta", text=answer)
                 if not answer:
-                    selected = [doc for doc in store.list("documents", 100) if doc["id"] in body.document_ids]
-                    memory_context = store.memory_context(text, budget=max(200, min(1600, current.context_tokens // 2)))
+                    selected = [doc for doc in chat_store.list("documents", 100) if doc["id"] in body.document_ids]
+                    memory_context = chat_store.memory_context(text, budget=max(200, min(1600, current.context_tokens // 2)))
                     memory = json.dumps([{"id": item["id"], "content": item["content"], "category": item["category"]} for item in memory_context], ensure_ascii=False)
                     context = documents.context_for(text, selected, budget=2000) if selected else ""
                     system = current.personality[:3000] + "\nИмя ассистента: " + current.name
@@ -570,7 +627,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         raise ValueError("Для выбранного контекста сообщение слишком длинное. Сократите текст или увеличьте контекст в настройках.")
                     history = []
                     used = len(system) + len(text)
-                    for item in reversed(store.list("messages", 40)[:-1]):
+                    for item in reversed(chat_store.list("messages", 40)[:-1]):
                         if used + len(item["content"]) > budget:
                             break
                         history.insert(0, {"role": item["role"], "content": item["content"]})
@@ -592,7 +649,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         answer += fallback
                         yield event("delta", text=fallback)
                 if answer:
-                    assistant = store.add_message("assistant", answer, memory_context, web_result)
+                    assistant = chat_store.add_message("assistant", answer, memory_context, web_result)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
@@ -603,7 +660,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     fallback = "\nНе удалось подготовить ответ по источникам. Результаты поиска доступны в карточке ниже."
                     answer += fallback
                     yield event("delta", text=fallback)
-                    assistant = store.add_message("assistant", answer, memory_context, web_result)
+                    assistant = chat_store.add_message("assistant", answer, memory_context, web_result)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text=providers.describe_error(error))

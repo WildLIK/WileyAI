@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { BackupPreview } from "./api";
 
 const labels: [string, string][] = [
+  ["projects", "Проекты"],
+  ["conversations", "Чаты"],
   ["messages", "Сообщения"],
   ["memories", "Записи памяти"],
   ["notes", "Заметки"],

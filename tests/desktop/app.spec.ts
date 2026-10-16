@@ -93,7 +93,9 @@ test("desktop: local core, persistent memory, settings, model catalog and avatar
       fullPage: true,
     });
     const avatarWindow = app.waitForEvent("window");
-    await page.getByRole("button", { name: "◈ Аватар", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Показать аватара", exact: true })
+      .click();
     const avatar = await avatarWindow;
     await expect(
       avatar.getByRole("button", { name: "Открыть чат", exact: true }),
@@ -109,9 +111,7 @@ test("desktop: local core, persistent memory, settings, model catalog and avatar
   });
   try {
     const page = await again.firstWindow();
-    await expect(
-      page.getByRole("heading", { name: "Привет, я Уайли Тест." }),
-    ).toBeVisible();
+    await expect(page.locator(".companion-panel h2")).toHaveText("Уайли Тест");
     await expect(
       page.getByText(
         "Запомнил. Посмотреть и удалить запись можно в разделе «Память».",

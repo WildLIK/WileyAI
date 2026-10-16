@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { request, type Memory, type MemoryCandidate } from "./api";
+import { scopedRequest, type Memory, type MemoryCandidate } from "./api";
 
 const categories = {
   fact: "Факт",
@@ -7,6 +7,7 @@ const categories = {
   profile: "Занятие / проект",
 };
 type Shared = {
+  conversationId: string;
   memories: Memory[];
   candidates: MemoryCandidate[];
   onChanged: () => Promise<void>;
@@ -14,11 +15,13 @@ type Shared = {
 };
 
 function Suggestion({
+  conversationId,
   item,
   memories,
   onChanged,
   onError,
 }: Omit<Shared, "candidates"> & { item: MemoryCandidate }) {
+  const request = scopedRequest(conversationId);
   const [text, setText] = useState(item.content);
   const [category, setCategory] = useState(item.category);
   const [replace, setReplace] = useState("");
@@ -132,6 +135,7 @@ export function MemorySuggestions({
         <Suggestion
           key={item.id}
           item={item}
+          conversationId={props.conversationId}
           memories={props.memories}
           onChanged={props.onChanged}
           onError={props.onError}
@@ -142,14 +146,17 @@ export function MemorySuggestions({
 }
 
 function MemoryRecord({
+  conversationId,
   item,
   onChanged,
   onError,
 }: {
+  conversationId: string;
   item: Memory;
   onChanged: Shared["onChanged"];
   onError: Shared["onError"];
 }) {
+  const request = scopedRequest(conversationId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.content);
   const [category, setCategory] = useState(item.category);
@@ -268,7 +275,10 @@ function MemoryRecord({
   );
 }
 
-export function MemoryPanel(props: Shared & { suggestionsEnabled: boolean }) {
+export function MemoryPanel(
+  props: Shared & { suggestionsEnabled: boolean; scopeName: string },
+) {
+  const request = scopedRequest(props.conversationId);
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState(props.memories);
@@ -312,6 +322,7 @@ export function MemoryPanel(props: Shared & { suggestionsEnabled: boolean }) {
         <div>
           <span className="eyebrow">УПРАВЛЯЕМАЯ ПАМЯТЬ</span>
           <h1>Что я помню о вас</h1>
+          <strong className="scope-label">{props.scopeName}</strong>
           <p>Подтверждённые факты, предпочтения и контекст ваших проектов.</p>
           <p className="help">
             {props.suggestionsEnabled
@@ -360,6 +371,7 @@ export function MemoryPanel(props: Shared & { suggestionsEnabled: boolean }) {
           <MemoryRecord
             key={item.id}
             item={item}
+            conversationId={props.conversationId}
             onChanged={props.onChanged}
             onError={props.onError}
           />

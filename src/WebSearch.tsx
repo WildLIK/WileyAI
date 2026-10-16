@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { request, type Message, type Settings } from "./api";
+import { request, scoped, type Message, type Settings } from "./api";
 
 export function SearchSources({
   message,
@@ -17,7 +17,9 @@ export function SearchSources({
     setOpening(true);
     try {
       const result = await request<{ text: string }>(
-        "/web/open-source",
+        message.conversation_id
+          ? scoped("/web/open-source", message.conversation_id)
+          : "/web/open-source",
         "POST",
         { message_id: message.id, index },
       );

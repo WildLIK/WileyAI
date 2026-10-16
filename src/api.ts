@@ -35,6 +35,37 @@ export interface Message {
   created: string;
   memory_context?: { id: string; content: string; revision: number }[];
   web_search?: WebSearch;
+  conversation_id?: string;
+}
+export interface Chat {
+  id: string;
+  title: string;
+  project_id: string | null;
+  created: string;
+  updated: string;
+  messages: number;
+}
+export interface Project {
+  id: string;
+  name: string;
+  chats: number;
+}
+
+export function scoped(route: string, conversationId: string) {
+  return (
+    route +
+    (route.includes("?") ? "&" : "?") +
+    "conversation_id=" +
+    encodeURIComponent(conversationId)
+  );
+}
+export function scopedRequest(conversationId: string) {
+  return <T = unknown>(
+    route: string,
+    method = "GET",
+    body?: unknown,
+    signal?: AbortSignal,
+  ) => request<T>(scoped(route, conversationId), method, body, signal);
 }
 export interface WebSearch {
   query: string;
@@ -208,6 +239,7 @@ export async function stream(
   }) => void,
   mode: "text" | "conversation" = "text",
   web_search = false,
+  conversation_id?: string,
 ) {
   const request_id = crypto.randomUUID();
   let stopping: Promise<unknown> | undefined;
@@ -228,6 +260,7 @@ export async function stream(
         mode,
         web_search,
         request_id,
+        conversation_id,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
       signal,
