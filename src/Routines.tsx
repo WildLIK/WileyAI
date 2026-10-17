@@ -7,6 +7,7 @@ type Access = {
   allow_file_open: boolean;
   allow_app_open: boolean;
   allow_web_open: boolean;
+  allow_audio_control: boolean;
   command_understanding: boolean;
 };
 type ToolInfo = {
@@ -50,8 +51,8 @@ export function ToolAccess({
   }, []);
   if (!access) return null;
   return (
-    <div className="card" aria-label="Доступ к открытиям">
-      <h2>Доступ к открытиям</h2>
+    <div className="card" aria-label="Доступ к инструментам">
+      <h2>Доступ к инструментам</h2>
       <p className="help">
         Действует для команд, сценариев и открытия поисковых источников во всех
         окнах.
@@ -61,6 +62,7 @@ export function ToolAccess({
           ["allow_file_open", "Открывать файлы и папки"],
           ["allow_app_open", "Запускать приложения"],
           ["allow_web_open", "Открывать сайты"],
+          ["allow_audio_control", "Управлять звуком и медиаклавишами Windows"],
         ] as const
       ).map(([field, label]) => (
         <label className="checkbox" key={field}>

@@ -34,6 +34,7 @@ export interface Settings {
   allow_file_open: boolean;
   allow_app_open: boolean;
   allow_web_open: boolean;
+  allow_audio_control: boolean;
   command_understanding: boolean;
   search_enabled: boolean;
   search_provider: "searxng" | "brave";

@@ -55,6 +55,23 @@ try {
   const components = await api("/components");
   if (components.items.some((item) => item.installed))
     throw new Error("Installer contains optional runtimes");
+  const audio = await api("/device/audio");
+  if (typeof audio.available !== "boolean" || audio.enabled !== true)
+    throw new Error("Unexpected Windows audio adapter state");
+  if (
+    audio.available &&
+    (!Number.isInteger(audio.volume) ||
+      audio.volume < 0 ||
+      audio.volume > 100 ||
+      typeof audio.muted !== "boolean")
+  )
+    throw new Error("Invalid Windows audio level");
+  console.log(
+    "Standalone Windows audio read OK:",
+    audio.available
+      ? "native endpoint available"
+      : "device unavailable, handled without optional packages",
+  );
   await page.getByRole("button", { name: "⬡ Модели", exact: true }).click();
   await page
     .getByText("Для локальных моделей сначала установите движок", {

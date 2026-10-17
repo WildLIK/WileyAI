@@ -35,6 +35,7 @@ import { SetupWizard, type SetupProgress } from "./Setup";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
+import { DeviceAudio } from "./DeviceAudio";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
@@ -2398,6 +2399,7 @@ export function App() {
                 channel.current?.postMessage({ type: "settings" });
               }}
             />
+            <DeviceAudio />
             <RoutinePanel
               key={activeChatId + ":" + restoredVersion}
               conversationId={activeChatId}

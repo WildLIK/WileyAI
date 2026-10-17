@@ -265,6 +265,16 @@ small {
   gap: 10px;
   flex-wrap: wrap;
 }
+.device-audio .button-row {
+  align-items: center;
+  margin-top: 12px;
+}
+.device-audio h2 { margin: 0; }
+.device-audio input[type="range"] {
+  padding: 0;
+  height: 28px;
+  accent-color: var(--accent);
+}
 .input-with-button {
   display: flex;
   gap: 9px;

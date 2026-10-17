@@ -33,6 +33,7 @@ from .document_library import Library
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
+from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
 from .voice_resources import run_idle_resources
@@ -167,6 +168,7 @@ class OpenAccessBody(BaseModel):
     allow_file_open: bool
     allow_app_open: bool
     allow_web_open: bool
+    allow_audio_control: bool | None = None
     command_understanding: bool | None = None
 
 
@@ -190,6 +192,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     backups = Backups(store)
     spaces = Spaces(store)
     open_tools = OpenTools(store)
+    audio_tools = AudioTools(store)
     chat_lock = asyncio.Lock()
     active_chat = None
     stopped_requests = {}
@@ -620,7 +623,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.get("/tools")
     def opening_tools():
-        return {"tools": open_tools.catalog(), "access": {field: getattr(store.settings(), field) for field in ACCESS_FIELDS}, "choices": open_tools.choices(), "command_understanding": store.settings().command_understanding}
+        return {"tools": open_tools.catalog() + audio_tools.catalog(), "access": {field: getattr(store.settings(), field) for field in ACCESS_FIELDS}, "choices": open_tools.choices(), "command_understanding": store.settings().command_understanding}
+
+    @app.get("/device/audio")
+    def audio_status():
+        return audio_tools.status()
+
+    @app.post("/device/audio")
+    def audio_action(body: AudioAction):
+        return audio_tools.execute(body)
 
     @app.put("/tools/access")
     async def opening_access(body: OpenAccessBody):
@@ -665,6 +676,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.post("/commands")
     def command_preview(body: CommandBody):
+        audio = resolve_audio(body.text, store.settings().name)
+        if audio:
+            return {**audio_tools.execute(audio, dry_run=body.dry_run), "kind": "audio", "target": audio.model_dump()}
         command = commands.resolve(body.text, store.list("aliases", 1000))
         if not command:
             raise HTTPException(400, "Команда не распознана. Попробуйте: «открой загрузки».")
@@ -974,6 +988,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             routine_progress = []
             routine_header = ""
             open_progress = []
+            audio_progress = []
             pending_choices = []
             try:
                 yield event("user", message=user)
@@ -1000,6 +1015,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         return
                 elif full_document:
                     pass  # Reading mode never runs task, memory or Windows commands.
+                elif (audio := resolve_audio(text, current.name)) is not None:
+                    # A pending opening choice must never swallow an explicit audio
+                    # command. No model inference or document text is used here.
+                    answer = await run_audio(audio_tools, audio, audio_progress)
+                    yield event("delta", text=answer)
                 elif followup is not None:
                     if followup.command:
                         await run_step(open_tools, {"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}, open_progress)
@@ -1164,6 +1184,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 if open_progress:
                     with CancelScope(shield=True):
                         chat_store.add_message("assistant", open_progress[-1].removeprefix("1. ") + "\nУже переданная Windows команда открытия не отменяется.")
+                if audio_progress:
+                    with CancelScope(shield=True):
+                        chat_store.add_message("assistant", audio_progress[-1] + "\nОтвет остановлен. Результат команды звука сохранён.")
                 if routine_progress:
                     with CancelScope(shield=True):
                         chat_store.add_message("assistant", routine_header + "\n".join(routine_progress) + "\nСценарий остановлен. Уже переданные Windows команды не отменяются.")

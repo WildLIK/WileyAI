@@ -19,7 +19,7 @@ TOOLS = (
     OpenTool("windows.app.open", "app", "Открыть приложение", "apps.open", "allow_app_open"),
     OpenTool("browser.open", "url", "Открыть сайт", "web.open", "allow_web_open"),
 )
-ACCESS_FIELDS = ("allow_file_open", "allow_app_open", "allow_web_open")
+ACCESS_FIELDS = ("allow_file_open", "allow_app_open", "allow_web_open", "allow_audio_control")
 
 
 class OpenTools:
