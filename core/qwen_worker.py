@@ -10,15 +10,24 @@ from .speech_text import plain_speech, speech_chunks
 
 
 def select_device(torch, device):
-    if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cuda":
+    if device == "cpu":
+        return "cpu"
+    automatic = device == "auto"
+    try:
         if not torch.cuda.is_available():
+            if automatic:
+                return "cpu"
             raise ValueError("CUDA недоступна. Выберите CPU в настройках Qwen3-TTS")
         free, _ = torch.cuda.mem_get_info()
-        if free < 3500 * 1024 * 1024:
-            raise ValueError("Для Qwen3-TTS нужно хотя бы 3,5 ГБ свободной видеопамяти. Освободите её или выберите CPU")
-    return device
+    except RuntimeError as error:
+        if automatic:
+            return "cpu"
+        raise ValueError("Не удалось подготовить CUDA. Выберите CPU в настройках Qwen3-TTS") from error
+    if free < 3500 * 1024 * 1024:
+        if automatic:
+            return "cpu"
+        raise ValueError("Для Qwen3-TTS нужно хотя бы 3,5 ГБ свободной видеопамяти. Освободите её или выберите CPU")
+    return "cuda"
 
 
 def generate(model_path, device, payload):
@@ -28,6 +37,7 @@ def generate(model_path, device, payload):
 
     torch.set_num_threads(4)
     device = select_device(torch, device)
+    print("WILEY_DEVICE:" + device, file=sys.stderr, flush=True)
     model = Qwen3TTSModel.from_pretrained(
         model_path, device_map=device, dtype=torch.bfloat16,
         attn_implementation="sdpa", local_files_only=True, use_safetensors=True,

@@ -229,6 +229,7 @@ export async function audioRequest(
   signal: AbortSignal,
   engine: Settings["tts_engine"] = "silero",
   device: Settings["tts_device"] = "auto",
+  onDevice?: (device: "cpu" | "cuda") => void,
 ): Promise<Blob> {
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
@@ -250,6 +251,9 @@ export async function audioRequest(
       const error = await response.json();
       throw new Error(error.detail || "Ошибка синтеза речи");
     }
+    const actualDevice = response.headers.get("X-Wiley-TTS-Device");
+    if (actualDevice === "cpu" || actualDevice === "cuda")
+      onDevice?.(actualDevice);
     return await response.blob();
   } finally {
     signal.removeEventListener("abort", cancel);

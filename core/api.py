@@ -168,7 +168,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"])
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
@@ -623,7 +623,10 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 if await request.is_disconnected():
                     raise HTTPException(499, "Озвучка отменена")
                 await asyncio.wait({task}, timeout=0.1)
-            return Response(await task, media_type="audio/wav")
+            audio = await task
+            device = getattr(audio, "device", "")
+            headers = {"X-Wiley-TTS-Device": device} if device in {"cpu", "cuda"} else {}
+            return Response(audio, media_type="audio/wav", headers=headers)
         finally:
             if not task.done():
                 with CancelScope(shield=True):

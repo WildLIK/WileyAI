@@ -91,9 +91,10 @@ def setup_runner(tmp_path, monkeypatch, process):
 
 def test_worker_receives_json_and_returns_wav_without_network(tmp_path, monkeypatch):
     async def scenario():
-        process = FakeProcess()
+        process = FakeProcess(error=b"WILEY_DEVICE:cpu\n")
         qwen = setup_runner(tmp_path, monkeypatch, process)
-        assert await qwen.render("Привет", "serena", "cpu", "test", threading.Event()) == process.audio
+        audio = await qwen.render("Привет", "serena", "cpu", "test", threading.Event())
+        assert audio == process.audio and audio.device == "cpu"
         assert process.payload == {"text": "Привет", "speaker": "serena"}
         assert not qwen.processes and not process.kills
     asyncio.run(scenario())
@@ -102,7 +103,8 @@ def test_worker_receives_json_and_returns_wav_without_network(tmp_path, monkeypa
 @pytest.mark.parametrize("audio,error,code,expected", [
     (b"not-wav", b"", 0, "WAV"),
     (b"", "WILEY_ERROR:Недостаточно видеопамяти\ntraceback".encode(), 1, "Недостаточно видеопамяти"),
-    (b"", b"private-diagnostic-trace", 1, "завершился с ошибкой"),
+    (b"", b"private-diagnostic-trace", 1, "завершился с кодом 1"),
+    (b"", b"native error", -1073741819, "-1073741819"),
 ])
 def test_worker_errors_are_reported_without_corrupt_audio(tmp_path, monkeypatch, audio, error, code, expected):
     async def scenario():
@@ -111,6 +113,25 @@ def test_worker_errors_are_reported_without_corrupt_audio(tmp_path, monkeypatch,
         with pytest.raises(ValueError, match=expected):
             await qwen.render("Привет", "", "auto", "test", threading.Event())
         assert not qwen.processes
+        if code:
+            diagnostic = json.loads(qwen.error_log.read_text(encoding="utf-8"))
+            assert diagnostic["exit_code"] == code
+            assert diagnostic["device"] == "auto"
+            assert "Привет" not in diagnostic["stderr"]
+    asyncio.run(scenario())
+
+
+def test_worker_diagnostics_redact_spoken_text_fragments(tmp_path, monkeypatch):
+    from core.speech_text import speech_chunks
+    async def scenario():
+        text = "Личный факт владельца. " * 30
+        fragment = speech_chunks(text)[0]
+        process = FakeProcess(error=("diagnostic: " + fragment).encode("utf-8"), code=1)
+        qwen = setup_runner(tmp_path, monkeypatch, process)
+        with pytest.raises(ValueError):
+            await qwen.render(text, "serena", "cpu", "test", threading.Event())
+        saved = qwen.error_log.read_text(encoding="utf-8")
+        assert "Личный факт" not in saved and "[текст скрыт]" in saved
     asyncio.run(scenario())
 
 
@@ -177,13 +198,25 @@ def test_worker_timeout_kills_process_and_releases_registry(tmp_path, monkeypatc
     (False, 0, "auto", "cpu"),
     (True, 1_000_000_000, "cpu", "cpu"),
     (True, 1_000_000_000, "cuda", "3,5 ГБ"),
-    (True, 1_000_000_000, "auto", "3,5 ГБ"),
+    (True, 1_000_000_000, "auto", "cpu"),
     (False, 0, "cuda", "CUDA недоступна"),
 ])
-def test_device_selection_does_not_silently_move_an_occupied_gpu_job_to_cpu(available, free, requested, expected):
+def test_auto_uses_available_resources_but_explicit_cuda_reports_insufficient_memory(available, free, requested, expected):
     torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: available, mem_get_info=lambda: (free, 8_000_000_000)))
     if expected in {"cpu", "cuda"}:
         assert select_device(torch, requested) == expected
     else:
         with pytest.raises(ValueError, match=expected):
             select_device(torch, requested)
+
+
+@pytest.mark.parametrize("device", ["auto", "cuda"])
+def test_cuda_initialization_failure_falls_back_only_for_auto(device):
+    def failed():
+        raise RuntimeError("CUDA initialization failed")
+    torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True, mem_get_info=failed))
+    if device == "auto":
+        assert select_device(torch, device) == "cpu"
+    else:
+        with pytest.raises(ValueError, match="Не удалось подготовить CUDA"):
+            select_device(torch, device)

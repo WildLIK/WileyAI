@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+from datetime import datetime, timezone
+from .speech_text import speech_chunks
 
 import httpx
 
@@ -24,9 +26,18 @@ VOICES = [
 ]
 
 
+class SpeechAudio(bytes):
+    """Keep the existing WAV contract while reporting the device actually used."""
+    def __new__(cls, data, device):
+        result = super().__new__(cls, data)
+        result.device = device
+        return result
+
+
 class QwenSpeech:
     def __init__(self, root: Path):
         self.root = root / "models" / "qwen3-tts"
+        self.error_log = root / "logs" / "qwen-error.json"
         self.project = Path(__file__).resolve().parents[1]
         environment = self.project / "local" / "qwen-tts" / ".venv"
         self.python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -124,14 +135,27 @@ class QwenSpeech:
                 raise ValueError("Озвучка остановлена")
             if process.returncode:
                 message = errors.decode("utf-8", errors="replace")
+                diagnostic = message.replace(text, "[текст скрыт]")
+                for fragment in speech_chunks(text):
+                    diagnostic = diagnostic.replace(fragment, "[текст скрыт]")
+                try:
+                    self.error_log.parent.mkdir(parents=True, exist_ok=True)
+                    self.error_log.write_text(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "exit_code": process.returncode,
+                        "device": device, "stderr": diagnostic[-16000:]}, ensure_ascii=False, indent=2), encoding="utf-8")
+                except OSError:
+                    pass
                 # Extract the marked user-facing error, excluding dependency diagnostics.
                 for line in reversed(message.splitlines()):
                     if line.startswith("WILEY_ERROR:"):
                         raise ValueError(line.removeprefix("WILEY_ERROR:")[:300])
-                raise ValueError("Движок Qwen3-TTS завершился с ошибкой. Проверьте установку и свободную память")
+                raise ValueError(f"Qwen3-TTS завершился с кодом {process.returncode}. Подробности: logs/qwen-error.json в папке данных WileyAI")
             if not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE" or len(audio) > 64 * 1024 * 1024:
                 raise ValueError("Qwen3-TTS не вернул корректный WAV")
-            return audio
+            actual_device = ""
+            for line in errors.decode("utf-8", errors="replace").splitlines():
+                if line in {"WILEY_DEVICE:cpu", "WILEY_DEVICE:cuda"}:
+                    actual_device = line.removeprefix("WILEY_DEVICE:")
+            return SpeechAudio(audio, actual_device)
         finally:
             if process.returncode is None:
                 try:
