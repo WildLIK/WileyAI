@@ -19,7 +19,7 @@ VOICES = {
 
 def catalog():
     return [{"id": f"piper-{key}", "name": f"Piper · {value[0]}", "kind": "tts", "engine": "piper", "voice": key,
-             "description": "Отдельный русский голос. Локальная озвучка на CPU, модуль piper. Прослушайте и сравните с Silero.",
+             "description": "Отдельный русский голос. Локальная озвучка на CPU. Сначала установите компонент Piper, затем скачайте голос.",
              "size": "≈ 63 МБ + движок", "languages": "Русский", "license": f"Движок GPL-3.0; {value[3]}",
              "source": f"https://huggingface.co/rhasspy/piper-voices/blob/{REVISION}/ru/ru_RU/{key}/medium/MODEL_CARD"} for key, value in VOICES.items()]
 

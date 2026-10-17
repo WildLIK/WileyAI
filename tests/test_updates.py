@@ -9,6 +9,8 @@ from core import updates
 
 @pytest.fixture(autouse=True)
 def isolated_keys(monkeypatch):
+    # A fixed installed version keeps these scenarios independent of release bumps.
+    monkeypatch.setattr(updates, "VERSION", "0.2.1")
     keys = {}
     monkeypatch.setattr(updates.keyring, "get_password", lambda service, account: keys.get((service, account)))
     monkeypatch.setattr(updates.keyring, "set_password", lambda service, account, value: keys.__setitem__((service, account), value))

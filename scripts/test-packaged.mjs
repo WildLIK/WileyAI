@@ -4,7 +4,9 @@ import { resolve, join } from "node:path";
 
 const data = await mkdtemp(resolve("local", "Standalone test "));
 const executable = resolve("local/releases/win-unpacked/WileyAI.exe");
-const version = JSON.parse(await readFile(resolve("package.json"), "utf8")).version;
+const version = JSON.parse(
+  await readFile(resolve("package.json"), "utf8"),
+).version;
 const env = {
   ...process.env,
   WILEYAI_TEST: "1",
@@ -33,6 +35,10 @@ try {
     "Window content:",
     (await page.locator("body").innerText()).slice(0, 1500),
   );
+  await page.getByRole("heading", { name: "Давайте познакомимся" }).waitFor();
+  await page
+    .getByRole("button", { name: "Настроить позже", exact: true })
+    .click();
   await page.getByRole("heading", { name: "Привет, я Уайли." }).waitFor();
   const connection = await page.evaluate(() => window.wiley.connection());
   const api = async (route, method = "GET") => {

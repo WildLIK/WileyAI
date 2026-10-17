@@ -39,6 +39,7 @@ from .voice_resources import run_idle_resources
 from .components import Components
 from .updates import Updates
 from .version import VERSION
+from .setup import Setup, ProgressUpdate, SetupSettings, model_present, speech_readiness
 
 
 class TextBody(BaseModel):
@@ -177,7 +178,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     secret = token or os.environ.get("WILEYAI_TOKEN")
     if not secret or len(secret) < 24:
         raise RuntimeError("WILEYAI_TOKEN must contain at least 24 characters")
+    fresh_install = not (root / "wileyai.db").exists()
     store = Store(root)
+    setup = Setup(root, fresh_install)
     jobs = ModelJobs(root)
     components = Components(root)
     updates = Updates(root)
@@ -216,7 +219,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
     app.state.monitor = monitor
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
@@ -249,6 +252,38 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.get("/components")
     def component_status():
         return components.status()
+
+    @app.get("/setup")
+    def setup_status():
+        return setup.state()
+
+    @app.put("/setup")
+    def setup_progress(body: ProgressUpdate):
+        return setup.update(body)
+
+    @app.patch("/setup/settings")
+    async def setup_settings(body: SetupSettings):
+        if chat_lock.locked():
+            raise HTTPException(409, "Завершите ответ перед настройкой")
+        current = body.merge(store.settings())
+        if body.api_key is not None:
+            try:
+                providers.set_key(current, body.api_key)
+            except Exception as error:
+                raise ValueError("Не удалось сохранить ключ в Windows") from error
+        store.save_settings(current)
+        return settings()
+
+    @app.post("/setup/check")
+    async def setup_check():
+        current = store.settings()
+        try:
+            installed = await asyncio.wait_for(providers.list_models(current), 15)
+            brain = {"connected": True, "model_available": model_present(current, installed), "models": installed[:2000], "error": ""}
+        except Exception as error:
+            brain = {"connected": False, "model_available": False, "models": [], "error": providers.describe_error(error)}
+        system_voices = await voice.voices() if current.tts_engine == "sapi" else []
+        return {"brain": brain, "speech": speech_readiness(current, voice, system_voices), "config": settings()}
 
     @app.post("/components/{key}/install")
     async def install_component(key: str):
@@ -501,7 +536,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.post("/models/pull")
-    def pull(body: ModelBody):
+    async def pull(body: ModelBody):
         return jobs.start(store.settings(), body.model, body.path)
 
     @app.get("/jobs")
@@ -509,7 +544,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return list(jobs.jobs.values())[-30:]
 
     @app.delete("/jobs/{job_id}")
-    def cancel_job(job_id: str):
+    async def cancel_job(job_id: str):
         jobs.cancel(job_id)
         return {"ok": True}
 

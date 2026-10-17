@@ -31,6 +31,7 @@ import { MemoryPanel, MemorySuggestions } from "./Memory";
 import { BackupPanel } from "./Backups";
 import { ComponentPanel } from "./Components";
 import { UpdateNotice, UpdatesPanel } from "./Updates";
+import { SetupWizard, type SetupProgress } from "./Setup";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
@@ -132,6 +133,23 @@ export function App() {
   const view = new URLSearchParams(location.search).get("view") || "chat";
   const [tab, setTab] = useState(view === "settings" ? "settings" : "chat");
   const [settings, setSettings] = useState<Settings>();
+  const [setup, setSetup] = useState<SetupProgress | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  useEffect(() => {
+    if (view !== "chat") return;
+    let active = true;
+    void request<SetupProgress>("/setup")
+      .then((value) => {
+        if (active) {
+          setSetup(value);
+          setSetupOpen(value.active);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [view]);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection>("personality");
   const savedSettings = useRef<Settings | undefined>(undefined);
@@ -1193,7 +1211,7 @@ export function App() {
       throw new Error("Сначала завершите режим разговора.");
     if (!voice.available)
       throw new Error(
-        "Сначала установите модуль речи: uv sync --extra dev --extra voice. Затем перезапустите приложение.",
+        "Сначала установите компонент Whisper в разделе «Модели → Компоненты», затем перезапустите приложение.",
       );
     if (!voice.installed_stt.includes(settings!.stt_model))
       throw new Error("Скачайте выбранную модель Whisper в разделе «Модели».");
@@ -1301,6 +1319,21 @@ export function App() {
         <p>Запускаю локальное ядро…</p>
         {error && <p role="alert">{error}</p>}
       </div>
+    );
+  if (setupOpen && setup)
+    return (
+      <SetupWizard
+        initial={setup}
+        initialSettings={settings}
+        onSaved={(config) => {
+          acceptSettings(config);
+          channel.current?.postMessage({ type: "settings" });
+        }}
+        onClose={() => {
+          setSetupOpen(false);
+          void refresh().catch(fail);
+        }}
+      />
     );
   if (view === "avatar")
     return (
@@ -2040,7 +2073,13 @@ export function App() {
                 ↻ Обновить
               </button>
             </div>
-            <ComponentPanel onReady={() => void run(async () => { await refreshModels(); })} />
+            <ComponentPanel
+              onReady={() =>
+                void run(async () => {
+                  await refreshModels();
+                })
+              }
+            />
             <div
               className="model-categories"
               role="tablist"
@@ -2891,7 +2930,7 @@ export function App() {
                           <p className="help">
                             {voice.qwen3_available
                               ? "Отдельный движок установлен."
-                              : "Подготовьте движок командой npm run setup:qwen."}{" "}
+                              : "Установите компонент Qwen3-TTS CPU в разделе «Модели → Компоненты»."}{" "}
                             {voice.qwen3_installed
                               ? "Веса установлены."
                               : "Скачайте веса в «Модели → Озвучка»."}{" "}
@@ -3175,6 +3214,53 @@ export function App() {
                     onNotice={setNotice}
                   />
                   <UpdatesPanel />
+                  <div className="card setup-launcher">
+                    <h2>Первоначальная настройка</h2>
+                    <p className="help">
+                      Подключение мозга, установка компонентов, голос и проверка
+                      устройств — по шагам. Можно вернуться к месту остановки.
+                    </p>
+                    <button
+                      className="outline"
+                      disabled={
+                        busy ||
+                        conversation.active ||
+                        recording ||
+                        uploading ||
+                        speaking
+                      }
+                      onClick={() =>
+                        void run(async () => {
+                          const current =
+                            await request<SetupProgress>("/setup");
+                          const value = await request<SetupProgress>(
+                            "/setup",
+                            "PUT",
+                            {
+                              active: true,
+                              ...(current.completed || current.step === 0
+                                ? {
+                                    completed: false,
+                                    step: 0,
+                                    mode:
+                                      settings.provider === "ollama"
+                                        ? "local"
+                                        : "cloud",
+                                    voice_mode: settings.speak_answers
+                                      ? "keep"
+                                      : "text",
+                                  }
+                                : {}),
+                            },
+                          );
+                          setSetup(value);
+                          setSetupOpen(true);
+                        })
+                      }
+                    >
+                      Открыть мастер настройки
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

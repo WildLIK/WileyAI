@@ -2661,4 +2661,46 @@ html:has(.pet-window) {
 .updates-panel { margin-top: 18px; }
 .updates-panel .actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
 .updates-panel > small { display: block; color: #92aabd; }
+.setup-page { height: 100dvh; overflow-y: auto; background: #0f131a; padding: 28px 24px; }
+.setup-shell { max-width: 960px; margin: 0 auto; }
+.setup-header { display: flex; align-items: center; gap: 18px; padding: 12px 0 22px; }
+.setup-header > div:nth-child(2) { flex: 1; min-width: 0; }
+.setup-header h1 { font-size: 26px; margin: 8px 0 0; }
+.setup-header h1:focus { outline: none; }
+.setup-header .logo-mark { flex-shrink: 0; }
+.setup-steps { list-style: none; padding: 0; margin: 0 0 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.setup-steps li { padding: 10px; border-bottom: 2px solid #263039; color: #93a5b9; font-size: 12px; }
+.setup-steps li[aria-current=step] { border-color: #91dfc4; color: #c6f0e3; }
+.setup-steps li > span { display: inline-block; margin-right: 8px; }
+.setup-content { border: 1px solid #28333c; border-radius: 16px; background: #171d25; padding: 24px; }
+.setup-content > h2 { margin-top: 0; font-size: 20px; }
+.setup-content > label { margin-top: 18px; }
+.setup-content .audio-devices { padding: 20px 0 8px; background: transparent; border: 0; box-shadow: none; }
+.setup-content .component-panel { margin-top: 16px; padding: 14px; background: #12171f; }
+.setup-content .component-panel > .help { font-size: 12px; }
+.setup-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.setup-choices > label { display: block; padding: 20px; border: 1px solid #35414e; border-radius: 12px; cursor: pointer; }
+.setup-choices > label.selected { background: #1c302c; border-color: #91dfc4; }
+.setup-choices input { width: auto; margin-right: 10px; }
+.setup-choices span { display: block; font-size: 13px; color: #a9bccc; line-height: 1.7; margin-top: 12px; }
+.setup-download, .setup-model-job, .setup-progress { margin: 16px 0; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.setup-download small { flex-basis: 100%; color: #a9bccc; }
+.setup-model-job progress, .setup-progress progress { accent-color: #91dfc4; min-width: 180px; }
+.setup-checklist { display: grid; gap: 0; }
+.setup-checklist > div { padding: 16px 0; border-bottom: 1px solid #303944; }
+.setup-checklist dt { font-weight: 600; overflow-wrap: anywhere; }
+.setup-checklist dd { margin: 7px 0 0; color: #9fb4c7; line-height: 1.6; font-size: 13px; }
+.setup-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 0; position: sticky; bottom: -28px; background: #0f131a; border-top: 1px solid #28333c; margin-top: 18px; }
+.setup-footer > span { color: #93a5b9; font-size: 12px; }
+.setup-launcher { margin-top: 18px; }
+@media (max-width: 760px) {
+  .setup-page { padding: 16px 12px; }
+  .setup-header { flex-wrap: wrap; gap: 12px; }
+  .setup-header h1 { font-size: 21px; }
+  .setup-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .setup-choices { grid-template-columns: 1fr; }
+  .setup-content { padding: 18px; }
+  .setup-footer { bottom: -16px; }
+  .setup-footer > span { display: none; }
+}
 @media (max-width: 760px) { .component-row { align-items: flex-start; flex-wrap: wrap; gap: 8px; } }
