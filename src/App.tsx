@@ -31,6 +31,7 @@ import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
+import { MonitorPanel, ResourceBadge } from "./Monitor";
 import {
   Conversation,
   phaseLabels,
@@ -56,6 +57,7 @@ const tabs = [
   { id: "memory", icon: "◎", label: "Память" },
   { id: "commands", icon: "⌘", label: "Команды" },
   { id: "capabilities", icon: "✳", label: "Возможности" },
+  { id: "monitor", icon: "▥", label: "Нагрузка" },
   { id: "settings", icon: "⚙", label: "Настройки" },
 ];
 const stamp = (value: string) =>
@@ -1338,6 +1340,9 @@ export function App() {
               ◈
             </button>
           )}
+          {tab !== "monitor" && (
+            <ResourceBadge onOpen={() => setTab("monitor")} />
+          )}
           <div className={"connection " + (connected ? "online" : "")}>
             <i />
             {connected ? settings.model : "Модель не подключена"}
@@ -1773,6 +1778,7 @@ export function App() {
           </div>
         )}
 
+        {tab === "monitor" && <MonitorPanel />}
         {tab === "models" && (
           <section className="page scroll-page">
             <div className="page-heading">

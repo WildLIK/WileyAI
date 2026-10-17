@@ -32,6 +32,7 @@ from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
 from .routines import Routines, RoutineBody, requested_name, run_step
+from .monitor import Monitor
 
 
 class TextBody(BaseModel):
@@ -149,6 +150,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     store = Store(root)
     jobs = ModelJobs(root)
     voice = Voice(root)
+    monitor = Monitor(store, voice)
+    voice.monitor = monitor
     backups = Backups(store)
     spaces = Spaces(store)
     open_tools = OpenTools(store)
@@ -159,16 +162,19 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         scheduler = asyncio.create_task(run_scheduler(store))
+        monitoring = asyncio.create_task(monitor.run())
         try:
             yield
         finally:
             scheduler.cancel()
-            await asyncio.gather(scheduler, return_exceptions=True)
+            monitoring.cancel()
+            await asyncio.gather(scheduler, monitoring, return_exceptions=True)
             await jobs.close()
             await voice.stop()
 
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
+    app.state.monitor = monitor
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
@@ -198,6 +204,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def health():
         memory = psutil.virtual_memory()
         return {"status": "ok", "version": "0.1.0", "data_dir": str(root.resolve()), "ram_total": memory.total, "ram_available": memory.available, "stt_available": voice.available()}
+
+    @app.get("/monitor")
+    async def resources(compact: bool = False):
+        if monitor.latest is None:
+            return JSONResponse(status_code=503, content={"detail": "Собираю первый замер нагрузки…"}, headers={"Retry-After": "2"})
+        value = {key: item for key, item in monitor.latest.items() if not compact or key not in {"history", "rows"}}
+        return JSONResponse(value, headers={"Cache-Control": "no-store"})
 
     @app.get("/settings")
     def settings():
@@ -600,7 +613,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(413, "Запись слишком длинная")
         config = store.settings()
-        return {"text": await asyncio.to_thread(voice.transcribe, data, config.stt_model, config.name)}
+        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name)}
 
     @app.post("/voice/prepare")
     async def prepare_conversation():
@@ -608,7 +621,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if config.tts_engine == "sapi" and not await voice.voices():
             raise ValueError("Системные голоса недоступны. Выберите Silero в настройках.")
         try:
-            await asyncio.gather(asyncio.to_thread(voice.prepare, config.stt_model, config.tts_engine, config.tts_voice), providers.prepare(config))
+            async def prepare_brain():
+                with monitor.activity("brain:" + config.model):
+                    await providers.prepare(config)
+            def prepare_voice():
+                with monitor.activity("tts:" + config.tts_engine), monitor.activity("stt:" + config.stt_model):
+                    voice.prepare(config.stt_model, config.tts_engine, config.tts_voice)
+            await asyncio.gather(asyncio.to_thread(prepare_voice), prepare_brain())
         except ValueError:
             raise
         except Exception as error:
@@ -617,7 +636,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.post("/voice/speak")
     async def speak(body: SpeechBody):
-        await voice.speak(body.text, body.voice or store.settings().tts_voice)
+        with monitor.activity("tts:sapi"):
+            await voice.speak(body.text, body.voice or store.settings().tts_voice)
         return {"ok": True}
 
     @app.post("/voice/synthesize")
@@ -630,7 +650,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         options = {"device": body.device or config.tts_device} if engine == "qwen3" else {}
         if engine == "qwen3" and body.session_id:
             options["session_id"] = body.session_id
-        task = asyncio.create_task(voice.render(body.text, selected_voice, engine, request_id, **options))
+        async def render():
+            if engine in {"qwen3", "sapi"}:
+                with monitor.activity("tts:" + engine):
+                    return await voice.render(body.text, selected_voice, engine, request_id, **options)
+            return await voice.render(body.text, selected_voice, engine, request_id, **options)
+        task = asyncio.create_task(render())
         try:
             while not task.done():
                 if await request.is_disconnected():
@@ -795,7 +820,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     if current.command_understanding:
                         yield event("stage", text="Подбираю команду из каталога…")
                         try:
-                            proposed = await intents.propose(current, opening_text, open_tools)
+                            with monitor.activity("brain:" + current.model):
+                                proposed = await intents.propose(current, opening_text, open_tools)
                             pending_choices = await asyncio.to_thread(intents.validate_choices, open_tools, proposed)
                             if pending_choices:
                                 answer = intents.question(pending_choices, voice=body.mode == "conversation")
@@ -846,11 +872,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         used += len(content)
                     payload = [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]
                     try:
-                        async for delta in providers.chat(current, payload):
-                            if await request.is_disconnected():
-                                return
-                            answer += delta
-                            yield event("delta", text=delta)
+                        with monitor.activity("brain:" + current.model):
+                            async for delta in providers.chat(current, payload):
+                                if await request.is_disconnected():
+                                    return
+                                answer += delta
+                                yield event("delta", text=delta)
                         if web_result and not answer:
                             answer = "Модель вернула пустой ответ. Результаты поиска доступны в карточке источников ниже."
                             answer = persona.local_result(answer, current.grammatical_gender)

@@ -44,6 +44,7 @@ class Voice:
         self.speech_id = None
         self.download_lock = threading.Lock()
         self.render_lock = asyncio.Lock()
+        self.monitor = None
 
     def available(self):
         return importlib.util.find_spec("faster_whisper") is not None
@@ -245,6 +246,8 @@ class Voice:
                 return await self.qwen.render(plain_speech(text), voice, device, request_id, cancel)
             if engine == "sapi":
                 return await self._sapi(text, voice, render=True, request_id=request_id, cancel=cancel)
+            if self.monitor:
+                return await asyncio.to_thread(self.monitor.call, "tts:" + engine, self.synthesize, text, voice, cancel, engine)
             return await asyncio.to_thread(self.synthesize, text, voice, cancel, engine)
         finally:
             cancel.set()

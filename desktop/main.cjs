@@ -181,6 +181,7 @@ async function startCore() {
     env: {
       ...process.env,
       WILEYAI_TOKEN: token,
+      WILEYAI_DESKTOP_PID: String(process.pid),
       PYTHONIOENCODING: "utf-8",
       PYTHONUNBUFFERED: "1",
     },

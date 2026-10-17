@@ -1954,3 +1954,130 @@ html:has(.pet-window) {
     flex-wrap: wrap;
   }
 }
+
+/* Read-only runtime monitor. Keep the chat header compact at narrow widths. */
+.resource-badge {
+  padding: 6px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: transparent;
+  color: #a6b6c9;
+}
+.resource-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.resource-cards article,
+.resource-chart {
+  border: 1px solid #2a3441;
+  background: #151b24;
+  border-radius: 12px;
+  padding: 18px;
+  min-width: 0;
+}
+.resource-cards article {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.resource-cards article > strong {
+  font-size: 24px;
+  font-weight: 600;
+}
+.resource-panel small {
+  display: block;
+  color: #90a1b8;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.resource-panel h2 {
+  margin-top: 28px;
+}
+.resource-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  margin: 16px 0;
+}
+.resource-comparison > div {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.resource-comparison span {
+  color: #90a1b8;
+  line-height: 1.6;
+}
+.resource-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.resource-chart {
+  margin: 0;
+  color: #a6dfc6;
+}
+.resource-chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  color: #c8d5e5;
+  font-size: 13px;
+}
+.resource-chart svg {
+  width: 100%;
+  display: block;
+  margin-top: 10px;
+}
+.resource-grid {
+  stroke: #2a3441;
+  stroke-width: 1;
+}
+.resource-work {
+  fill: #a6dfc6;
+  opacity: 0.12;
+}
+.resource-table-wrap {
+  overflow-x: auto;
+}
+.resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.resource-table td,
+.resource-table th {
+  padding: 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid #2a3441;
+  vertical-align: top;
+}
+.resource-table td:first-child {
+  min-width: 240px;
+  max-width: 390px;
+  overflow-wrap: anywhere;
+}
+.resource-table summary {
+  cursor: pointer;
+  margin-top: 8px;
+  color: #a6dfc6;
+}
+.resource-table .resource-comparison {
+  margin-bottom: 0;
+}
+.resource-active {
+  color: #a6dfc6;
+}
+.resource-panel .resource-pressure {
+  color: #ffc3a5;
+}
+@media (max-width: 900px) {
+  .resource-charts {
+    grid-template-columns: 1fr;
+  }
+  .resource-badge {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
