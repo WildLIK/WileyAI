@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import contextmanager, ExitStack
 import asyncio
 import importlib.util
 import json
@@ -31,9 +32,12 @@ def check_cancelled(cancel):
 
 
 class Voice:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, clock=time.monotonic):
         self.root = root
+        self._clock = clock
+        self.last_used = dict.fromkeys(("stt", "silero", "piper"), clock())
         self.models: dict = {}
+        self.prepare_lock = threading.Lock()
         self.lock = threading.Lock()
         self.speech: asyncio.subprocess.Process | None = None
         self.speak_lock = asyncio.Lock()
@@ -54,6 +58,15 @@ class Voice:
     def available(self):
         return importlib.util.find_spec("faster_whisper") is not None
 
+    @contextmanager
+    def _using(self, resource):
+        # Called under the resource lock. Idle time starts after native work,
+        # including a slow cold load, has finished or failed.
+        try:
+            yield
+        finally:
+            self.last_used[resource] = self._clock()
+
     def _load_stt(self, model: str):
         if not self.available():
             raise ValueError("Модуль речи не установлен. Выполните uv sync --extra dev --extra voice и перезапустите WileyAI.")
@@ -66,7 +79,7 @@ class Voice:
             self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8")
 
     def transcribe(self, data: bytes, model: str, hint: str = "") -> str:
-        with self.lock:
+        with self.lock, self._using("stt"):
             self._load_stt(model)
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
                 file.write(data)
@@ -101,19 +114,28 @@ class Voice:
             self.tts_version = version
 
     def prepare(self, model: str, tts_engine: str, speaker: str = ""):
+        with self.prepare_lock:
+            self._prepare(model, tts_engine, speaker)
+            with self.lock, self.tts_lock:
+                ready = self._clock()
+                self.last_used["stt"] = ready
+                if tts_engine in {"piper", "silero", "silero_v5_6"}:
+                    self.last_used["piper" if tts_engine == "piper" else "silero"] = ready
+
+    def _prepare(self, model: str, tts_engine: str, speaker: str):
         # Load without speaking, recording, downloading weights, or generating a message.
         version = "v5_6_ru" if tts_engine == "silero_v5_6" else "v5_ru"
         if tts_engine.startswith("silero") and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
         if tts_engine == "qwen3":
             self.qwen.prepare(speaker)
-        with self.lock:
+        with self.lock, self._using("stt"):
             self._load_stt(model)
         if tts_engine.startswith("silero"):
-            with self.tts_lock:
+            with self.tts_lock, self._using("silero"):
                 self._load_tts(version)
         elif tts_engine == "piper":
-            with self.tts_lock:
+            with self.tts_lock, self._using("piper"):
                 self.piper.load(speaker)
 
     def download_tts(self, version="v5_ru"):
@@ -189,6 +211,7 @@ class Voice:
                 output.writeframes(b"".join(pcm_parts))
             return result.getvalue()
         finally:
+            self.last_used["piper" if engine == "piper" else "silero"] = self._clock()
             self.tts_lock.release()
 
     async def voices(self) -> list[dict]:
@@ -227,46 +250,50 @@ class Voice:
                 pass
             await process.wait()
 
-    def _release_local_models(self):
-        # Never wait behind native ASR/TTS or clear a model while it is in use.
-        if not self.lock.acquire(blocking=False):
-            return None
-        try:
-            if not self.tts_lock.acquire(blocking=False):
-                return None
-            try:
-                released = ["Whisper " + name for name in self.models]
+    def _release_local_models(self, idle_seconds=None):
+        # Native preparation spans several locks. Do not release the first
+        # model while a second one is still loading for the same conversation.
+        with ExitStack() as held:
+            for lock in (self.prepare_lock, self.lock, self.tts_lock):
+                if not lock.acquire(blocking=False):
+                    return None
+                held.callback(lock.release)
+            now = self._clock()
+            expired = lambda key: idle_seconds is None or now - self.last_used[key] >= idle_seconds
+            released = []
+            if expired("stt"):
+                released.extend("Whisper " + name for name in self.models)
                 self.models.clear()
-                if self.tts_model is not None:
-                    released.append("Silero 5.6" if self.tts_version == "v5_6_ru" else "Silero 5")
-                    self.tts_model = None
-                    self.tts_version = ""
-                if self.piper.model is not None:
-                    released.append("Piper")
-                    self.piper.model = None
-                    self.piper.selected = ""
-                return released
-            finally:
-                self.tts_lock.release()
-        finally:
-            self.lock.release()
+            if self.tts_model is not None and expired("silero"):
+                released.append("Silero 5.6" if self.tts_version == "v5_6_ru" else "Silero 5")
+                self.tts_model = None
+                self.tts_version = ""
+            if self.piper.model is not None and expired("piper"):
+                released.append("Piper")
+                self.piper.model = None
+                self.piper.selected = ""
+            return released
 
-    async def unload(self):
+    async def unload(self, *, idle_seconds=None):
         async with self.render_lock:
             if self.synthesis_jobs or (self.speech and self.speech.returncode is None):
                 return None
             if self.qwen.processes or any(session.active_id for session in [*self.qwen.sessions.values(), *self.openvoice.sessions.values()]):
                 return None
-            released = await asyncio.to_thread(self._release_local_models)
+            released = await asyncio.to_thread(self._release_local_models, idle_seconds)
             if released is None:
                 return None
-            if self.qwen.sessions:
-                released.append("Qwen3-TTS")
-            if self.openvoice.sessions:
-                released.append("OpenVoice")
-            await self.qwen.stop()
-            await self.openvoice.stop()
-            await asyncio.to_thread(gc.collect)
+            # Qwen/OpenVoice have their own answer-session lifecycle. The idle
+            # preference controls resident CPU models; explicit unload covers all.
+            if idle_seconds is None:
+                if self.qwen.sessions:
+                    released.append("Qwen3-TTS")
+                if self.openvoice.sessions:
+                    released.append("OpenVoice")
+                await self.qwen.stop()
+                await self.openvoice.stop()
+            if released:
+                await asyncio.to_thread(gc.collect)
             return released
 
     async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None, cloud_config=None, openvoice_voice=None) -> bytes:

@@ -82,18 +82,22 @@ def test_unload_api_is_authenticated_preserves_settings_and_reports_conflicts(tm
 
 
 @pytest.mark.skipif(os.environ.get("WILEYAI_RESOURCE_TESTS") != "1", reason="Requires downloaded Whisper small, Piper and Silero 5.6")
-def test_real_models_reload_after_releasing_memory():
+def test_real_models_reload_after_idle_release():
     async def scenario():
-        voice = Voice(Path(__file__).resolve().parents[1] / "data")
+        now = [0]
+        voice = Voice(Path(__file__).resolve().parents[1] / "data", clock=lambda: now[0])
         try:
             await asyncio.to_thread(voice.prepare, "small", "piper", "irina")
             await asyncio.to_thread(voice.synthesize, "Привет! Продолжим работу.", "xenia", None, "silero_v5_6")
-            assert set(await voice.unload()) == {"Whisper small", "Piper", "Silero 5.6"}
+            now[0] = 61
+            assert set(await voice.unload(idle_seconds=60)) == {"Whisper small", "Piper", "Silero 5.6"}
             assert not voice.models and voice.piper.model is None and voice.tts_model is None
             # Same voice selection must reload the native ONNX session, not return None.
-            assert (await asyncio.to_thread(voice.synthesize, "Привет! Продолжим работу.", "irina", None, "piper")).startswith(b"RIFF")
+            audio = await asyncio.to_thread(voice.synthesize, "Привет! Продолжим работу.", "irina", None, "piper")
+            assert audio.startswith(b"RIFF")
             assert (await asyncio.to_thread(voice.synthesize, "Привет! Продолжим работу.", "xenia", None, "silero_v5_6")).startswith(b"RIFF")
-            await asyncio.to_thread(voice.prepare, "small", "piper", "irina")
+            recognized = await asyncio.to_thread(voice.transcribe, audio, "small")
+            assert "работ" in recognized.casefold(), recognized
             assert "small" in voice.models
         finally:
             await voice.unload()

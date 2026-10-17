@@ -8,6 +8,7 @@ export interface Settings {
   base_url: string;
   model: string;
   profile: "eco" | "balanced" | "quality";
+  voice_idle_timeout: "profile" | "never" | "1m" | "5m" | "15m";
   context_tokens: number;
   response_tokens: number;
   temperature: number;

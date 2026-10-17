@@ -35,6 +35,7 @@ from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
+from .voice_resources import run_idle_resources
 
 
 class TextBody(BaseModel):
@@ -184,12 +185,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         scheduler = asyncio.create_task(run_scheduler(store))
         monitoring = asyncio.create_task(monitor.run())
+        speech_resources = asyncio.create_task(run_idle_resources(store, voice))
         try:
             yield
         finally:
             scheduler.cancel()
             monitoring.cancel()
-            await asyncio.gather(scheduler, monitoring, return_exceptions=True)
+            speech_resources.cancel()
+            await asyncio.gather(scheduler, monitoring, speech_resources, return_exceptions=True)
             await jobs.close()
             await voice.stop()
             await voice.cloud.close()

@@ -3029,10 +3029,36 @@ export function App() {
                   </div>
                   <div className="card voice-resources">
                     <h2>Память моделей речи</h2>
+                    <label>
+                      Автовыгрузка Whisper, Silero и Piper
+                      <select
+                        aria-label="Автовыгрузка Whisper, Silero и Piper"
+                        value={settings.voice_idle_timeout}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            voice_idle_timeout: event.target
+                              .value as Settings["voice_idle_timeout"],
+                          })
+                        }
+                      >
+                        <option value="profile">
+                          По профилю производительности
+                        </option>
+                        <option value="1m">Через 1 минуту простоя</option>
+                        <option value="5m">Через 5 минут простоя</option>
+                        <option value="15m">Через 15 минут простоя</option>
+                        <option value="never">Оставлять загруженными</option>
+                      </select>
+                    </label>
                     <p className="help">
-                      Выгрузите распознавание и локальную озвучку из ОЗУ. При
-                      следующем обращении модели загрузятся снова; файлы и
-                      выбранные голоса сохранятся.
+                      {settings.voice_idle_timeout === "profile"
+                        ? `По выбранному профилю: ${{ eco: "1 минута", balanced: "5 минут", quality: "15 минут" }[settings.profile]} простоя.`
+                        : settings.voice_idle_timeout === "never"
+                          ? "Whisper, Silero и Piper остаются загруженными в простое."
+                          : "Срок считается отдельно для распознавания, Silero и Piper."}{" "}
+                      После выгрузки первое обращение займёт больше времени.
+                      Нажмите «Сохранить», чтобы применить выбор.
                     </p>
                     <button
                       className="outline"
@@ -3060,6 +3086,15 @@ export function App() {
                     >
                       Освободить память речи
                     </button>
+                    <details className="settings-help">
+                      <summary>Как освобождается память</summary>
+                      <p className="help">
+                        Модели загрузятся с диска при следующем обращении. Веса,
+                        выбранные голоса и история сохраняются. Временные
+                        процессы Qwen и OpenVoice управляются сессией озвучки и
+                        завершаются отдельно.
+                      </p>
+                    </details>
                   </div>
                 </div>
                 <div

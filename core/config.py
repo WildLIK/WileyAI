@@ -49,6 +49,7 @@ class Settings(BaseModel):
     base_url: str = "http://127.0.0.1:11434"
     model: str = Field(default="qwen3.5:4b", max_length=200)
     profile: Literal["eco", "balanced", "quality"] = "balanced"
+    voice_idle_timeout: Literal["profile", "never", "1m", "5m", "15m"] = "profile"
     context_tokens: int = Field(default=4096, ge=1024, le=32768)
     response_tokens: int = Field(default=2048, ge=256, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)

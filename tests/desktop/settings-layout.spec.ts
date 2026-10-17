@@ -67,6 +67,22 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await expect(page.getByRole("status")).toHaveText(
       "Модели речи уже выгружены",
     );
+    const idlePolicy = page.getByLabel("Автовыгрузка Whisper, Silero и Piper", {
+      exact: true,
+    });
+    await expect(idlePolicy).toHaveValue("profile");
+    await expect(page.locator(".voice-resources")).toContainText(
+      "5 минут простоя",
+    );
+    await idlePolicy.selectOption("never");
+    await expect(page.locator(".voice-resources")).toContainText(
+      "остаются загруженными в простое",
+    );
+    await choose("Мозг");
+    await choose("Микрофон и разговор");
+    await expect(idlePolicy).toHaveValue("never");
+    await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Настройки сохранены");
     // A hidden category must not keep a microphone test recording in the background.
     await page.evaluate(() => {
       const original = navigator.mediaDevices.getUserMedia.bind(
@@ -142,6 +158,12 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
             .evaluate((element) => element.scrollWidth <= element.clientWidth),
         ).toBe(true);
       }
+      await choose("Микрофон и разговор");
+      await page.locator(".voice-resources").scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: `local/screenshots/settings-voice-idle-${width}.png`,
+        animations: "disabled",
+      });
       await choose("Озвучка");
       await page.locator(".settings-page").evaluate((element) => {
         element.scrollTop = element.scrollHeight;
@@ -173,6 +195,8 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await expect(
       page.getByLabel("Идентификатор модели", { exact: true }),
     ).toHaveValue("draft-model");
+    await choose("Микрофон и разговор");
+    await expect(idlePolicy).toHaveValue("never");
     expect(errors).toEqual([]);
   } finally {
     await app.close();
