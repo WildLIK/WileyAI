@@ -42,13 +42,16 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
       });
     const ending = JSON.stringify(messages).includes("ЗАКАТ-7351");
     const text =
-      reading || merging
-        ? "Рейдж расследовал кражу и встретился с Меланией. ".repeat(8) +
-          (ending ? "Финал: ЗАКАТ-7351, герой вернулся домой." : "")
-        : messages[0].content.includes("Последовательное чтение завершено")
-          ? "Рейдж расследовал кражу. В финале герой вернулся домой: " +
-            (ending ? "ЗАКАТ-7351." : "финал не найден.")
-          : "Это история расследования кражи. Здесь доступны выбранные отрывки.";
+      messages[0].content.includes('"wiley_document_action":"read_all"') &&
+      messages.at(-1).content.includes("ну как бы")
+        ? JSON.stringify({ wiley_document_action: "read_all" })
+        : reading || merging
+          ? "Рейдж расследовал кражу и встретился с Меланией. ".repeat(8) +
+            (ending ? "Финал: ЗАКАТ-7351, герой вернулся домой." : "")
+          : messages[0].content.includes("Последовательное чтение завершено")
+            ? "Рейдж расследовал кражу. В финале герой вернулся домой: " +
+              (ending ? "ЗАКАТ-7351." : "финал не найден.")
+            : "Это история расследования кражи. Здесь доступны выбранные отрывки.";
     res.write(
       "data: " +
         JSON.stringify({ choices: [{ delta: { content: text } }] }) +
@@ -143,7 +146,10 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     hold = false;
     reads.length = 0;
     await expect(whole).toBeEnabled();
-    await whole.click();
+    await composer.fill(
+      "ну как бы, мне нужно было краткий пересказ от начала до конца",
+    );
+    await page.getByRole("button", { name: "Отправить", exact: true }).click();
     await expect.poll(() => !!continueReading).toBe(true);
     await expect(progress).toHaveAttribute("aria-valuenow", /^[1-9]\d?$/);
     await progress.scrollIntoViewIfNeeded();
@@ -160,6 +166,9 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     await expect(progress).toHaveCount(0);
     expect(reads.length).toBeGreaterThan(10);
     expect(reads.join("")).toBe(content);
+    await expect(page.locator(".message.assistant").last()).not.toContainText(
+      "wiley_document_action",
+    );
     expect(
       prompts.some((messages) =>
         messages[0].content.startsWith("Объедини последовательные конспекты"),
