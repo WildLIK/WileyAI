@@ -16,7 +16,8 @@ from .tools import OpenTools
 
 TTL = 5 * 60
 KINDS = {"folder": "папка", "file": "файл", "app": "приложение", "url": "сайт"}
-QUESTION_PREFIX = "Нашёл варианты в каталоге. Пока ничего не открывал."
+QUESTION_PREFIX = "Есть варианты в каталоге. Пока ничего не открыто."
+LEGACY_QUESTION_PREFIX = "Нашёл варианты в каталоге. Пока ничего не открывал."
 
 
 def opening_request(text, name="Уайли"):
@@ -154,14 +155,14 @@ def consume(store, text, tools, name="Уайли"):
     if raw is None:
         if positive or negative or match:
             history = store.list("messages", 2)
-            if len(history) == 2 and history[-2]["role"] == "assistant" and history[-2]["content"].startswith(QUESTION_PREFIX):
+            if len(history) == 2 and history[-2]["role"] == "assistant" and history[-2]["content"].startswith((QUESTION_PREFIX, LEGACY_QUESTION_PREFIX)):
                 return Followup("Предложение больше недоступно. Повторите команду открытия.")
         return None
     store.save_dialogue(state)  # A new, unrelated message also retires the proposal.
     if not (positive or negative or match):
         return None
     if negative:
-        return Followup("Выбор открытия отменён. Ничего не открывал.")
+        return Followup("Выбор открытия отменён. Ничего не открыто.")
     try:
         pending = Pending.model_validate(raw)
         history = store.list("messages", 2)
@@ -170,7 +171,7 @@ def consume(store, text, tools, name="Уайли"):
     except (ValueError, TypeError):
         return Followup("Предложение устарело. Повторите команду открытия.")
     if not store.settings().command_understanding:
-        return Followup("Свободные команды отключены в разделе «Команды». Ничего не открывал.")
+        return Followup("Свободные команды отключены в разделе «Команды». Ничего не открыто.")
     choices = [item.model_dump() for item in pending.choices]
     index = (int(match[1]) if match and match[1].isdigit() else numbers.get(match[1]) if match else 1) - 1
     if (positive and len(choices) != 1) or not 0 <= index < len(choices):

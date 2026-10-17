@@ -12,12 +12,14 @@ DATA_DIR = Path(os.environ.get("WILEYAI_DATA_DIR", Path(__file__).resolve().pare
 
 class Settings(BaseModel):
     name: str = Field(default="Уайли", min_length=1, max_length=60)
+    grammatical_gender: Literal["feminine", "masculine", "neutral"] = "feminine"
     personality: str = Field(default="Ты Уайли, личный ассистент. Общайся на русском, тепло и по существу. Учитывай предпочтения владельца. Не выдумывай выполненные действия и воспоминания.", max_length=8000)
     provider: Literal["ollama", "compatible"] = "ollama"
     base_url: str = "http://127.0.0.1:11434"
     model: str = Field(default="qwen3.5:4b", max_length=200)
     profile: Literal["eco", "balanced", "quality"] = "balanced"
     context_tokens: int = Field(default=4096, ge=1024, le=32768)
+    response_tokens: int = Field(default=2048, ge=256, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     stt_model: Literal["tiny", "base", "small"] = "small"
     tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] = "silero"

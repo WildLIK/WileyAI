@@ -41,14 +41,14 @@ test("local dialogue: clarification, reschedule, notes, live window updates and 
     const row = tasks.locator(".alias-row").filter({ hasText: "купить хлеб" });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("11:00");
-    await send(chat, "Перенеси на 12", "Перенёс");
+    await send(chat, "Перенеси на 12", "Перенесла");
     await expect(row).toContainText("12:00");
     await expect(tasks.locator(".alias-row")).toHaveCount(1);
     await tasks.getByRole("button", { name: "▤ Заметки" }).click();
     await send(
       chat,
       "Создай заметку Покупки: хлеб и молоко",
-      "Создал заметку «Покупки»",
+      "Создала заметку «Покупки»",
     );
     await expect(
       tasks.getByRole("heading", { name: "Покупки", exact: true }),

@@ -5,6 +5,27 @@ import textwrap
 import unicodedata
 
 
+RU_LETTERS = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя", ["а", "бэ", "вэ", "гэ", "дэ", "е", "ё", "жэ", "зэ", "и", "и краткое", "ка", "эл", "эм", "эн", "о", "пэ", "эр", "эс", "тэ", "у", "эф", "ха", "цэ", "че", "ша", "ща", "твёрдый знак", "ы", "мягкий знак", "э", "ю", "я"]))
+EN_LETTERS = dict(zip("abcdefghijklmnopqrstuvwxyz", ["эй", "би", "си", "ди", "и", "эф", "джи", "эйч", "ай", "джей", "кей", "эл", "эм", "эн", "оу", "пи", "кью", "ар", "эс", "ти", "ю", "ви", "дабл ю", "экс", "уай", "зед"]))
+EXTENSIONS = {"docx": "докс", "doc": "док", "txt": "тэ икс тэ", "pdf": "пэ дэ эф", "md": "эм дэ", "csv": "си эс ви", "xlsx": "икс эл эс икс", "xls": "икс эл эс", "pptx": "пэ пэ тэ икс", "json": "джейсон", "png": "пэ эн гэ", "jpg": "джей пег", "mp3": "эм пэ три"}
+
+
+def spoken_filenames(text):
+    def replace(match):
+        name, extension = match.group(1), match.group(2).lower()
+        parts = re.findall(r"[a-zа-яё]+|\d+", name, re.IGNORECASE)
+        spoken = []
+        for part in parts:
+            if part.isdigit():
+                spoken.append({"0": "ноль", "1": "один", "2": "два", "3": "три", "4": "четыре", "5": "пять", "6": "шесть", "7": "семь", "8": "восемь", "9": "девять"}.get(part, part))
+            elif len(part) <= 4 and (part.isupper() or not re.search(r"[аеёиоуыэюяaeiou]", part, re.IGNORECASE)):
+                spoken.append(" ".join((RU_LETTERS | EN_LETTERS).get(char.lower(), char) for char in part))
+            else:
+                spoken.append(part)
+        return " ".join(spoken) + " точка " + EXTENSIONS[extension]
+    return re.sub(r"(?<![\w])([\w][\w.-]{0,160})\s*\.(" + "|".join(EXTENSIONS) + r")\b", replace, text, flags=re.IGNORECASE)
+
+
 def plain_speech(text: str) -> str:
     text = unicodedata.normalize("NFC", html.unescape(text))
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -20,6 +41,7 @@ def plain_speech(text: str) -> str:
     # Silero interprets even one asterisk as a pronunciation instruction.
     # Never let Markdown (including an unfinished streamed span) reach that parser.
     text = text.replace("*", "").replace("`", "").replace("~~", "")
+    text = spoken_filenames(text)
     text = re.sub(r"(?<!\w)_{1,3}(?=\S)|(?<=\S)_{1,3}(?!\w)", "", text)
     lines = []
     for line in text.splitlines():

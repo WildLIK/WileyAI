@@ -7,6 +7,18 @@ import keyring
 from .config import Settings
 
 
+class IncompleteResponse(ValueError):
+    """A partial answer can be retained and explicitly continued by its owner."""
+
+
+class ResponseLimitReached(IncompleteResponse):
+    """The provider returned usable text but stopped at its output limit."""
+
+
+def response_limit(settings):
+    return min(settings.response_tokens, max(256, settings.context_tokens // 2))
+
+
 def key_id(settings: Settings) -> str:
     return settings.base_url
 
@@ -47,15 +59,16 @@ async def list_models(settings: Settings) -> list[dict]:
 async def chat(settings: Settings, messages: list[dict]) -> AsyncIterator[str]:
     if settings.provider == "ollama":
         endpoint = "api/chat"
-        body = {"model": settings.model, "messages": messages, "stream": True, "options": {"num_ctx": settings.context_tokens, "num_predict": 768, "temperature": settings.temperature}, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile]}
+        body = {"model": settings.model, "messages": messages, "stream": True, "options": {"num_ctx": settings.context_tokens, "num_predict": response_limit(settings), "temperature": settings.temperature}, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile]}
         if "qwen3" in settings.model.casefold():
             body["think"] = False
     else:
         endpoint = compatible_path(settings, "chat/completions")
-        body = {"model": settings.model, "messages": messages, "stream": True, "temperature": settings.temperature, "max_tokens": 768}
+        body = {"model": settings.model, "messages": messages, "stream": True, "temperature": settings.temperature, "max_tokens": response_limit(settings)}
     async with client(settings) as http:
         async with http.stream("POST", endpoint, json=body) as response:
             response.raise_for_status()
+            finished = False
             async for line in response.aiter_lines():
                 if not line or line.startswith(":"):
                     continue
@@ -64,6 +77,7 @@ async def chat(settings: Settings, messages: list[dict]) -> AsyncIterator[str]:
                         continue
                     line = line[5:].strip()
                     if line == "[DONE]":
+                        finished = True
                         break
                 item = json.loads(line)
                 if item.get("error"):
@@ -71,6 +85,13 @@ async def chat(settings: Settings, messages: list[dict]) -> AsyncIterator[str]:
                 delta = item.get("message", {}).get("content", "") if settings.provider == "ollama" else (item.get("choices") or [{}])[0].get("delta", {}).get("content", "")
                 if isinstance(delta, str) and delta:
                     yield delta
+                reason = item.get("done_reason") if settings.provider == "ollama" else (item.get("choices") or [{}])[0].get("finish_reason")
+                if reason in {"length", "max_tokens"}:
+                    raise ResponseLimitReached("Ответ достиг лимита длины. Можно продолжить его кнопкой «Продолжить ответ».")
+                if item.get("done") is True or reason:
+                    finished = True
+            if not finished:
+                raise IncompleteResponse("Поток ответа оборвался без подтверждения завершения. Можно продолжить сохранённый текст.")
 
 
 async def unload(settings: Settings):

@@ -85,7 +85,7 @@ test("desktop: local core, persistent memory, settings, model catalog and avatar
     await page.getByRole("button", { name: "Отправить", exact: true }).click();
     await expect(
       page.getByText(
-        "Запомнил. Посмотреть и удалить запись можно в разделе «Память».",
+        "Запомнила. Посмотреть и удалить запись можно в разделе «Память».",
       ),
     ).toBeVisible();
     await page.screenshot({
@@ -114,7 +114,7 @@ test("desktop: local core, persistent memory, settings, model catalog and avatar
     await expect(page.locator(".companion-panel h2")).toHaveText("Уайли Тест");
     await expect(
       page.getByText(
-        "Запомнил. Посмотреть и удалить запись можно в разделе «Память».",
+        "Запомнила. Посмотреть и удалить запись можно в разделе «Память».",
       ),
     ).toBeVisible();
   } finally {

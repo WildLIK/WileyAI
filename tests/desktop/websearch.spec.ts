@@ -231,7 +231,7 @@ test("web search: explicit opt-in, real provider HTTP, citations, one-shot butto
     await send(page, "Запомни: отмена поиска работает");
     await expect(
       page.locator(".message.assistant .message-text").last(),
-    ).toContainText("Запомнил");
+    ).toContainText("Запомнила");
     await expect(page.locator(".search-sources")).toHaveCount(2);
     await page.screenshot({
       path: "local/screenshots/websearch.png",

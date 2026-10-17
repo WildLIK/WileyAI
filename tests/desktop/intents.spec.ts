@@ -110,11 +110,11 @@ test("free commands: opt-in, catalog-only model request, durable proposal, local
       page.getByText("Доступ сохранён", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "◈ Общение" }).click();
-    await send(page, "Запомни: ПРИВАТНАЯ-ПАМЯТЬ", "Запомнил");
+    await send(page, "Запомни: ПРИВАТНАЯ-ПАМЯТЬ", "Запомнила");
     await send(
       page,
       "Можешь открыть программу для личных заметок?",
-      "Пока ничего не открывал",
+      "Пока ничего не открыто",
     );
     expect(requests).toHaveLength(1);
     expect(requests[0].messages).toHaveLength(2);
@@ -137,7 +137,7 @@ test("free commands: opt-in, catalog-only model request, durable proposal, local
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(
       page.locator(".message.assistant .message-text").last(),
-    ).toContainText("Пока ничего не открывал");
+    ).toContainText("Пока ничего не открыто");
     // Remove the placeholder before confirming: actual preflight must refuse it.
     await unlink(target);
     await send(page, "да", "Файл или папка не найдены");
@@ -146,7 +146,7 @@ test("free commands: opt-in, catalog-only model request, durable proposal, local
     await send(
       page,
       "Открой программу для личных заметок",
-      "Пока ничего не открывал",
+      "Пока ничего не открыто",
     );
     await send(page, "отмена", "Выбор открытия отменён");
     expect(requests).toHaveLength(2);

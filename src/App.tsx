@@ -140,6 +140,7 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [replyLimit, setReplyLimit] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -378,6 +379,7 @@ export function App() {
         : chatList[0]?.id;
       if (!id) return;
       if (id !== activeChatRef.current) {
+        setReplyLimit("");
         setDraft(chatDrafts.current.get(id) || "");
         setSelectedDocs(readAttachments(id), id);
         setSearchNext(false);
@@ -456,6 +458,7 @@ export function App() {
       setSearchNext(false);
       setError("");
       setNotice("");
+      setReplyLimit("");
       dataEpoch.current++;
       memoryRefreshEpoch.current++;
       await refresh();
@@ -619,6 +622,7 @@ export function App() {
       setError("Ядро остановилось. Перезапустите WileyAI.");
     });
     const offRestored = window.wiley.onDataRestored(() => {
+      setReplyLimit("");
       settingsEpoch.current++;
       savedSettings.current = undefined;
       for (const key of Object.keys(localStorage))
@@ -782,14 +786,20 @@ export function App() {
     });
     return output;
   }
-  async function speak(text: string, config = settings, signal?: AbortSignal) {
+  async function speak(
+    text: string,
+    config = settings,
+    signal?: AbortSignal,
+    sample = false,
+  ) {
     await voiceSave.current;
     if (conversation.active && !signal)
       throw new Error("Сначала завершите текущий разговор.");
     signal?.throwIfAborted();
     if (!config) return;
     const output = startSpeech(config, signal);
-    output.whole(text);
+    if (sample) output.whole(text);
+    else output.finish(text);
     await output.done;
   }
   async function send(
@@ -818,6 +828,7 @@ export function App() {
     setError("");
     setDraft("");
     setAnswer("");
+    setReplyLimit("");
     stopAudio();
     setBusy(true);
     setStage("Отвечает…");
@@ -855,6 +866,8 @@ export function App() {
             startOutput()?.push(event.text);
           }
           if (event.type === "stage") setStage(event.text || "Отвечает…");
+          if (event.type === "limit")
+            setReplyLimit(event.text || "Ответ достиг лимита длины.");
           if (event.type === "error") {
             streamError = event.text || "Ошибка модели";
             setError(streamError);
@@ -1430,6 +1443,26 @@ export function App() {
                         )}
                       </div>
                       <div className="message-text">{message.content}</div>
+                      {message.role === "assistant" &&
+                        message.id === messages.at(-1)?.id &&
+                        !busy && (
+                          <div className="button-row">
+                            <button
+                              className="subtle"
+                              disabled={conversation.active || chatLoading}
+                              onClick={() =>
+                                void send(
+                                  "Продолжи предыдущий ответ с места остановки, без повторения уже написанного.",
+                                )
+                              }
+                            >
+                              Продолжить ответ
+                            </button>
+                            {replyLimit && (
+                              <small role="status">{replyLimit}</small>
+                            )}
+                          </div>
+                        )}
                       <SearchSources
                         message={message}
                         onError={fail}
@@ -1692,7 +1725,11 @@ export function App() {
                     ? "Говорю с вами"
                     : busy
                       ? "Обдумываю ответ"
-                      : "Готов помочь"}
+                      : settings.grammatical_gender === "feminine"
+                        ? "Готова помочь"
+                        : settings.grammatical_gender === "masculine"
+                          ? "Готов помочь"
+                          : "На связи"}
                 </p>
                 <div className="companion-details">
                   <div>
@@ -2270,6 +2307,28 @@ export function App() {
                   />
                 </label>
                 <label>
+                  Род речи персонажа
+                  <select
+                    aria-label="Род речи персонажа"
+                    value={settings.grammatical_gender}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        grammatical_gender: event.target
+                          .value as Settings["grammatical_gender"],
+                      })
+                    }
+                  >
+                    <option value="feminine">Женский · готова, поняла</option>
+                    <option value="masculine">Мужской · готов, понял</option>
+                    <option value="neutral">Без указания рода</option>
+                  </select>
+                </label>
+                <p className="help">
+                  Определяет, как Уайли говорит о себе. Эта настройка не зависит
+                  от выбранного голоса.
+                </p>
+                <label>
                   Профиль производительности
                   <select
                     value={settings.profile}
@@ -2293,6 +2352,7 @@ export function App() {
                 <label>
                   Движок
                   <select
+                    aria-label="Движок"
                     value={settings.provider}
                     onChange={(event) =>
                       setSettings({
@@ -2360,6 +2420,27 @@ export function App() {
                     }
                   />
                 </label>
+                <label>
+                  Максимальная длина ответа, токенов
+                  <input
+                    type="number"
+                    min={256}
+                    max={8192}
+                    step={256}
+                    value={settings.response_tokens}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        response_tokens: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <p className="help">
+                  На ответ выделяется до половины выбранного контекста. Если
+                  лимит достигнут, появится пояснение и кнопка продолжения.
+                  Увеличение контекста требует больше памяти.
+                </p>
                 <p className="help">
                   Сохраните настройки, затем обновите список в разделе «Модели».
                   Облако подключается только по вашему выбору.
@@ -2539,7 +2620,14 @@ export function App() {
                 <button
                   className="outline"
                   onClick={() =>
-                    run(() => speak("Привет! Я Уайли. Давай начнём."))
+                    run(() =>
+                      speak(
+                        "Привет! Я Уайли. Давай начнём.",
+                        settings,
+                        undefined,
+                        true,
+                      ),
+                    )
                   }
                 >
                   ♪ Прослушать голос

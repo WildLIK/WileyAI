@@ -19,7 +19,7 @@ from core.voice import Voice
     ("```python\nprint('Привет')\n```\nИмя: `snake_case`.", "print('Привет')\nИмя: snake_case."),
     ("| Имя | Дата |\n| :--- | ---: |\n| План | завтра |", "Имя; Дата\nПлан; завтра"),
     ("<b>Привет</b> &amp; &ast;&ast;мир&ast;&ast;!<!-- скрыто -->", "Привет & мир!"),
-    ("Два: 2 * 3 = 6. Файл user_name.txt", "Два: 2 умножить на 3 = 6. Файл user_name.txt"),
+    ("Два: 2 * 3 = 6. Файл user_name.txt", "Два: 2 умножить на 3 = 6. Файл user name точка тэ икс тэ"),
     ("Уда́рение, ёлка, 3.14 и 2026 год.", "Уда́рение, ёлка, 3.14 и 2026 год."),
 ])
 def test_markdown_is_read_as_plain_text(source, expected):
@@ -45,6 +45,16 @@ def test_chunking_prefers_a_complete_sentence_and_keeps_all_text():
     parts = speech_chunks(" ".join(sentences), limit=65)
     assert parts == [sentences[0], " ".join(sentences[1:])]
     assert max(map(len, speech_chunks("я" * 600))) <= 240
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("Пс2.docx", "пэ эс два точка докс"),
+    ("«Пс2 .docx»", "«пэ эс два точка докс»"),
+    ("PS2.txt", "пи эс два точка тэ икс тэ"),
+    ("Отчёт_2026.pdf", "Отчёт 2026 точка пэ дэ эф"),
+])
+def test_complete_file_names_are_prepared_for_speech(name, expected):
+    assert plain_speech(name) == expected
 
 
 def test_piper_receives_plain_text_before_chunking(tmp_path, monkeypatch):

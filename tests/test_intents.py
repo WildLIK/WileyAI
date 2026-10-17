@@ -86,7 +86,7 @@ def test_model_only_proposes_id_then_voice_yes_executes_once(context):
     assert "private-first.exe" not in question["content"] and opened == []
     payload = str(captured[-1])
     assert all(secret not in payload for secret in ["ПРИВАТНАЯ-ПАМЯТЬ", "ПРИВАТНЫЙ-ДОКУМЕНТ", "ПРИВАТНАЯ-ИСТОРИЯ", str(store.root), "private-first.exe"])
-    assert "Передал Windows" in send(api, "да", mode="conversation")["content"]
+    assert "Передала Windows" in send(api, "да", mode="conversation")["content"]
     assert len(opened) == 1 and opened[0].label == "редактор заметок" and len(captured) == 1
     send(api, "да")
     assert len(opened) == 1
@@ -132,7 +132,7 @@ def test_opening_request_does_not_become_title_of_pending_reminder(context):
     send(api, "Напомни завтра в 11", timezone="Asia/Yekaterinburg")
     assert store.dialogue().get("pending") is not None
     question = send(api, "Можешь открыть программу для заметок")
-    assert "Пока ничего не открывал" in question["content"] and store.list("tasks") == []
+    assert "Пока ничего не открыто" in question["content"] and store.list("tasks") == []
     assert "pending" not in store.dialogue() and opened == []
 
 

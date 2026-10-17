@@ -35,6 +35,17 @@ let quitting = false;
 let ollamaProcess;
 let notificationTimer;
 let backups;
+function spawnService(executable, args, options) {
+  if (process.platform !== "win32") return spawn(executable, args, options);
+  const python =
+    process.env.WILEYAI_PYTHON ||
+    path.join(root, ".venv", "Scripts", "python.exe");
+  return spawn(
+    python,
+    ["-m", "core.process_guard", String(process.pid), executable, ...args],
+    options,
+  );
+}
 const conversation = new ConversationLease(() => {
   if (quitting) return;
   for (const window of windows.values()) {
@@ -89,7 +100,7 @@ async function startManagedOllama() {
   } catch {
     /* Start the optional portable engine when no server is listening. */
   }
-  ollamaProcess = spawn(executable, ["serve"], {
+  ollamaProcess = spawnService(executable, ["serve"], {
     cwd: root,
     windowsHide: true,
     env: {
@@ -164,7 +175,7 @@ async function startCore() {
   const python =
     process.env.WILEYAI_PYTHON ||
     path.join(root, ".venv", "Scripts", "python.exe");
-  const child = spawn(python, ["-m", "core"], {
+  const child = spawnService(python, ["-m", "core"], {
     cwd: root,
     windowsHide: true,
     env: {

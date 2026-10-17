@@ -2,12 +2,14 @@ import type { ConversationState, Phase } from "./voice/conversation";
 
 export interface Settings {
   name: string;
+  grammatical_gender: "feminine" | "masculine" | "neutral";
   personality: string;
   provider: "ollama" | "compatible";
   base_url: string;
   model: string;
   profile: "eco" | "balanced" | "quality";
   context_tokens: number;
+  response_tokens: number;
   temperature: number;
   stt_model: "tiny" | "base" | "small";
   tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3";

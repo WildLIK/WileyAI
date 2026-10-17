@@ -106,17 +106,17 @@ test("calendar: forms, conflicts, chat commands, concurrent windows, project sco
     await send(
       page,
       "создай встречу Проверка из чата завтра в 14 на 30 минут",
-      "Создал встречу",
+      "Создала встречу",
     );
     const spoken = second
       .locator(".calendar-event")
       .filter({ hasText: "Проверка из чата" });
     await expect(spoken).toHaveCount(1);
     await expect(spoken).toContainText("14:00");
-    await send(page, "перенеси встречу на 15", "Перенёс встречу");
+    await send(page, "перенеси встречу на 15", "Перенесла встречу");
     await expect(spoken).toContainText("15:30");
     await send(page, "покажи расписание завтра", "Обзор обновлён");
-    await send(page, "отмени встречу", "Удалил событие");
+    await send(page, "отмени встречу", "Удалила событие");
     await expect(spoken).toHaveCount(0);
     await page.getByRole("button", { name: "＋ Проект", exact: true }).click();
     await page.getByLabel("Название проекта").fill("Проект календаря");

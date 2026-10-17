@@ -139,6 +139,47 @@ def test_conversation_uses_personality_memory_and_previous_turn(api, monkeypatch
     assert messages[-1]["content"] == "Что думаешь об этом?"
 
 
+def test_incomplete_answer_is_saved_and_its_tail_survives_for_continuation(api, monkeypatch):
+    captured = []
+    partial = "Длинный ответ. " * 400 + "Конец: Нужен ли разбор главы?"
+    async def model(settings, messages):
+        captured.append(messages)
+        if len(captured) == 1:
+            yield partial
+            raise providers.ResponseLimitReached("Достигнут лимит длины")
+        yield "Продолжение ответа."
+    monkeypatch.setattr(providers, "chat", model)
+    first = api.post("/chat", json={"text": "Подробно разбери документ"})
+    assert '"type": "limit"' in first.text and '"type": "done"' in first.text
+    assert api.get("/messages").json()[-1]["content"] == partial
+    second = api.post("/chat", json={"text": "Продолжи предыдущий ответ с места остановки"})
+    assert '"type": "done"' in second.text
+    assert "Конец: Нужен ли разбор главы?" in str(captured[-1])
+    assert "Подробно разбери документ" in str(captured[-1])
+
+
+@pytest.mark.parametrize("gender, instruction", [("feminine", "женском роде"), ("masculine", "мужском роде"), ("neutral", "без указания рода")])
+def test_persona_gender_is_independent_of_voice_and_reaches_model(api, monkeypatch, gender, instruction):
+    captured = []
+    config = api.get("/settings").json()
+    api.put("/settings", json={**config, "grammatical_gender": gender, "tts_engine": "silero", "tts_voice": "aidar"}).raise_for_status()
+    async def model(settings, messages):
+        captured.append(messages)
+        yield "Ответ."
+    monkeypatch.setattr(providers, "chat", model)
+    api.post("/chat", json={"text": "Как ты говоришь о себе?"})
+    assert instruction in captured[0][0]["content"]
+
+
+@pytest.mark.parametrize("gender, prefix", [("feminine", "Создала"), ("masculine", "Создал"), ("neutral", "Создана заметка")])
+def test_local_results_use_persona_gender_without_rewriting_quoted_content(gender, prefix):
+    from core.persona import local_result
+    text = 'Создал заметку «Передал файл и подумал». Она доступна в разделе «Заметки».'
+    result = local_result(text, gender)
+    assert result.startswith(prefix)
+    assert '«Передал файл и подумал»' in result
+
+
 def test_voice_prepare_loads_selected_components_without_dialogue(api, monkeypatch):
     calls = []
     monkeypatch.setattr(Voice, "prepare", lambda self, model, engine, speaker: calls.append((model, engine, speaker)))
