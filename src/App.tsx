@@ -167,6 +167,9 @@ export function App() {
     tts_available: false,
     silero_installed: false,
     silero_v5_6_installed: false,
+    qwen3_available: false,
+    qwen3_installed: false,
+    qwen3_voices: [],
     piper_available: false,
     piper_voices: [],
   });
@@ -660,6 +663,7 @@ export function App() {
         config?.tts_voice || "",
         controller.signal,
         config?.tts_engine,
+        config?.tts_device,
       );
       await playAudio(
         blob,
@@ -1649,12 +1653,14 @@ export function App() {
                           ? voice.silero_installed
                           : item.engine === "silero_v5_6"
                             ? voice.silero_v5_6_installed
-                            : item.engine === "piper"
-                              ? voice.piper_available &&
-                                voice.piper_voices?.some(
-                                  (v) => v.name === item.voice && v.installed,
-                                )
-                              : voice.voices.length > 0;
+                            : item.engine === "qwen3"
+                              ? voice.qwen3_installed
+                              : item.engine === "piper"
+                                ? voice.piper_available &&
+                                  voice.piper_voices?.some(
+                                    (v) => v.name === item.voice && v.installed,
+                                  )
+                                : voice.voices.length > 0;
                   const downloading =
                     jobs.some(
                       (job) =>
@@ -2265,6 +2271,7 @@ export function App() {
                       Silero 5.6 · выразительная интонация
                     </option>
                     <option value="piper">Piper · дополнительные голоса</option>
+                    <option value="qwen3">Qwen3-TTS · экспериментальный</option>
                     <option value="sapi">Системные голоса Windows</option>
                   </select>
                 </label>
@@ -2285,7 +2292,9 @@ export function App() {
                         ? "Ксения · по умолчанию"
                         : settings.tts_engine === "piper"
                           ? "Ирина · по умолчанию"
-                          : "Голос Windows по умолчанию"}
+                          : settings.tts_engine === "qwen3"
+                            ? "Serena · по умолчанию"
+                            : "Голос Windows по умолчанию"}
                     </option>
                     {(settings.tts_engine.startsWith("silero")
                       ? [
@@ -2307,7 +2316,9 @@ export function App() {
                                 ? " · установлен"
                                 : " · нужно скачать"),
                           }))
-                        : voice.voices
+                        : settings.tts_engine === "qwen3"
+                          ? voice.qwen3_voices || []
+                          : voice.voices
                     ).map((item) => (
                       <option key={item.name} value={item.name}>
                         {item.name} · {item.language}
@@ -2315,6 +2326,43 @@ export function App() {
                     ))}
                   </select>
                 </label>
+                {settings.tts_engine === "qwen3" && (
+                  <>
+                    <label>
+                      Устройство Qwen3-TTS
+                      <select
+                        aria-label="Устройство Qwen3-TTS"
+                        value={settings.tts_device}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            tts_device: event.target
+                              .value as Settings["tts_device"],
+                          })
+                        }
+                      >
+                        <option value="auto">
+                          Автоматически · CUDA при наличии
+                        </option>
+                        <option value="cuda">Видеокарта NVIDIA · CUDA</option>
+                        <option value="cpu">Процессор · CPU, медленнее</option>
+                      </select>
+                    </label>
+                    <p className="help">
+                      {voice.qwen3_available
+                        ? "Отдельный движок установлен."
+                        : "Подготовьте движок командой npm run setup:qwen."}{" "}
+                      {voice.qwen3_installed
+                        ? "Веса установлены."
+                        : "Скачайте веса в «Модели → Озвучка»."}{" "}
+                      Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти.
+                      Модель загружается заново на каждую реплику; при остановке
+                      память освобождается. На CPU возможна долгая подготовка.
+                      Русская речь у готовых тембров может иметь акцент. Для
+                      мягкого женского голоса попробуйте Serena.
+                    </p>
+                  </>
+                )}
                 <label className="checkbox">
                   <input
                     type="checkbox"

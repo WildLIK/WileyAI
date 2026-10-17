@@ -191,3 +191,19 @@ def test_voice_stop_preserves_request_scope(api, monkeypatch):
     assert api.post("/voice/stop").status_code == 200
     assert calls == ["old-speech", None]
     assert api.post("/voice/stop", json={"request_id": "../invalid"}).status_code == 422
+
+
+def test_qwen_voice_device_and_settings_are_independent_of_llm(api, monkeypatch):
+    received = []
+    async def render(self, text, voice, engine, request_id, device="auto"):
+        received.append((voice, engine, device))
+        return b"RIFFaudio"
+    monkeypatch.setattr(Voice, "render", render)
+    settings = api.get("/settings").json()
+    original_model = settings["model"]
+    settings.update(tts_engine="qwen3", tts_voice="serena", tts_device="cpu")
+    assert api.put("/settings", json=settings).status_code == 200
+    assert api.get("/settings").json()["model"] == original_model
+    assert api.post("/voice/synthesize", json={"text": "Привет"}).status_code == 200
+    assert received == [("serena", "qwen3", "cpu")]
+    assert api.post("/voice/synthesize", json={"text": "Привет", "device": "shell"}).status_code == 422

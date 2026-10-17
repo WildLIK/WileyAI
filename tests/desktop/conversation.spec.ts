@@ -292,6 +292,11 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
           silero_installed: true,
           silero_v5_6_installed: true,
           piper_available: true,
+          qwen3_available: true,
+          qwen3_installed: true,
+          qwen3_voices: [
+            { name: "serena", language: "Serena · мягкий женский" },
+          ],
           piper_voices: [
             { name: "irina", label: "Ирина · женский", installed: true },
           ],
@@ -376,9 +381,11 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
     ).toBeEnabled();
     const engines: string[] = [];
     const selectedVoices: string[] = [];
+    const devices: string[] = [];
     await page.route("**/voice/synthesize", (route) => {
       engines.push(route.request().postDataJSON().engine);
       selectedVoices.push(route.request().postDataJSON().voice);
+      devices.push(route.request().postDataJSON().device);
       return route.fulfill({
         contentType: "audio/wav",
         body: Buffer.from(wav(new Float32Array(4000), 16000)),
@@ -455,6 +462,25 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
         ),
       )
       .toEqual(Array(5).fill(outputId));
+    await page
+      .getByLabel("Движок озвучки", { exact: true })
+      .selectOption("qwen3");
+    await page
+      .getByLabel("Голос ассистента", { exact: true })
+      .selectOption("serena");
+    await page
+      .getByLabel("Устройство Qwen3-TTS", { exact: true })
+      .selectOption("cpu");
+    await page
+      .getByRole("button", { name: "♪ Прослушать голос", exact: true })
+      .click();
+    await expect.poll(() => engines.at(-1)).toBe("qwen3");
+    await expect.poll(() => selectedVoices.at(-1)).toBe("serena");
+    await expect.poll(() => devices.at(-1)).toBe("cpu");
+    await expect(
+      page.getByRole("button", { name: "■ Остановить озвучку", exact: true }),
+    ).toBeHidden();
+    await page.getByRole("button", { name: "Сохранить", exact: true }).click();
     await page.getByRole("button", { name: "◈ Общение" }).click();
     await page
       .getByRole("button", { name: "Записать голос", exact: true })
@@ -519,6 +545,12 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
     await expect(
       again.page.getByLabel("Динамик / наушники", { exact: true }),
     ).toHaveValue(outputId);
+    await expect(
+      again.page.getByLabel("Движок озвучки", { exact: true }),
+    ).toHaveValue("qwen3");
+    await expect(
+      again.page.getByLabel("Устройство Qwen3-TTS", { exact: true }),
+    ).toHaveValue("cpu");
   } finally {
     await again.app.close();
   }

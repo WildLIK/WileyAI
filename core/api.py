@@ -100,7 +100,8 @@ class ChatStopBody(BaseModel):
 
 class SpeechBody(TextBody):
     voice: str | None = Field(default=None, max_length=300)
-    engine: Literal["silero", "silero_v5_6", "piper", "sapi"] | None = None
+    engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] | None = None
+    device: Literal["auto", "cpu", "cuda"] | None = None
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
@@ -559,10 +560,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.get("/voice")
     async def voice_info():
         from .piper import VOICES
-        return {"available": voice.available(), "voices": await voice.voices(), "tts_available": voice.tts_available(), "silero_installed": voice.tts_installed(), "silero_v5_6_installed": voice.tts_installed("v5_6_ru"), "piper_available": voice.piper.available(), "piper_voices": [{"name": key, "label": value[0], "installed": voice.piper.installed(key)} for key, value in VOICES.items()], "installed_stt": [size for size in ["tiny", "base", "small"] if (root / "models" / "whisper" / size / "model.bin").is_file()]}
+        from .qwen import VOICES as QWEN_VOICES
+        return {"available": voice.available(), "voices": await voice.voices(), "tts_available": voice.tts_available(), "silero_installed": voice.tts_installed(), "silero_v5_6_installed": voice.tts_installed("v5_6_ru"), "qwen3_available": voice.qwen.available(), "qwen3_installed": voice.qwen.installed(), "qwen3_voices": QWEN_VOICES, "piper_available": voice.piper.available(), "piper_voices": [{"name": key, "label": value[0], "installed": voice.piper.installed(key)} for key, value in VOICES.items()], "installed_stt": [size for size in ["tiny", "base", "small"] if (root / "models" / "whisper" / size / "model.bin").is_file()]}
 
     @app.post("/voice/download")
     async def voice_download(body: ModelBody):
+        if body.model == "qwen3-tts-0.6b":
+            await asyncio.to_thread(voice.qwen.download)
+            return {"ok": True}
         if body.model == "silero-v5-ru":
             await asyncio.to_thread(voice.download_tts)
             return {"ok": True}
@@ -610,7 +615,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         selected_voice = body.voice if body.voice is not None else config.tts_voice
         import uuid
         request_id = body.request_id or uuid.uuid4().hex
-        task = asyncio.create_task(voice.render(body.text, selected_voice, body.engine or config.tts_engine, request_id))
+        engine = body.engine or config.tts_engine
+        options = {"device": body.device or config.tts_device} if engine == "qwen3" else {}
+        task = asyncio.create_task(voice.render(body.text, selected_voice, engine, request_id, **options))
         try:
             while not task.done():
                 if await request.is_disconnected():

@@ -10,7 +10,8 @@ export interface Settings {
   context_tokens: number;
   temperature: number;
   stt_model: "tiny" | "base" | "small";
-  tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi";
+  tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3";
+  tts_device: "auto" | "cpu" | "cuda";
   tts_voice: string;
   speak_answers: boolean;
   memory_suggestions: boolean;
@@ -136,6 +137,9 @@ export interface VoiceInfo {
   tts_available: boolean;
   silero_installed: boolean;
   silero_v5_6_installed: boolean;
+  qwen3_available: boolean;
+  qwen3_installed: boolean;
+  qwen3_voices: { name: string; language: string }[];
   piper_available: boolean;
   piper_voices: { name: string; label: string; installed: boolean }[];
 }
@@ -224,6 +228,7 @@ export async function audioRequest(
   voice: string,
   signal: AbortSignal,
   engine: Settings["tts_engine"] = "silero",
+  device: Settings["tts_device"] = "auto",
 ): Promise<Blob> {
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
@@ -238,7 +243,7 @@ export async function audioRequest(
         Authorization: "Bearer " + connection.token,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text, voice, engine, request_id }),
+      body: JSON.stringify({ text, voice, engine, device, request_id }),
       signal,
     });
     if (!response.ok) {

@@ -15,6 +15,7 @@ import hashlib
 import httpx
 from .piper import Piper
 from .speech_text import plain_speech, speech_chunks
+from .qwen import QwenSpeech
 
 
 class SpeechCancelled(ValueError):
@@ -37,6 +38,7 @@ class Voice:
         self.tts_model = None
         self.tts_version = ""
         self.piper = Piper(root)
+        self.qwen = QwenSpeech(root)
         self.synthesis_jobs: dict[str, threading.Event] = {}
         self.stopped: dict[str, float] = {}
         self.speech_id = None
@@ -97,6 +99,8 @@ class Voice:
         version = "v5_6_ru" if tts_engine == "silero_v5_6" else "v5_ru"
         if tts_engine.startswith("silero") and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")
+        if tts_engine == "qwen3":
+            self.qwen.prepare(speaker)
         with self.lock:
             self._load_stt(model)
         if tts_engine.startswith("silero"):
@@ -200,6 +204,7 @@ class Voice:
         for key, event in list(self.synthesis_jobs.items()):
             if request_id is None or request_id == key:
                 event.set()
+        await self.qwen.stop(request_id)
         if request_id is not None and self.speech_id != request_id:
             return
         process = self.speech
@@ -211,7 +216,7 @@ class Voice:
                 pass
             await process.wait()
 
-    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None) -> bytes:
+    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto") -> bytes:
         request_id = request_id or uuid.uuid4().hex
         if request_id in self.synthesis_jobs:
             raise ValueError("Озвучка с таким идентификатором уже выполняется")
@@ -228,6 +233,8 @@ class Voice:
             cancel = threading.Event()
             self.synthesis_jobs[request_id] = cancel
         try:
+            if engine == "qwen3":
+                return await self.qwen.render(plain_speech(text), voice, device, request_id, cancel)
             if engine == "sapi":
                 return await self._sapi(text, voice, render=True, request_id=request_id, cancel=cancel)
             return await asyncio.to_thread(self.synthesize, text, voice, cancel, engine)
