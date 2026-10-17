@@ -1,6 +1,8 @@
 """Opt-in real TTS footprint check; isolated settings, shared read-only weights."""
 import asyncio
 import os
+import io
+import wave
 from pathlib import Path
 import time
 
@@ -48,4 +50,29 @@ def test_real_qwen_memory_is_in_model_row_during_work_and_idle(tmp_path):
         snapshot = await asyncio.to_thread(monitor.sample)
         row = next(row for row in snapshot["rows"] if row["id"] == "tts:qwen3")
         assert row["ram"] is None and not row["pids"]
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(os.environ.get("WILEYAI_QWEN_TESTS") != "1", reason="Requires installed Qwen runtime and weights")
+def test_qwen_speech_duration_against_synthesis_time(tmp_path):
+    async def scenario():
+        voice = Voice(tmp_path)
+        voice.qwen.root = Path(__file__).resolve().parents[1] / "data/models/qwen3-tts"
+        rows = []
+        try:
+            for index, text in enumerate(["Привет!", "Рада тебя слышать.", "Рада тебя слышать. Давай спокойно обсудим твои планы."]):
+                start = time.perf_counter()
+                audio = await voice.render(text, "serena", "qwen3", "timing-" + str(index), device=os.environ.get("WILEYAI_QWEN_DEVICE", "auto"), session_id="timing-session")
+                elapsed = time.perf_counter() - start
+                with wave.open(io.BytesIO(audio), "rb") as sound:
+                    duration = sound.getnframes() / sound.getframerate()
+                assert duration > .1
+                row = {"phrase": index + 1, "device": audio.device, "synthesis_seconds": round(elapsed, 2), "audio_seconds": round(duration, 2), "ratio": round(elapsed / duration, 2)}
+                rows.append(row)
+                print(row, flush=True)
+            target = Path(__file__).resolve().parents[1] / "local/qwen-timing.json"
+            import json
+            target.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        finally:
+            await voice.stop()
     asyncio.run(scenario())

@@ -22,6 +22,8 @@ import {
   type VoiceInfo,
   type Chat,
   type Project,
+  type SpeechSettings,
+  cloudOptions,
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
 import { MemoryPanel, MemorySuggestions } from "./Memory";
@@ -32,6 +34,8 @@ import { RoutinePanel, ToolAccess } from "./Routines";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
+import { CloudSpeechSettings } from "./voice/CloudSpeech";
+import { ChatMessages } from "./ChatMessages";
 import {
   Conversation,
   phaseLabels,
@@ -260,7 +264,7 @@ export function App() {
   const localSpeechId = useRef("");
   const activeSpeechIds = useRef(new Set<string>());
   const speechGeneration = useRef(0);
-  const listEnd = useRef<HTMLDivElement>(null);
+  const [scrollRequest, setScrollRequest] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
   const upload = useRef<HTMLInputElement>(null);
   const channel = useRef<BroadcastChannel | null>(null);
@@ -670,9 +674,6 @@ export function App() {
     };
   }, [refresh, refreshMemories, refreshDocuments, selectChat, stop]);
   useEffect(() => {
-    listEnd.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, answer, memoryCandidates.length]);
-  useEffect(() => {
     if (!jobs.some((job) => ["queued", "running"].includes(job.status))) return;
     const timer = setInterval(() => {
       request<Job[]>("/jobs")
@@ -691,14 +692,7 @@ export function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  function saveVoice(
-    patch: Partial<
-      Pick<
-        Settings,
-        "tts_engine" | "tts_voice" | "tts_device" | "speak_answers"
-      >
-    >,
-  ) {
+  function saveVoice(patch: Partial<SpeechSettings>) {
     setSettings((current) => (current ? { ...current, ...patch } : current));
     const version = ++voiceSaveVersion.current;
     setVoiceSaving(true);
@@ -718,6 +712,7 @@ export function App() {
     void pending.catch(fail).finally(() => {
       if (version === voiceSaveVersion.current) setVoiceSaving(false);
     });
+    return pending;
   }
   async function save(next = settings) {
     await voiceSave.current;
@@ -768,12 +763,21 @@ export function App() {
               );
           },
           speechId,
+          config.tts_engine === "cloud" ? cloudOptions(config) : undefined,
         ),
       async (blob, signal) => {
         onSpeaking?.();
         await playAudio(blob, config.audio_output_device_id || "", signal);
       },
       signal,
+      {
+        batchCharacters:
+          config.tts_engine === "qwen3"
+            ? 240
+            : config.tts_engine === "cloud"
+              ? 800
+              : 0,
+      },
     );
     localSpeechId.current = speechId;
     speechAbort.current = output.controller;
@@ -861,6 +865,7 @@ export function App() {
           if (chatId !== activeChatRef.current) return;
           if (event.type === "user" && event.message) {
             userAccepted = true;
+            setScrollRequest((value) => value + 1);
             setMessages((items) => [...items, event.message!]);
           }
           if (event.type === "delta" && event.text) {
@@ -1401,7 +1406,7 @@ export function App() {
                   }
                 />
               </div>
-              <div className="messages" aria-live="polite">
+              <ChatMessages chat={activeChatId} requestKey={scrollRequest}>
                 {chatLoading && <p className="help">Загружаю чат…</p>}
                 {!chatLoading && !messages.length && (
                   <div className="welcome">
@@ -1510,8 +1515,7 @@ export function App() {
                   onError={fail}
                   onOpen={() => setTab("memory")}
                 />
-                <div ref={listEnd} />
-              </div>
+              </ChatMessages>
               {selectedDocs.length > 0 && (
                 <div className="document-strip">
                   {documents
@@ -2521,58 +2525,80 @@ export function App() {
                     <option value="piper">Piper · дополнительные голоса</option>
                     <option value="qwen3">Qwen3-TTS · экспериментальный</option>
                     <option value="sapi">Системные голоса Windows</option>
+                    <option value="cloud">Облачная озвучка · API</option>
                   </select>
                 </label>
-                <label>
-                  Голос ассистента
-                  <select
-                    aria-label="Голос ассистента"
-                    value={settings.tts_voice}
-                    onChange={(event) =>
-                      saveVoice({
-                        tts_voice: event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">
-                      {settings.tts_engine.startsWith("silero")
-                        ? "Ксения · по умолчанию"
-                        : settings.tts_engine === "piper"
-                          ? "Ирина · по умолчанию"
-                          : settings.tts_engine === "qwen3"
-                            ? "Serena · по умолчанию"
-                            : "Голос Windows по умолчанию"}
-                    </option>
-                    {(settings.tts_engine.startsWith("silero")
-                      ? [
-                          { name: "xenia", language: "Ксения · русский" },
-                          { name: "baya", language: "Бая · русский" },
-                          { name: "aidar", language: "Айдар · русский" },
-                          { name: "eugene", language: "Евгений · русский" },
-                          {
-                            name: "kseniya",
-                            language: "Ксения, вариант · русский",
-                          },
-                        ]
-                      : settings.tts_engine === "piper"
-                        ? (voice.piper_voices || []).map((v) => ({
-                            name: v.name,
-                            language:
-                              v.label +
-                              (v.installed
-                                ? " · установлен"
-                                : " · нужно скачать"),
-                          }))
-                        : settings.tts_engine === "qwen3"
-                          ? voice.qwen3_voices || []
-                          : voice.voices
-                    ).map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name} · {item.language}
+                {settings.tts_engine !== "cloud" && (
+                  <label>
+                    Голос ассистента
+                    <select
+                      aria-label="Голос ассистента"
+                      value={settings.tts_voice}
+                      onChange={(event) =>
+                        saveVoice({
+                          tts_voice: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">
+                        {settings.tts_engine.startsWith("silero")
+                          ? "Ксения · по умолчанию"
+                          : settings.tts_engine === "piper"
+                            ? "Ирина · по умолчанию"
+                            : settings.tts_engine === "qwen3"
+                              ? "Serena · по умолчанию"
+                              : "Голос Windows по умолчанию"}
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      {(settings.tts_engine.startsWith("silero")
+                        ? [
+                            { name: "xenia", language: "Ксения · русский" },
+                            { name: "baya", language: "Бая · русский" },
+                            { name: "aidar", language: "Айдар · русский" },
+                            { name: "eugene", language: "Евгений · русский" },
+                            {
+                              name: "kseniya",
+                              language: "Ксения, вариант · русский",
+                            },
+                          ]
+                        : settings.tts_engine === "piper"
+                          ? (voice.piper_voices || []).map((v) => ({
+                              name: v.name,
+                              language:
+                                v.label +
+                                (v.installed
+                                  ? " · установлен"
+                                  : " · нужно скачать"),
+                            }))
+                          : settings.tts_engine === "qwen3"
+                            ? voice.qwen3_voices || []
+                            : voice.voices
+                      ).map((item) => (
+                        <option key={item.name} value={item.name}>
+                          {item.name} · {item.language}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {settings.tts_engine === "cloud" && (
+                  <CloudSpeechSettings
+                    settings={settings}
+                    onChange={saveVoice}
+                    flush={() => voiceSave.current}
+                    disabled={speaking || conversation.active || voiceSaving}
+                    onError={fail}
+                    onNotice={setNotice}
+                    onPreview={async (patch) => {
+                      await voiceSave.current;
+                      await speak(
+                        "Привет! Я Уайли. Рада тебя слышать. Давай спокойно обсудим твои планы.",
+                        { ...(savedSettings.current || settings), ...patch },
+                        undefined,
+                        true,
+                      );
+                    }}
+                  />
+                )}
                 {settings.tts_engine === "qwen3" && (
                   <>
                     <label>
@@ -2601,13 +2627,15 @@ export function App() {
                       {voice.qwen3_installed
                         ? "Веса установлены."
                         : "Скачайте веса в «Модели → Озвучка»."}{" "}
-                      Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти. В
-                      автоматическом режиме занятая или недоступная видеокарта
-                      заменяется CPU. Модель загружается один раз на ответ и
-                      читает готовые фразы; при остановке память освобождается.
-                      На CPU возможна долгая подготовка. Русская речь у готовых
-                      тембров может иметь акцент. Для мягкого женского голоса
-                      попробуйте Serena.
+                      Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти.
+                      Длинные ответы читаются частями. Паузы зависят от скорости
+                      подготовки следующей фразы; дополнительная ОЗУ сама по
+                      себе не ускоряет синтез. В автоматическом режиме занятая
+                      или недоступная видеокарта заменяется CPU. Модель
+                      загружается один раз на ответ и читает готовые фразы; при
+                      остановке память освобождается. На CPU возможна долгая
+                      подготовка. Русская речь у готовых тембров может иметь
+                      акцент. Для мягкого женского голоса попробуйте Serena.
                     </p>
                   </>
                 )}
@@ -2640,9 +2668,8 @@ export function App() {
                 </button>
                 <p className="help">
                   Escape останавливает озвучку. Ctrl+Shift+Esc работает и в
-                  других приложениях. Голоса скачиваются отдельно в «Модели →
-                  Озвучка». Для мягкого женского тембра сравните Баю, Ксению и
-                  Ирину.
+                  других приложениях. Локальные голоса скачиваются в «Модели →
+                  Озвучка», облачные настраиваются выше.
                 </p>
                 <p className="help">
                   После записи распознанный текст появится в поле сообщения: его

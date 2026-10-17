@@ -51,13 +51,17 @@ export class SpeechOutput<T> {
   private wake = () => {};
   private synthesize: (text: string, signal: AbortSignal) => Promise<T>;
   private play: (audio: T, signal: AbortSignal) => Promise<void>;
+  private batchCharacters = 0;
+  private rendered = 0;
   constructor(
     synthesize: (text: string, signal: AbortSignal) => Promise<T>,
     play: (audio: T, signal: AbortSignal) => Promise<void>,
     signal?: AbortSignal,
+    options?: { batchCharacters?: number },
   ) {
     this.synthesize = synthesize;
     this.play = play;
+    this.batchCharacters = options?.batchCharacters || 0;
     const cancel = () => this.cancel();
     this.controller.signal.addEventListener("abort", () => this.wake(), {
       once: true,
@@ -105,7 +109,20 @@ export class SpeechOutput<T> {
           });
           continue;
         }
-        const audio = await this.synthesize(this.chunks.shift()!, signal);
+        let text = this.chunks.shift()!;
+        // Coalesce an existing backlog without waiting for more text. The first
+        // audio stays short; later phrases amortize model/API request overhead.
+        const limit = this.rendered
+          ? this.batchCharacters
+          : Math.min(160, this.batchCharacters);
+        while (
+          limit &&
+          this.chunks.length &&
+          text.length + this.chunks[0].length + 1 <= limit
+        )
+          text += " " + this.chunks.shift()!;
+        this.rendered++;
+        const audio = await this.synthesize(text, signal);
         signal.throwIfAborted();
         await playing;
         signal.throwIfAborted();

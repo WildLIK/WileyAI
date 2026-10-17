@@ -16,6 +16,7 @@ import httpx
 from .piper import Piper
 from .speech_text import plain_speech, speech_chunks
 from .qwen import QwenSpeech
+from .cloud_speech import CloudSpeech
 
 
 class SpeechCancelled(ValueError):
@@ -39,6 +40,7 @@ class Voice:
         self.tts_version = ""
         self.piper = Piper(root)
         self.qwen = QwenSpeech(root)
+        self.cloud = CloudSpeech(root)
         self.synthesis_jobs: dict[str, threading.Event] = {}
         self.stopped: dict[str, float] = {}
         self.speech_id = None
@@ -197,6 +199,7 @@ class Voice:
         return data if isinstance(data, list) else [data]
 
     async def stop(self, request_id: str | None = None, preserve_session: str | None = None):
+        await self.cloud.stop(request_id)
         self.stopped = {key: when for key, when in self.stopped.items() if time.monotonic() - when < 30}
         if request_id:
             self.stopped[request_id] = time.monotonic()
@@ -220,7 +223,7 @@ class Voice:
                 pass
             await process.wait()
 
-    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None) -> bytes:
+    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None, cloud_config=None) -> bytes:
         request_id = request_id or uuid.uuid4().hex
         if request_id in self.synthesis_jobs:
             raise ValueError("Озвучка с таким идентификатором уже выполняется")
@@ -240,6 +243,10 @@ class Voice:
             cancel = threading.Event()
             self.synthesis_jobs[request_id] = cancel
         try:
+            if engine == "cloud":
+                if cloud_config is None:
+                    raise ValueError("Не указаны настройки облачной озвучки")
+                return await self.cloud.render(text, cloud_config, request_id)
             if engine == "qwen3":
                 if session_id:
                     return await self.qwen.render_session(plain_speech(text), voice, device, request_id, cancel, session_id)

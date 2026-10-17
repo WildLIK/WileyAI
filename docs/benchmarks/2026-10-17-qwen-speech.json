@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-17",
+  "model": "Qwen3-TTS 0.6B CustomVoice",
+  "voice": "serena",
+  "language": "Russian",
+  "requested_device": "auto",
+  "actual_device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "note": "One run, first request includes model loading; later requests share the worker. No physical audio playback.",
+  "samples": [
+    {
+      "phrase": 1,
+      "device": "cuda",
+      "synthesis_seconds": 10.83,
+      "audio_seconds": 1.28,
+      "ratio": 8.46
+    },
+    {
+      "phrase": 2,
+      "device": "cuda",
+      "synthesis_seconds": 3.33,
+      "audio_seconds": 2.16,
+      "ratio": 1.54
+    },
+    {
+      "phrase": 3,
+      "device": "cuda",
+      "synthesis_seconds": 5.79,
+      "audio_seconds": 3.84,
+      "ratio": 1.51
+    }
+  ]
+}

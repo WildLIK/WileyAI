@@ -18,7 +18,8 @@ import psutil
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents, persona
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings
+from . import cloud_speech
 from .models import ModelJobs
 from .storage import Store
 from .voice import Voice
@@ -101,7 +102,8 @@ class ChatStopBody(BaseModel):
 
 class SpeechBody(TextBody):
     voice: str | None = Field(default=None, max_length=300)
-    engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] | None = None
+    engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3", "cloud"] | None = None
+    cloud: CloudSettings | None = None
     device: Literal["auto", "cpu", "cuda"] | None = None
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
@@ -109,6 +111,16 @@ class SpeechBody(TextBody):
 
 class SpeechStopBody(BaseModel):
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class CloudKeyBody(BaseModel):
+    base_url: str = Field(max_length=2048)
+    api_key: str = Field(max_length=4096)
+
+    @field_validator("base_url")
+    @classmethod
+    def endpoint(cls, value):
+        return Settings.valid_speech_endpoint(value)
 
 
 class NoteBody(BaseModel):
@@ -587,6 +599,44 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         from .qwen import VOICES as QWEN_VOICES
         return {"available": voice.available(), "voices": await voice.voices(), "tts_available": voice.tts_available(), "silero_installed": voice.tts_installed(), "silero_v5_6_installed": voice.tts_installed("v5_6_ru"), "qwen3_available": voice.qwen.available(), "qwen3_installed": voice.qwen.installed(), "qwen3_voices": QWEN_VOICES, "piper_available": voice.piper.available(), "piper_voices": [{"name": key, "label": value[0], "installed": voice.piper.installed(key)} for key, value in VOICES.items()], "installed_stt": [size for size in ["tiny", "base", "small"] if (root / "models" / "whisper" / size / "model.bin").is_file()]}
 
+    @app.get("/voice/cloud/connections")
+    def cloud_connections():
+        addresses = {**cloud_speech.SERVICES, "compatible": store.settings().tts_base_url}
+        result = []
+        for service, url in addresses.items():
+            try:
+                present = bool(cloud_speech.get_key(url))
+            except Exception:
+                present = False
+            result.append({"service": service, "base_url": url, "has_key": present})
+        return {"connections": result, **voice.cloud.reference_info()}
+
+    @app.put("/voice/cloud/key")
+    def cloud_key(body: CloudKeyBody):
+        cloud_speech.set_key(body.base_url, body.api_key.strip())
+        return {"has_key": bool(body.api_key.strip())}
+
+    @app.get("/voice/cloud/catalog")
+    async def cloud_catalog():
+        return await voice.cloud.catalog(store.settings())
+
+    @app.post("/voice/cloud/reference")
+    async def cloud_reference(file: UploadFile = File(...)):
+        data = await file.read(cloud_speech.MAX_REFERENCE + 1)
+        await file.close()
+        return voice.cloud.save_reference(file.filename or "voice.wav", data)
+
+    @app.post("/voice/cloud/reference/serena")
+    def cloud_serena_reference():
+        if not voice.cloud.serena.is_file() or voice.cloud.serena.stat().st_size > cloud_speech.MAX_REFERENCE:
+            raise ValueError("Сохранённый образец Serena недоступен. Загрузите свой короткий WAV")
+        return voice.cloud.save_reference("Serena · локальный пример.wav", voice.cloud.serena.read_bytes())
+
+    @app.delete("/voice/cloud/reference")
+    def remove_cloud_reference():
+        voice.cloud.remove_reference()
+        return {"ok": True}
+
     @app.post("/voice/download")
     async def voice_download(body: ModelBody):
         if body.model == "qwen3-tts-0.6b":
@@ -618,6 +668,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.post("/voice/prepare")
     async def prepare_conversation():
         config = store.settings()
+        if config.tts_engine == "cloud":
+            voice.cloud.validate(config)
         if config.tts_engine == "sapi" and not await voice.voices():
             raise ValueError("Системные голоса недоступны. Выберите Silero в настройках.")
         try:
@@ -625,8 +677,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 with monitor.activity("brain:" + config.model):
                     await providers.prepare(config)
             def prepare_voice():
-                with monitor.activity("tts:" + config.tts_engine), monitor.activity("stt:" + config.stt_model):
-                    voice.prepare(config.stt_model, config.tts_engine, config.tts_voice)
+                with monitor.activity("stt:" + config.stt_model):
+                    if config.tts_engine == "cloud":
+                        voice.prepare(config.stt_model, config.tts_engine, config.tts_voice)
+                    else:
+                        with monitor.activity("tts:" + config.tts_engine):
+                            voice.prepare(config.stt_model, config.tts_engine, config.tts_voice)
             await asyncio.gather(asyncio.to_thread(prepare_voice), prepare_brain())
         except ValueError:
             raise
@@ -647,10 +703,18 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         import uuid
         request_id = body.request_id or uuid.uuid4().hex
         engine = body.engine or config.tts_engine
+        if engine == "cloud" and body.cloud:
+            config = Settings.model_validate(config.model_dump() | body.cloud.model_dump(exclude_none=True))
         options = {"device": body.device or config.tts_device} if engine == "qwen3" else {}
+        if engine == "cloud":
+            options["cloud_config"] = config
         if engine == "qwen3" and body.session_id:
             options["session_id"] = body.session_id
         async def render():
+            if engine == "cloud":
+                key = "cloud_tts:" + config.tts_service + ":" + config.tts_model
+                with monitor.activity(key, {"name": config.tts_model, "category": "Озвучка", "location": "cloud"}):
+                    return await voice.render(body.text, selected_voice, engine, request_id, **options)
             if engine in {"qwen3", "sapi"}:
                 with monitor.activity("tts:" + engine):
                     return await voice.render(body.text, selected_voice, engine, request_id, **options)
@@ -664,7 +728,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             audio = await task
             device = getattr(audio, "device", "")
             headers = {"X-Wiley-TTS-Device": device} if device in {"cpu", "cuda"} else {}
-            return Response(audio, media_type="audio/wav", headers=headers)
+            return Response(audio, media_type=getattr(audio, "media_type", "audio/wav"), headers=headers)
         finally:
             if not task.done():
                 with CancelScope(shield=True):

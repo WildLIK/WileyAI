@@ -104,6 +104,7 @@ class Monitor:
         self.active = {}
         self.touched = set()
         self.calls = {}
+        self.metadata = {}
         self.previous = {}
         self.history = deque(maxlen=HISTORY)
         self.statistics = {}
@@ -127,11 +128,15 @@ class Monitor:
             pass
 
     @contextmanager
-    def activity(self, key):
+    def activity(self, key, metadata=None):
         began = time.monotonic()
         with self.lock:
             self.active[key] = self.active.get(key, 0) + 1
             self.touched.add(key)
+            if metadata:
+                self.metadata[key] = metadata
+                if len(self.metadata) > 64:
+                    self.metadata.pop(next(iter(self.metadata)))
         try:
             yield
         finally:
@@ -219,6 +224,7 @@ class Monitor:
         config = self.store.settings()
         with self.lock:
             active, calls = dict(self.active), dict(self.calls)
+            metadata = dict(self.metadata)
             touched = self.touched | active.keys()
             self.touched.clear()
         qwen_pids = {p.pid for p in list(self.voice.qwen.processes.values()) if p.returncode is None}
@@ -286,11 +292,16 @@ class Monitor:
             tts_loaded["piper"] = True
         used_tts = {key[4:] for key in calls.keys() | active.keys() if key.startswith("tts:")}
         for engine in {*(key for key, value in tts_loaded.items() if value), config.tts_engine, *used_tts}:
+            if engine == "cloud":
+                continue
             models["tts:" + engine] = {"name": tts_names[engine], "category": "Озвучка", "loaded": tts_loaded.get(engine, False),
                                        "shared": "core" if engine.startswith("silero") or engine == "piper" else None}
         used_stt = {key[4:] for key in calls.keys() | active.keys() if key.startswith("stt:")}
         for model in {*self.voice.models, config.stt_model, *used_stt}:
             models["stt:" + model] = {"name": "Whisper " + model, "category": "Распознавание голоса", "loaded": model in self.voice.models, "shared": "core"}
+        if config.tts_engine == "cloud":
+            models["cloud_tts:" + config.tts_service + ":" + config.tts_model] = {"name": config.tts_model, "category": "Озвучка", "location": "cloud"}
+        models.update(metadata)
         rows = []
         for key in dict.fromkeys(["desktop", "core", "services", "ollama", *models, *active]):
             group = groups.get(key, {"items": [], "pids": [], "external": False})

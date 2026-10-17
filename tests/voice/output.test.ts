@@ -79,3 +79,33 @@ test("synthesis and playback failures stop prefetch and remain visible", async (
   output.push("Первая фраза. Вторая фраза. ");
   await assert.rejects(output.done, /Нет динамика/);
 });
+
+test("model/API batching coalesces a ready backlog without delaying the first phrase", async () => {
+  const rendered: string[] = [],
+    played: string[] = [];
+  let release!: () => void;
+  const first = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const output = new SpeechOutput(
+    async (text) => {
+      rendered.push(text);
+      if (rendered.length === 1) await first;
+      return text;
+    },
+    async (text) => {
+      played.push(text);
+    },
+    undefined,
+    { batchCharacters: 240 },
+  );
+  output.push("Первая фраза. ");
+  await tick();
+  assert.deepEqual(rendered, ["Первая фраза."]);
+  output.push("Вторая фраза. Третья фраза. ");
+  output.finish();
+  release();
+  await output.done;
+  assert.deepEqual(rendered, ["Первая фраза.", "Вторая фраза. Третья фраза."]);
+  assert.deepEqual(played, rendered);
+});

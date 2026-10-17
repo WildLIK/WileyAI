@@ -12,7 +12,14 @@ export interface Settings {
   response_tokens: number;
   temperature: number;
   stt_model: "tiny" | "base" | "small";
-  tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3";
+  tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3" | "cloud";
+  tts_service: "openrouter" | "routerai" | "compatible";
+  tts_base_url: string;
+  tts_model: string;
+  tts_cloud_voice: string;
+  tts_format: "auto" | "mp3" | "pcm" | "wav";
+  tts_style: string;
+  tts_use_reference: boolean;
   tts_device: "auto" | "cpu" | "cuda";
   tts_voice: string;
   speak_answers: boolean;
@@ -34,6 +41,32 @@ export interface Settings {
   api_key?: string;
   has_search_api_key?: boolean;
   search_api_key?: string;
+}
+export type CloudOptions = Pick<
+  Settings,
+  | "tts_service"
+  | "tts_base_url"
+  | "tts_model"
+  | "tts_cloud_voice"
+  | "tts_format"
+  | "tts_style"
+  | "tts_use_reference"
+>;
+export type SpeechSettings = Pick<
+  Settings,
+  "tts_engine" | "tts_voice" | "tts_device" | "speak_answers"
+> &
+  CloudOptions;
+export function cloudOptions(config: Settings): CloudOptions {
+  return {
+    tts_service: config.tts_service,
+    tts_base_url: config.tts_base_url,
+    tts_model: config.tts_model,
+    tts_cloud_voice: config.tts_cloud_voice,
+    tts_format: config.tts_format,
+    tts_style: config.tts_style,
+    tts_use_reference: config.tts_use_reference,
+  };
 }
 export interface Message {
   id: string;
@@ -233,6 +266,7 @@ export async function audioRequest(
   device: Settings["tts_device"] = "auto",
   onDevice?: (device: "cpu" | "cuda") => void,
   session_id?: string,
+  cloud?: CloudOptions,
 ): Promise<Blob> {
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
@@ -254,6 +288,7 @@ export async function audioRequest(
         device,
         request_id,
         session_id,
+        cloud,
       }),
       signal,
     });

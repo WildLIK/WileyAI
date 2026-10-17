@@ -22,7 +22,14 @@ class Settings(BaseModel):
     response_tokens: int = Field(default=2048, ge=256, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     stt_model: Literal["tiny", "base", "small"] = "small"
-    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] = "silero"
+    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3", "cloud"] = "silero"
+    tts_service: Literal["openrouter", "routerai", "compatible"] = "openrouter"
+    tts_base_url: str = "https://openrouter.ai/api/v1"
+    tts_model: str = Field(default="fish-audio/s2.1-pro-free:free", max_length=200)
+    tts_cloud_voice: str = Field(default="", max_length=300)
+    tts_format: Literal["auto", "mp3", "pcm", "wav"] = "auto"
+    tts_style: str = Field(default="", max_length=1000)
+    tts_use_reference: bool = False
     tts_voice: str = Field(default="", max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] = "auto"
     speak_answers: bool = False
@@ -61,16 +68,31 @@ class Settings(BaseModel):
             raise ValueError("Укажите корректный порт SearXNG")
         return cls.valid_endpoint(value)
 
+    @field_validator("tts_base_url")
+    @classmethod
+    def valid_speech_endpoint(cls, value: str) -> str:
+        return cls.valid_search_endpoint(value)
+
 
 class SettingsUpdate(Settings):
     api_key: str | None = Field(default=None, max_length=4096)
     search_api_key: str | None = Field(default=None, max_length=4096)
 
 
-class VoiceSettings(BaseModel):
-    """An immediate voice selection must not replace unrelated settings drafts."""
+class CloudSettings(BaseModel):
     model_config = {"extra": "forbid"}
-    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] | None = None
+    tts_service: Literal["openrouter", "routerai", "compatible"] | None = None
+    tts_base_url: str | None = Field(default=None, max_length=2048)
+    tts_model: str | None = Field(default=None, max_length=200)
+    tts_cloud_voice: str | None = Field(default=None, max_length=300)
+    tts_format: Literal["auto", "mp3", "pcm", "wav"] | None = None
+    tts_style: str | None = Field(default=None, max_length=1000)
+    tts_use_reference: bool | None = None
+
+
+class VoiceSettings(CloudSettings):
+    """An immediate voice selection must not replace unrelated settings drafts."""
+    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3", "cloud"] | None = None
     tts_voice: str | None = Field(default=None, max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] | None = None
     speak_answers: bool | None = None
