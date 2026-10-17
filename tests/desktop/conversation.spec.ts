@@ -99,6 +99,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     const history: object[] = [];
     let transcriptions = 0;
     let syntheses = 0;
+    const turnVoices: { engine: string; voice: string }[] = [];
     await app
       .context()
       .route("**/voice/prepare", (route) =>
@@ -141,6 +142,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     });
     await app.context().route("**/voice/synthesize", async (route) => {
       syntheses++;
+      turnVoices.push(route.request().postDataJSON());
       await route.fulfill({
         contentType: "audio/wav",
         body: Buffer.from(
@@ -159,6 +161,19 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
       .poll(() => syntheses, { timeout: 20000 })
       .toBeGreaterThanOrEqual(1);
     await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
+    await page.evaluate(async () => {
+      const { url, token } = await window.wiley.connection();
+      const response = await fetch(url + "/settings/speech", {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tts_engine: "qwen3", tts_voice: "serena" }),
+      });
+      if (!response.ok)
+        throw new Error("Could not update voice during conversation");
+    });
     await expect(
       page
         .getByText("Конечно, что тебя интересует в звёздах?", { exact: true })
@@ -168,6 +183,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     await expect
       .poll(() => syntheses, { timeout: 12000 })
       .toBeGreaterThanOrEqual(2);
+    expect(turnVoices[1]).toMatchObject({ engine: "qwen3", voice: "serena" });
     await page
       .getByRole("button", { name: "■ Остановить озвучку", exact: true })
       .click();

@@ -9,6 +9,90 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("DOCX uploaded from chat stays attached across chat changes and restart and reaches the model", async () => {
+  const prompts: { messages: { role: string; content: string }[] }[] = [];
+  const model = createServer(async (req, res) => {
+    if (req.method === "GET") {
+      res.end('{"data":[]}');
+      return;
+    }
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    prompts.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.setHeader("Content-Type", "text/event-stream");
+    res.end(
+      'data: {"choices":[{"delta":{"content":"Код в файле — 7351."}}]}\n\ndata: [DONE]\n\n',
+    );
+  });
+  await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
+  const address = model.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const data = await mkdtemp(join(tmpdir(), "wiley-docx-"));
+  const launch = () =>
+    electron.launch({
+      args: ["."],
+      env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+    });
+  let app = await launch();
+  try {
+    let page = await app.firstWindow();
+    await expect(
+      page.getByRole("heading", { name: "Привет, я Уайли." }),
+    ).toBeVisible();
+    await page.evaluate(async (base_url) => {
+      const { url, token } = await window.wiley.connection();
+      const headers = {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      };
+      const config = await (await fetch(url + "/settings", { headers })).json();
+      await fetch(url + "/settings", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          ...config,
+          provider: "compatible",
+          base_url,
+          model: "docx-test",
+        }),
+      });
+      const channel = new BroadcastChannel("wiley-ui");
+      channel.postMessage({ type: "settings" });
+      channel.close();
+    }, `http://127.0.0.1:${address.port}`);
+    await page
+      .locator('input[type="file"][accept=".txt,.md,.csv,.pdf,.docx"]')
+      .setInputFiles("tests/fixtures/voice-document.docx");
+    await expect(page.locator(".doc-chip")).toHaveCount(1);
+    await expect(page.locator(".doc-chip")).toContainText("символов текста");
+    await page
+      .getByRole("button", { name: "＋ Новый чат", exact: true })
+      .click();
+    await expect(page.getByLabel("Сообщение", { exact: true })).toBeEnabled();
+    await expect(page.locator(".doc-chip")).toHaveCount(0);
+    await page.locator('.chat-select:not([aria-current="page"])').click();
+    await expect(page.locator(".doc-chip")).toHaveCount(1);
+    await app.close();
+    app = await launch();
+    page = await app.firstWindow();
+    await expect(page.locator(".doc-chip")).toHaveCount(1);
+    await page
+      .getByLabel("Сообщение", { exact: true })
+      .fill("Что написано в приложенном документе?");
+    await page.getByRole("button", { name: "Отправить", exact: true }).click();
+    await expect(page.locator(".message.assistant")).toContainText("7351");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].messages[0].content).toContain("код поставки 7351");
+    expect(prompts[0].messages.at(-1)!.content).toContain(
+      "voice-document.docx",
+    );
+    await expect(page.getByRole("alert")).toBeHidden();
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve) => model.close(() => resolve()));
+  }
+});
+
 test("documents: local search, preview, explicit project copy, model selection, window updates and restart", async () => {
   const prompts: { messages: { role: string; content: string }[] }[] = [];
   const model = createServer(async (req, res) => {

@@ -195,7 +195,7 @@ class Voice:
         data = json.loads(out.decode("utf-8-sig") or "[]")
         return data if isinstance(data, list) else [data]
 
-    async def stop(self, request_id: str | None = None):
+    async def stop(self, request_id: str | None = None, preserve_session: str | None = None):
         self.stopped = {key: when for key, when in self.stopped.items() if time.monotonic() - when < 30}
         if request_id:
             self.stopped[request_id] = time.monotonic()
@@ -204,7 +204,10 @@ class Voice:
         for key, event in list(self.synthesis_jobs.items()):
             if request_id is None or request_id == key:
                 event.set()
-        await self.qwen.stop(request_id)
+        if preserve_session:
+            await self.qwen.stop(request_id, preserve_session=preserve_session)
+        else:
+            await self.qwen.stop(request_id)
         if request_id is not None and self.speech_id != request_id:
             return
         process = self.speech
@@ -216,7 +219,7 @@ class Voice:
                 pass
             await process.wait()
 
-    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto") -> bytes:
+    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None) -> bytes:
         request_id = request_id or uuid.uuid4().hex
         if request_id in self.synthesis_jobs:
             raise ValueError("Озвучка с таким идентификатором уже выполняется")
@@ -227,13 +230,18 @@ class Voice:
                 raise ValueError("Озвучка с таким идентификатором уже выполняется")
             if time.monotonic() - self.stopped.get(request_id, -100) < 30:
                 raise SpeechCancelled("Озвучка остановлена")
-            await self.stop()
+            if session_id:
+                await self.stop(preserve_session=session_id)
+            else:
+                await self.stop()
             if time.monotonic() - self.stopped.get(request_id, -100) < 30:
                 raise SpeechCancelled("Озвучка остановлена")
             cancel = threading.Event()
             self.synthesis_jobs[request_id] = cancel
         try:
             if engine == "qwen3":
+                if session_id:
+                    return await self.qwen.render_session(plain_speech(text), voice, device, request_id, cancel, session_id)
                 return await self.qwen.render(plain_speech(text), voice, device, request_id, cancel)
             if engine == "sapi":
                 return await self._sapi(text, voice, render=True, request_id=request_id, cancel=cancel)

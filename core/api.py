@@ -18,7 +18,7 @@ import psutil
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings
 from .models import ModelJobs
 from .storage import Store
 from .voice import Voice
@@ -103,6 +103,7 @@ class SpeechBody(TextBody):
     engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] | None = None
     device: Literal["auto", "cpu", "cuda"] | None = None
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class SpeechStopBody(BaseModel):
@@ -226,6 +227,16 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 websearch.set_key(body.search_api_key)
             except Exception as error:
                 raise ValueError("Не удалось сохранить ключ поиска в системном хранилище Windows") from error
+        store.save_settings(selected)
+        return settings()
+
+    @app.put("/settings/speech")
+    def save_voice_settings(body: VoiceSettings):
+        updates = body.model_dump(exclude_none=True)
+        current = store.settings()
+        if "tts_engine" in updates and updates["tts_engine"] != current.tts_engine:
+            updates.setdefault("tts_voice", "")
+        selected = Settings.model_validate(current.model_dump() | updates)
         store.save_settings(selected)
         return settings()
 
@@ -617,6 +628,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         request_id = body.request_id or uuid.uuid4().hex
         engine = body.engine or config.tts_engine
         options = {"device": body.device or config.tts_device} if engine == "qwen3" else {}
+        if engine == "qwen3" and body.session_id:
+            options["session_id"] = body.session_id
         task = asyncio.create_task(voice.render(body.text, selected_voice, engine, request_id, **options))
         try:
             while not task.done():
@@ -637,6 +650,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.post("/voice/stop")
     async def stop_voice(body: SpeechStopBody | None = None):
         await voice.stop(body.request_id if body else None)
+        return {"ok": True}
+
+    @app.delete("/voice/session/{session_id}")
+    async def close_speech_session(session_id: str):
+        await voice.qwen.close_session(session_id)
         return {"ok": True}
 
     @app.post("/chat/stop")
@@ -804,7 +822,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             break
                         history.insert(0, {"role": item["role"], "content": item["content"]})
                         used += len(item["content"])
-                    payload = [{"role": "system", "content": system}, *history, {"role": "user", "content": text}]
+                    question = text
+                    if selected:
+                        names = json.dumps([item["name"][:150] for item in selected], ensure_ascii=False)
+                        question = f"К этому сообщению прикреплены документы: {names}. Их текстовые фрагменты приведены в контексте выше. Используй их для ответа; если нужного фрагмента нет, уточни запрос.\n\nВопрос пользователя: {text}"
+                    payload = [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]
                     try:
                         async for delta in providers.chat(current, payload):
                             if await request.is_disconnected():

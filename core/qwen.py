@@ -8,6 +8,7 @@ import subprocess
 import threading
 from datetime import datetime, timezone
 from .speech_text import speech_chunks
+from .qwen_session import Session, WorkerExited
 
 import httpx
 
@@ -44,6 +45,7 @@ class QwenSpeech:
         self.package = environment / ("Lib/site-packages/qwen_tts" if os.name == "nt" else "lib/python3.12/site-packages/qwen_tts")
         self.download_lock = threading.Lock()
         self.processes: dict[str, asyncio.subprocess.Process] = {}
+        self.sessions: dict[str, Session] = {}
 
     def available(self):
         return self.python.is_file() and (self.package / "__init__.py").is_file()
@@ -100,7 +102,15 @@ class QwenSpeech:
             marker.write_text(json.dumps({"revision": MANIFEST["revision"]}), encoding="utf-8")
             marker.replace(self.root / "installed.json")
 
-    async def stop(self, request_id=None):
+    async def close_session(self, session_id):
+        session = self.sessions.pop(session_id, None)
+        if session:
+            await session.close()
+
+    async def stop(self, request_id=None, preserve_session=None):
+        for key, session in list(self.sessions.items()):
+            if key != preserve_session and (request_id is None or session.active_id == request_id):
+                await self.close_session(key)
         for key, process in list(self.processes.items()):
             if request_id is not None and request_id != key:
                 continue
@@ -110,6 +120,86 @@ class QwenSpeech:
                 except ProcessLookupError:
                     pass
                 await process.wait()
+
+    async def render_session(self, text, speaker, device, request_id, cancelled, session_id):
+        try:
+            return await self._render_session(text, speaker, device, request_id, cancelled, session_id)
+        except WorkerExited as error:
+            # Windows native libraries can fail once during loading. No audio was
+            # returned for this segment, so one restart cannot duplicate speech.
+            if error.code not in {3221225477, -1073741819} or cancelled.is_set():
+                raise
+            return await self._render_session(text, speaker, device, request_id, cancelled, session_id)
+
+    async def _render_session(self, text, speaker, device, request_id, cancelled, session_id):
+        self.prepare(speaker)
+        session = self.sessions.get(session_id)
+        if session and (session.device != device or session.closed or (session.process and session.process.returncode is not None)):
+            await self.close_session(session_id)
+            session = None
+        if session is None:
+            session = Session(device)
+            self.sessions[session_id] = session
+        if session.idle:
+            session.idle.cancel()
+        async with session.lock:
+            success = False
+            session.active_id = request_id
+            session.texts.append(text)
+            try:
+                if cancelled.is_set() or session.closed:
+                    raise ValueError("Озвучка остановлена")
+                if session.process is None:
+                    session.process = await asyncio.create_subprocess_exec(
+                        str(self.python), "-m", "core.qwen_worker", "--model", str(self.root), "--device", device, "--session",
+                        cwd=str(self.project), env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONIOENCODING": "utf-8", "TOKENIZERS_PARALLELISM": "false"},
+                        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                    )
+                    session.drain = asyncio.create_task(session.diagnostics())
+                self.processes[request_id] = session.process
+                if cancelled.is_set() or session.closed:
+                    raise ValueError("Озвучка остановлена")
+                try:
+                    audio, actual_device = await asyncio.wait_for(session.exchange({"text": text, "speaker": speaker or "serena"}), timeout=300)
+                except TimeoutError as error:
+                    raise ValueError("Qwen3-TTS не завершил озвучку за 5 минут. Сократите текст или выберите другой движок") from error
+                if cancelled.is_set():
+                    raise ValueError("Озвучка остановлена")
+                success = True
+                return SpeechAudio(audio, actual_device)
+            except Exception:
+                await session.close()
+                errors = bytes(session.errors).decode("utf-8", errors="replace")
+                for spoken in session.texts:
+                    for fragment in [spoken, *speech_chunks(spoken)]:
+                        errors = errors.replace(fragment, "[текст скрыт]")
+                self.write_diagnostic(errors.encode("utf-8"), text, device, session.process.returncode if session.process else None)
+                raise
+            finally:
+                self.processes.pop(request_id, None)
+                session.active_id = None
+                if not success:
+                    await session.close()
+                    if self.sessions.get(session_id) is session:
+                        self.sessions.pop(session_id, None)
+                else:
+                    async def expire():
+                        await asyncio.sleep(30)
+                        if self.sessions.get(session_id) is session and session.active_id is None:
+                            await self.close_session(session_id)
+                    session.idle = asyncio.create_task(expire())
+
+    def write_diagnostic(self, errors, text, device, code):
+        diagnostic = errors.decode("utf-8", errors="replace").replace(text, "[текст скрыт]")
+        for fragment in speech_chunks(text):
+            diagnostic = diagnostic.replace(fragment, "[текст скрыт]")
+        try:
+            self.error_log.parent.mkdir(parents=True, exist_ok=True)
+            self.error_log.write_text(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "exit_code": code,
+                "device": device, "stderr": diagnostic[-16000:]}, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
 
     async def render(self, text, speaker, device, request_id, cancelled):
         self.prepare(speaker)

@@ -230,6 +230,7 @@ export async function audioRequest(
   engine: Settings["tts_engine"] = "silero",
   device: Settings["tts_device"] = "auto",
   onDevice?: (device: "cpu" | "cuda") => void,
+  session_id?: string,
 ): Promise<Blob> {
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
@@ -244,7 +245,14 @@ export async function audioRequest(
         Authorization: "Bearer " + connection.token,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text, voice, engine, device, request_id }),
+      body: JSON.stringify({
+        text,
+        voice,
+        engine,
+        device,
+        request_id,
+        session_id,
+      }),
       signal,
     });
     if (!response.ok) {

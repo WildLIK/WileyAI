@@ -30,11 +30,9 @@ def select_device(torch, device):
     return "cuda"
 
 
-def generate(model_path, device, payload):
+def load_model(model_path, device):
     import torch
-    import numpy as np
     from qwen_tts import Qwen3TTSModel
-
     torch.set_num_threads(4)
     device = select_device(torch, device)
     print("WILEY_DEVICE:" + device, file=sys.stderr, flush=True)
@@ -42,6 +40,13 @@ def generate(model_path, device, payload):
         model_path, device_map=device, dtype=torch.bfloat16,
         attn_implementation="sdpa", local_files_only=True, use_safetensors=True,
     )
+    return model, device
+
+
+def generate(model_path, device, payload, runtime=None):
+    import torch
+    import numpy as np
+    model, _ = runtime or load_model(model_path, device)
     parts = []
     rate = 24000
     with torch.inference_mode():
@@ -63,13 +68,34 @@ def generate(model_path, device, payload):
     return result.getvalue()
 
 
+def describe_failure(error):
+    message = str(error).lower()
+    if isinstance(error, MemoryError) or getattr(error, "winerror", None) == 1455 or "1455" in message or "файл подкачки" in message:
+        return "Windows не хватает памяти для Qwen3-TTS, включая файл подкачки. Освободите память и повторите озвучку"
+    if "out of memory" in message:
+        return "Недостаточно памяти для Qwen3-TTS. Освободите ресурсы или выберите другое устройство озвучки"
+    return "Не удалось запустить Qwen3-TTS. Проверьте отдельное окружение и файлы модели"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--session", action="store_true")
     args = parser.parse_args()
-    payload = json.loads(sys.stdin.buffer.read(100_000))
     try:
+        if args.session:
+            runtime = None
+            while line := sys.stdin.buffer.readline(100_000):
+                payload = json.loads(line)
+                with redirect_stdout(sys.stderr):
+                    if runtime is None:
+                        runtime = load_model(args.model, args.device)
+                    audio = generate(args.model, args.device, payload, runtime)
+                sys.stdout.buffer.write(json.dumps({"size": len(audio), "device": runtime[1]}).encode() + b"\n" + audio)
+                sys.stdout.buffer.flush()
+            return 0
+        payload = json.loads(sys.stdin.buffer.read(100_000))
         # Dependency diagnostics must never corrupt the binary audio protocol.
         with redirect_stdout(sys.stderr):
             audio = generate(args.model, args.device, payload)
@@ -78,7 +104,7 @@ def main():
         print("WILEY_ERROR:" + str(error)[:300], file=sys.stderr)
         return 1
     except Exception as error:
-        message = "Недостаточно памяти для Qwen3-TTS. Освободите ресурсы или выберите другой движок" if "out of memory" in str(error).lower() else "Не удалось запустить Qwen3-TTS. Проверьте отдельное окружение и файлы модели"
+        message = describe_failure(error)
         print("WILEY_ERROR:" + message, file=sys.stderr)
         print(type(error).__name__ + ": " + str(error)[:600], file=sys.stderr)
         return 1

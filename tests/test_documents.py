@@ -19,6 +19,26 @@ from core import documents, providers
 TOKEN = "documents-tests-token-0123456789"
 
 
+def test_docx_reading_order_nested_tables_headers_and_text_boxes():
+    from docx import Document
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+    doc = Document()
+    doc.add_paragraph("Первый абзац")
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "Основная таблица"
+    table.cell(0, 0).add_table(rows=1, cols=1).cell(0, 0).text = "Вложенная таблица"
+    doc.add_paragraph("Последний абзац")
+    doc.sections[0].header.paragraphs[0].text = "Колонтитул: номер 7351"
+    doc.add_paragraph()._p.append(parse_xml(f'<w:r {nsdecls("w")}><w:pict><w:txbxContent><w:p><w:r><w:t>Текст в рамке</w:t></w:r></w:p></w:txbxContent></w:pict></w:r>'))
+    buffer = BytesIO()
+    doc.save(buffer)
+    text = extract("Документ.docx", buffer.getvalue())
+    assert text.index("Первый") < text.index("Основная") < text.index("Вложенная") < text.index("Последний")
+    assert "номер 7351" in text
+    assert text.count("Текст в рамке") == 1
+
+
 def setup(root):
     store = Store(root)
     spaces = Spaces(store)

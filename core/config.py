@@ -65,6 +65,15 @@ class SettingsUpdate(Settings):
     search_api_key: str | None = Field(default=None, max_length=4096)
 
 
+class VoiceSettings(BaseModel):
+    """An immediate voice selection must not replace unrelated settings drafts."""
+    model_config = {"extra": "forbid"}
+    tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3"] | None = None
+    tts_voice: str | None = Field(default=None, max_length=300)
+    tts_device: Literal["auto", "cpu", "cuda"] | None = None
+    speak_answers: bool | None = None
+
+
 CATALOG = [
     {"id": "qwen3.5:4b", "name": "Qwen 3.5 · 4B", "kind": "llm", "engine": "ollama", "description": "Начальный сбалансированный вариант для общения и изображений.", "size": "≈ 3–4 ГБ", "languages": "Русский и другие", "source": "https://ollama.com/library/qwen3.5", "license": "Apache-2.0"},
     {"id": "huihui_ai/qwen3.5-abliterated:4b", "name": "Huihui Qwen 3.5 · 4B", "kind": "llm", "engine": "ollama", "description": "Вариант с уменьшенными ограничениями ответов. Качество сравнивается отдельно.", "size": "≈ 3–4 ГБ", "languages": "Мультиязычная", "source": "https://huggingface.co/huihui-ai/Huihui-Qwen3.5-4B-abliterated", "license": "Apache-2.0"},
@@ -73,7 +82,7 @@ CATALOG = [
     {"id": "silero-v5-ru", "name": "Silero · русский голос", "kind": "tts", "engine": "silero", "description": "Локальная озвучка на CPU. Голоса: Ксения, Айдар, Бая. Нужен модуль tts.", "size": "≈ 140 МБ + движок", "languages": "Русский", "source": "https://github.com/snakers4/silero-models", "license": "CC BY-NC 4.0; см. лицензию модели"},
 ]
 CATALOG.extend([
-    {"id": "qwen3-tts-0.6b", "name": "Qwen3-TTS 0.6B · голоса персонажа", "kind": "tts", "engine": "qwen3", "description": "9 тембров, русский язык. Отдельный движок: npm run setup:qwen. Экспериментальный режим с загрузкой модели на каждую реплику; CPU заметно медленнее GPU.", "size": "≈ 2,5 ГБ весов + отдельный движок", "languages": "Русский и другие", "source": "https://github.com/QwenLM/Qwen3-TTS", "license": "Apache-2.0"},
+    {"id": "qwen3-tts-0.6b", "name": "Qwen3-TTS 0.6B · голоса персонажа", "kind": "tts", "engine": "qwen3", "description": "9 тембров, русский язык. Отдельный движок: npm run setup:qwen. Читает готовые фразы, модель загружается один раз на ответ; CPU заметно медленнее GPU.", "size": "≈ 2,5 ГБ весов + отдельный движок", "languages": "Русский и другие", "source": "https://github.com/QwenLM/Qwen3-TTS", "license": "Apache-2.0"},
     {"id": "silero-v5.6-ru", "name": "Silero 5.6 · выразительный русский", "kind": "tts", "engine": "silero_v5_6", "description": "Обновлённая интонация вопросов и восклицаний. Ксения, Бая, Айдар и Евгений. CPU, модуль tts.", "size": "≈ 148 МБ + движок", "languages": "Русский", "source": "https://github.com/snakers4/silero-models#v5", "license": "CC BY-NC 4.0"},
     *piper_catalog(),
 ])

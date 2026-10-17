@@ -51,6 +51,20 @@ def test_text_upload_and_deletion(api):
     assert api.get("/documents").json() == []
 
 
+def test_immediate_voice_selection_preserves_other_settings(api):
+    settings = api.get("/settings").json()
+    settings.update(name="Личность", model="my-model", audio_output_device_id="headphones")
+    api.put("/settings", json=settings).raise_for_status()
+    response = api.put("/settings/speech", json={"tts_engine": "qwen3", "tts_voice": "serena", "speak_answers": True})
+    assert response.status_code == 200
+    saved = api.get("/settings").json()
+    assert (saved["tts_engine"], saved["tts_voice"], saved["speak_answers"]) == ("qwen3", "serena", True)
+    assert (saved["name"], saved["model"], saved["audio_output_device_id"]) == ("Личность", "my-model", "headphones")
+    assert api.put("/settings/speech", json={"tts_engine": "silero"}).json()["tts_voice"] == ""
+    assert api.put("/settings/speech", json={"tts_device": "invalid"}).status_code == 422
+    assert api.put("/settings/speech", json={"model": "overwrite"}).status_code == 422
+
+
 def test_incompatible_import_and_remote_plain_http(api):
     response = api.post("/models/pull", json={"model": "local", "path": "missing.gguf"})
     assert response.status_code == 400

@@ -7,7 +7,17 @@ from types import SimpleNamespace
 import pytest
 
 from core.qwen import QwenSpeech
-from core.qwen_worker import select_device
+from core.qwen_worker import select_device, describe_failure
+
+
+def test_windows_commit_limit_error_is_explained_as_memory_and_not_broken_installation():
+    message = describe_failure(OSError("Файл подкачки слишком мал для завершения операции. (os error 1455)"))
+    assert "файл подкачки" in message and "памяти" in message
+    assert "установ" not in message and "Silero" not in message
+
+
+def test_other_worker_failures_keep_the_runtime_diagnostic():
+    assert "окружение" in describe_failure(RuntimeError("missing model weights"))
 
 
 def test_runtime_and_model_checks_are_local_and_explicit(tmp_path):

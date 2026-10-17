@@ -39,6 +39,7 @@ import {
 import { Microphone } from "./voice/microphone";
 import { ConversationControl } from "./voice/ConversationControl";
 import { AudioDevices } from "./voice/AudioDevices";
+import { SpeechOutput } from "./voice/output";
 import {
   microphoneConstraints,
   microphoneError,
@@ -62,6 +63,24 @@ const stamp = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+const attachmentKey = (chat: string) => "wiley-attachments-" + chat;
+function readAttachments(chat: string): string[] {
+  try {
+    const ids: unknown = JSON.parse(
+      localStorage.getItem(attachmentKey(chat)) || "[]",
+    );
+    return Array.isArray(ids)
+      ? ids
+          .filter(
+            (id): id is string =>
+              typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id),
+          )
+          .slice(0, 10)
+      : [];
+  } catch {
+    return [];
+  }
+}
 const ModelAvatar = lazy(() =>
   import("./Avatar").then((module) => ({ default: module.Avatar })),
 );
@@ -97,6 +116,27 @@ export function App() {
   const view = new URLSearchParams(location.search).get("view") || "chat";
   const [tab, setTab] = useState(view === "settings" ? "settings" : "chat");
   const [settings, setSettings] = useState<Settings>();
+  const savedSettings = useRef<Settings | undefined>(undefined);
+  const voiceSave = useRef<Promise<void>>(Promise.resolve());
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const voiceSaveVersion = useRef(0);
+  const settingsEpoch = useRef(0);
+  const acceptSettings = useCallback(
+    (config: Settings, preserveDraft = true) => {
+      settingsEpoch.current++;
+      const previous = savedSettings.current;
+      savedSettings.current = config;
+      setSettings((draft) => {
+        if (!draft || !previous || !preserveDraft) return config;
+        const merged = { ...config };
+        for (const key of Object.keys(draft) as (keyof Settings)[])
+          if (draft[key] !== previous[key])
+            Object.assign(merged, { [key]: draft[key] });
+        return merged;
+      });
+    },
+    [],
+  );
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -140,9 +180,25 @@ export function App() {
     ? "Память проекта «" + currentProject.name + "»"
     : "Общая память";
   const [documents, setDocuments] = useState<Doc[]>([]);
-  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [selectedDocs, setSelectedDocsState] = useState<string[]>(() =>
+    readAttachments(activeChatId),
+  );
   const selectedDocsRef = useRef(selectedDocs);
   selectedDocsRef.current = selectedDocs;
+  const setSelectedDocs = useCallback(
+    (
+      update: string[] | ((ids: string[]) => string[]),
+      chatId = activeChatRef.current,
+    ) => {
+      const ids =
+        typeof update === "function" ? update(selectedDocsRef.current) : update;
+      selectedDocsRef.current = ids;
+      setSelectedDocsState(ids);
+      if (chatId)
+        localStorage.setItem(attachmentKey(chatId), JSON.stringify(ids));
+    },
+    [],
+  );
   const documentRefreshEpoch = useRef(0);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>(
@@ -303,6 +359,7 @@ export function App() {
     );
   }
   const refresh = useCallback(async () => {
+    const configEpoch = settingsEpoch.current;
     documentRefreshEpoch.current++;
     const loading = ++chatLoadEpoch.current;
     chatLoadingRef.current = true;
@@ -322,7 +379,7 @@ export function App() {
       if (!id) return;
       if (id !== activeChatRef.current) {
         setDraft(chatDrafts.current.get(id) || "");
-        setSelectedDocs([]);
+        setSelectedDocs(readAttachments(id), id);
         setSearchNext(false);
         setMessages([]);
         setDocuments([]);
@@ -362,7 +419,7 @@ export function App() {
         request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
       ]);
       if (epoch !== dataEpoch.current) return;
-      setSettings(config);
+      if (configEpoch === settingsEpoch.current) acceptSettings(config);
       setMessages(history);
       setMemories(facts);
       setMemoryCandidates(candidates);
@@ -380,7 +437,7 @@ export function App() {
         setChatLoading(false);
       }
     }
-  }, [refreshModels]);
+  }, [refreshModels, acceptSettings]);
   const selectChat = useCallback(
     async (id: string, broadcast = true) => {
       if (busyRef.current || conversationEnabled.current)
@@ -393,7 +450,8 @@ export function App() {
       setMessages([]);
       setMemories([]);
       setMemoryCandidates([]);
-      setSelectedDocs([]);
+      setSelectedDocs(readAttachments(id));
+      stopAudio();
       setDocuments([]);
       setSearchNext(false);
       setError("");
@@ -494,10 +552,11 @@ export function App() {
     channel.current.onmessage = (event) => {
       if (event.data.type === "settings") {
         const epoch = dataEpoch.current;
+        const configEpoch = settingsEpoch.current;
         void request<Settings>("/settings")
           .then((config) => {
             if (epoch === dataEpoch.current) {
-              setSettings(config);
+              if (configEpoch === settingsEpoch.current) acceptSettings(config);
               void refreshModels().catch(fail);
             }
           })
@@ -560,6 +619,10 @@ export function App() {
       setError("Ядро остановилось. Перезапустите WileyAI.");
     });
     const offRestored = window.wiley.onDataRestored(() => {
+      settingsEpoch.current++;
+      savedSettings.current = undefined;
+      for (const key of Object.keys(localStorage))
+        if (key.startsWith("wiley-attachments-")) localStorage.removeItem(key);
       dataEpoch.current++;
       stop();
       setSelectedDocs([]);
@@ -622,7 +685,36 @@ export function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  function saveVoice(
+    patch: Partial<
+      Pick<
+        Settings,
+        "tts_engine" | "tts_voice" | "tts_device" | "speak_answers"
+      >
+    >,
+  ) {
+    setSettings((current) => (current ? { ...current, ...patch } : current));
+    const version = ++voiceSaveVersion.current;
+    setVoiceSaving(true);
+    const pending = voiceSave.current
+      .catch(() => {})
+      .then(async () => {
+        const config = await request<Settings>(
+          "/settings/speech",
+          "PUT",
+          patch,
+        );
+        acceptSettings(config);
+        channel.current?.postMessage({ type: "settings" });
+        if (version === voiceSaveVersion.current) setNotice("Голос сохранён");
+      });
+    voiceSave.current = pending;
+    void pending.catch(fail).finally(() => {
+      if (version === voiceSaveVersion.current) setVoiceSaving(false);
+    });
+  }
   async function save(next = settings) {
+    await voiceSave.current;
     if (!next) return;
     if (conversation.active)
       throw new Error("Завершите разговор перед сменой моделей и настроек.");
@@ -631,7 +723,7 @@ export function App() {
       ...(keyTouched ? { api_key: apiKey } : {}),
       ...(searchKeyTouched ? { search_api_key: searchKey } : {}),
     });
-    setSettings(saved);
+    acceptSettings(saved, false);
     setApiKey("");
     setKeyTouched(false);
     setSearchKey("");
@@ -640,61 +732,82 @@ export function App() {
     setNotice("Настройки сохранены");
     await refreshModels();
   }
-  async function speak(text: string, config = settings, signal?: AbortSignal) {
-    if (conversation.active && !signal)
-      throw new Error("Сначала завершите текущий разговор.");
-    if (signal?.aborted)
-      throw new DOMException("Озвучка отменена", "AbortError");
+  function startSpeech(
+    config: Settings,
+    signal?: AbortSignal,
+    onSpeaking?: () => void,
+  ) {
     channel.current?.postMessage({ type: "interrupt-speech" });
     stopAudio();
     const generation = ++speechGeneration.current;
     const speechId = crypto.randomUUID();
+    const output = new SpeechOutput<Blob>(
+      (text, signal) =>
+        audioRequest(
+          text,
+          config.tts_voice,
+          signal,
+          config.tts_engine,
+          config.tts_device,
+          (device) => {
+            if (
+              config.tts_engine === "qwen3" &&
+              generation === speechGeneration.current &&
+              !signal.aborted
+            )
+              setNotice(
+                device === "cpu"
+                  ? "Qwen3-TTS: озвучка подготовлена на CPU"
+                  : "Qwen3-TTS: озвучка подготовлена на видеокарте",
+              );
+          },
+          speechId,
+        ),
+      async (blob, signal) => {
+        onSpeaking?.();
+        await playAudio(blob, config.audio_output_device_id || "", signal);
+      },
+      signal,
+    );
     localSpeechId.current = speechId;
-    const controller = new AbortController();
-    speechAbort.current = controller;
-    const cancel = () => {
-      controller.abort();
-    };
-    signal?.addEventListener("abort", cancel, { once: true });
+    speechAbort.current = output.controller;
     reportSpeech(speechId, true);
-    try {
-      const blob = await audioRequest(
-        text,
-        config?.tts_voice || "",
-        controller.signal,
-        config?.tts_engine,
-        config?.tts_device,
-        (device) => {
-          if (
-            config?.tts_engine === "qwen3" &&
-            generation === speechGeneration.current &&
-            !controller.signal.aborted
-          )
-            setNotice(
-              device === "cpu"
-                ? "Qwen3-TTS: озвучка подготовлена на CPU"
-                : "Qwen3-TTS: озвучка подготовлена на видеокарте",
-            );
-        },
-      );
-      await playAudio(
-        blob,
-        config?.audio_output_device_id || "",
-        controller.signal,
-      );
-    } finally {
-      signal?.removeEventListener("abort", cancel);
+    void output.done.catch(fail).finally(() => {
       reportSpeech(speechId, false);
       if (generation === speechGeneration.current) {
         speechAbort.current = null;
         localSpeechId.current = "";
       }
-    }
+      void request("/voice/session/" + speechId, "DELETE").catch(() => {});
+    });
+    return output;
+  }
+  async function speak(text: string, config = settings, signal?: AbortSignal) {
+    await voiceSave.current;
+    if (conversation.active && !signal)
+      throw new Error("Сначала завершите текущий разговор.");
+    signal?.throwIfAborted();
+    if (!config) return;
+    const output = startSpeech(config, signal);
+    output.whole(text);
+    await output.done;
   }
   async function send(
     text = draft,
-    options: { signal?: AbortSignal; conversation?: boolean } = {},
+    options: {
+      signal?: AbortSignal;
+      conversation?: boolean;
+      speechConfig?: Settings;
+      onSpeaking?: () => void;
+    } = {},
   ) {
+    try {
+      await voiceSave.current;
+    } catch (error) {
+      if (options.conversation) throw error;
+      fail(error);
+      return "";
+    }
     if (options.signal?.aborted)
       throw new DOMException("Ответ отменён", "AbortError");
     if (!text.trim() || busyRef.current || chatLoadingRef.current) return "";
@@ -705,6 +818,7 @@ export function App() {
     setError("");
     setDraft("");
     setAnswer("");
+    stopAudio();
     setBusy(true);
     setStage("Отвечает…");
     const useSearch = !options.conversation && searchNext;
@@ -718,6 +832,13 @@ export function App() {
     const chatId = activeChatRef.current;
     let streamError = "";
     let userAccepted = false;
+    const config = options.speechConfig || savedSettings.current || settings;
+    let output: SpeechOutput<Blob> | undefined;
+    const startOutput = () => {
+      if (!output && config && (options.conversation || config.speak_answers))
+        output = startSpeech(config, controller.signal, options.onSpeaking);
+      return output;
+    };
     try {
       await stream(
         text,
@@ -729,7 +850,10 @@ export function App() {
             userAccepted = true;
             setMessages((items) => [...items, event.message!]);
           }
-          if (event.type === "delta") setAnswer((value) => value + event.text);
+          if (event.type === "delta" && event.text) {
+            setAnswer((value) => value + event.text);
+            startOutput()?.push(event.text);
+          }
           if (event.type === "stage") setStage(event.text || "Отвечает…");
           if (event.type === "error") {
             streamError = event.text || "Ошибка модели";
@@ -748,10 +872,16 @@ export function App() {
       if (streamError) throw new Error(streamError);
       if (controller.signal.aborted)
         throw new DOMException("Ответ отменён", "AbortError");
-      if (completed && settings?.speak_answers && !options.conversation)
-        void speak(completed).catch(fail);
+      if (completed) startOutput()?.finish(completed);
+      else output?.cancel();
+      if (options.conversation) {
+        setBusy(false);
+        busyRef.current = false;
+        await output?.done;
+      }
       return completed;
     } catch (error) {
+      output?.cancel();
       if (options.conversation) throw error;
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         if (
@@ -787,6 +917,7 @@ export function App() {
     }
   }
   async function toggleConversation() {
+    await voiceSave.current;
     if (conversation.active) {
       await window.wiley.stopConversation();
       return;
@@ -858,13 +989,22 @@ export function App() {
             return;
           }
           phase("thinking");
-          const completed = await send(text, { signal, conversation: true });
+          const turnConfig = await request<Settings>(
+            "/settings",
+            "GET",
+            undefined,
+            signal,
+          );
+          const completed = await send(text, {
+            signal,
+            conversation: true,
+            speechConfig: turnConfig,
+            onSpeaking: () => phase("speaking"),
+          });
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
           if (!completed)
             throw new Error("Ответ не получен. Начните разговор заново.");
-          phase("speaking");
-          await speak(completed, config, signal);
         },
       });
       conversationStarting.current = null;
@@ -1309,7 +1449,7 @@ export function App() {
                   </article>
                 ))}
                 {busy && (
-                  <article className="message assistant">
+                  <article className="message assistant" aria-busy="true">
                     <div className="message-avatar">W</div>
                     <div className="message-body">
                       <div className="message-meta">
@@ -1348,9 +1488,15 @@ export function App() {
                       >
                         <button
                           title="Открыть библиотеку документов"
+                          aria-label={"▤ " + doc.name}
                           onClick={() => setTab("documents")}
                         >
                           ▤ {doc.name}
+                          <small>
+                            {" "}
+                            · {doc.characters.toLocaleString("ru-RU")} символов
+                            текста
+                          </small>
                         </button>
                         <button
                           aria-label={"Убрать из вопроса " + doc.name}
@@ -1510,13 +1656,11 @@ export function App() {
                       data,
                     );
                     if (chatId !== activeChatRef.current) return;
-                    setDocuments((items) => [...items, doc]);
-                    setSelectedDocs((ids) =>
-                      ids.length < 10 ? [...ids, doc.id] : ids,
-                    );
+                    const canAttach = selectedDocsRef.current.length < 10;
+                    toggleDocument(doc);
                     channel.current?.postMessage({ type: "documents-changed" });
                     setNotice(
-                      selectedDocsRef.current.length < 10
+                      canAttach
                         ? "Документ добавлен. Задайте вопрос по содержимому."
                         : "Документ загружен. Для вопроса можно выбрать до 10 файлов в разделе «Документы».",
                     );
@@ -1926,7 +2070,7 @@ export function App() {
             <ToolAccess
               onError={fail}
               onSaved={async () => {
-                setSettings(await request<Settings>("/settings"));
+                acceptSettings(await request<Settings>("/settings"));
                 channel.current?.postMessage({ type: "settings" });
               }}
             />
@@ -2077,7 +2221,7 @@ export function App() {
               </div>
               <button
                 className="primary"
-                disabled={busy || conversation.active}
+                disabled={busy || conversation.active || voiceSaving}
                 onClick={() => run(() => save())}
               >
                 Сохранить
@@ -2243,6 +2387,12 @@ export function App() {
               />
               <div className="card">
                 <h2>Речь и озвучка</h2>
+                <p className="help">
+                  Движок, голос и автоматическая озвучка сохраняются сразу.{" "}
+                  {voiceSaving
+                    ? "Сохраняю…"
+                    : "Ответы читаются по мере готовности фраз."}
+                </p>
                 <label>
                   Модель распознавания
                   <select
@@ -2270,8 +2420,7 @@ export function App() {
                     aria-label="Движок озвучки"
                     value={settings.tts_engine}
                     onChange={(event) =>
-                      setSettings({
-                        ...settings,
+                      saveVoice({
                         tts_engine: event.target
                           .value as Settings["tts_engine"],
                         tts_voice: "",
@@ -2293,8 +2442,7 @@ export function App() {
                     aria-label="Голос ассистента"
                     value={settings.tts_voice}
                     onChange={(event) =>
-                      setSettings({
-                        ...settings,
+                      saveVoice({
                         tts_voice: event.target.value,
                       })
                     }
@@ -2346,8 +2494,7 @@ export function App() {
                         aria-label="Устройство Qwen3-TTS"
                         value={settings.tts_device}
                         onChange={(event) =>
-                          setSettings({
-                            ...settings,
+                          saveVoice({
                             tts_device: event.target
                               .value as Settings["tts_device"],
                           })
@@ -2369,11 +2516,11 @@ export function App() {
                         : "Скачайте веса в «Модели → Озвучка»."}{" "}
                       Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти. В
                       автоматическом режиме занятая или недоступная видеокарта
-                      заменяется CPU. Модель загружается заново на каждую
-                      реплику; при остановке память освобождается. На CPU
-                      возможна долгая подготовка. Русская речь у готовых тембров
-                      может иметь акцент. Для мягкого женского голоса попробуйте
-                      Serena.
+                      заменяется CPU. Модель загружается один раз на ответ и
+                      читает готовые фразы; при остановке память освобождается.
+                      На CPU возможна долгая подготовка. Русская речь у готовых
+                      тембров может иметь акцент. Для мягкого женского голоса
+                      попробуйте Serena.
                     </p>
                   </>
                 )}
@@ -2382,8 +2529,7 @@ export function App() {
                     type="checkbox"
                     checked={settings.speak_answers}
                     onChange={(event) =>
-                      setSettings({
-                        ...settings,
+                      saveVoice({
                         speak_answers: event.target.checked,
                       })
                     }

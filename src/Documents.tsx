@@ -150,15 +150,20 @@ export function DocumentPanel({
             if (!file) return;
             const data = new FormData();
             data.append("file", file);
-            await request<Doc>(
+            const doc = await request<Doc>(
               "/documents?destination=" + destination,
               "POST",
               data,
             );
             if (mounted.current) {
+              if (selected.length < 10) onToggle(doc);
               setFile(null);
               if (fileInput.current) fileInput.current.value = "";
-              setNotice("Документ загружен. Выберите его для вопроса.");
+              setNotice(
+                selected.length < 10
+                  ? "Документ прикреплён к чату. Можно задать вопрос."
+                  : "Документ загружен. Уже прикреплено 10 файлов — уберите один и выберите новый.",
+              );
             }
           });
         }}

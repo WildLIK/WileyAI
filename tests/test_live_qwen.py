@@ -50,3 +50,28 @@ def test_qwen_can_be_killed_while_loading_without_leaving_a_worker():
         assert process.returncode is not None
         assert not voice.qwen.processes and not voice.synthesis_jobs
     asyncio.run(scenario())
+
+
+def test_qwen_sentence_session_reuses_real_model_and_frees_memory():
+    async def scenario():
+        root = Path(__file__).resolve().parents[1]
+        voice = Voice(root / "data")
+        device = os.environ.get("WILEYAI_QWEN_DEVICE", "cpu")
+        session = "live-sentence-session"
+        processes, timings = [], []
+        try:
+            for index, text in enumerate(["Привет!", "Рада тебя слышать."]):
+                start = time.monotonic()
+                audio = await voice.render(text, "serena", "qwen3", f"sentence-{index}", device=device, session_id=session)
+                timings.append(time.monotonic() - start)
+                with wave.open(io.BytesIO(audio), "rb") as wav:
+                    assert wav.getnframes() > 1000 and wav.getnchannels() == 1
+                processes.append(voice.qwen.sessions[session].process)
+                assert audio.device in {"cpu", "cuda"}
+            assert processes[0] is processes[1] and processes[0].returncode is None
+            assert not voice.synthesis_jobs and not voice.qwen.processes
+            print("Qwen sentence timings:", timings)
+        finally:
+            await voice.stop()
+        assert processes[0].returncode is not None and not voice.qwen.sessions
+    asyncio.run(scenario())

@@ -22,8 +22,26 @@ def extract(name: str, data: bytes) -> str:
         text = "\n\n".join(f"[Страница {i + 1}]\n{page}" for i, page in enumerate(pages))
     elif suffix == "docx":
         from docx import Document
+        from docx.oxml.ns import qn
         document = Document(BytesIO(data))
-        text = "\n".join([p.text for p in document.paragraphs] + [" | ".join(cell.text for cell in row.cells) for table in document.tables for row in table.rows])
+        def paragraphs(element):
+            # Includes nested tables, hyperlinks and text boxes, in XML reading order.
+            for paragraph in element.iter(qn("w:p")):
+                words = []
+                for node in paragraph.iter():
+                    if node.tag in {qn("w:t"), qn("w:tab"), qn("w:br")} and next(node.iterancestors(qn("w:p")), None) is paragraph:
+                        words.append(node.text or "" if node.tag == qn("w:t") else " ")
+                if line := "".join(words).strip():
+                    yield line
+        parts = ["\n".join(paragraphs(document.element.body))]
+        seen = set()
+        for section in document.sections:
+            for part in (section.header, section.first_page_header, section.even_page_header,
+                         section.footer, section.first_page_footer, section.even_page_footer):
+                if not part.is_linked_to_previous and part.part.partname not in seen:
+                    seen.add(part.part.partname)
+                    parts.append("\n".join(paragraphs(part._element)))
+        text = "\n".join(part for part in parts if part)
     else:
         raise ValueError("Поддерживаются TXT, MD, CSV, PDF с текстом и DOCX")
     if not text.strip():
