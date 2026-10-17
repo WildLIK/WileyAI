@@ -35,6 +35,8 @@ import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
+import { OpenVoiceSettings } from "./voice/OpenVoice";
+import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
 import { ChatMessages } from "./ChatMessages";
 import {
   Conversation,
@@ -771,6 +773,10 @@ export function App() {
           },
           speechId,
           config.tts_engine === "cloud" ? cloudOptions(config) : undefined,
+          {
+            openvoice_enabled: !!usesOpenVoice(config),
+            openvoice_voice: config.openvoice_voice,
+          },
         ),
       async (blob, signal) => {
         onSpeaking?.();
@@ -779,7 +785,7 @@ export function App() {
       signal,
       {
         batchCharacters:
-          config.tts_engine === "qwen3"
+          config.tts_engine === "qwen3" || usesOpenVoice(config)
             ? 240
             : config.tts_engine === "cloud"
               ? 300
@@ -1919,6 +1925,7 @@ export function App() {
                                   tts_engine:
                                     item.engine as Settings["tts_engine"],
                                   tts_voice: item.voice || "",
+                                  openvoice_enabled: false,
                                 });
                                 setTab("settings");
                               })
@@ -2523,13 +2530,15 @@ export function App() {
                   Движок озвучки
                   <select
                     aria-label="Движок озвучки"
-                    value={settings.tts_engine}
+                    value={
+                      usesOpenVoice(settings)
+                        ? "openvoice"
+                        : settings.tts_engine
+                    }
                     onChange={(event) =>
-                      saveVoice({
-                        tts_engine: event.target
-                          .value as Settings["tts_engine"],
-                        tts_voice: "",
-                      })
+                      saveVoice(
+                        selectSpeechEngine(event.target.value, settings),
+                      )
                     }
                   >
                     <option value="silero">Silero · русский язык</option>
@@ -2537,6 +2546,9 @@ export function App() {
                       Silero 5.6 · выразительная интонация
                     </option>
                     <option value="piper">Piper · дополнительные голоса</option>
+                    <option value="openvoice">
+                      OpenVoice · тембр Миты поверх Piper / Silero
+                    </option>
                     <option value="qwen3">Qwen3-TTS · экспериментальный</option>
                     <option value="sapi">Системные голоса Windows</option>
                     <option value="cloud">Облачная озвучка · API</option>
@@ -2593,6 +2605,15 @@ export function App() {
                       ))}
                     </select>
                   </label>
+                )}
+                {usesOpenVoice(settings) && (
+                  <OpenVoiceSettings
+                    settings={settings}
+                    onChange={saveVoice}
+                    disabled={speaking || conversation.active || voiceSaving}
+                    onError={fail}
+                    onNotice={setNotice}
+                  />
                 )}
                 {settings.tts_engine === "cloud" && (
                   <CloudSpeechSettings

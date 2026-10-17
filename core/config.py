@@ -26,6 +26,21 @@ class CloudSpeechProfile(BaseModel):
         return Settings.valid_search_endpoint(value)
 
 
+class SavedSpeechVoice(BaseModel):
+    model_config = {"extra": "forbid"}
+    id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    name: str = Field(min_length=1, max_length=80)
+    voice: str = Field(min_length=1, max_length=300)
+    service: Literal["openrouter", "routerai", "compatible"]
+    base_url: str
+    model: str = Field(min_length=1, max_length=200)
+
+    @field_validator("base_url")
+    @classmethod
+    def valid_endpoint(cls, value):
+        return Settings.valid_search_endpoint(value)
+
+
 class Settings(BaseModel):
     name: str = Field(default="Уайли", min_length=1, max_length=60)
     grammatical_gender: Literal["feminine", "masculine", "neutral"] = "feminine"
@@ -47,6 +62,9 @@ class Settings(BaseModel):
     tts_style: str = Field(default="", max_length=1000)
     tts_use_reference: bool = False
     tts_connections: dict[Literal["openrouter", "routerai", "compatible"], CloudSpeechProfile] = Field(default_factory=dict, max_length=3)
+    tts_saved_voices: list[SavedSpeechVoice] = Field(default_factory=list, max_length=100)
+    openvoice_enabled: bool = False
+    openvoice_voice: Literal["mita", "kind-mita", "serena", "custom"] = "mita"
     tts_voice: str = Field(default="", max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] = "auto"
     speak_answers: bool = False
@@ -113,6 +131,8 @@ class VoiceSettings(CloudSettings):
     tts_voice: str | None = Field(default=None, max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] | None = None
     speak_answers: bool | None = None
+    openvoice_enabled: bool | None = None
+    openvoice_voice: Literal["mita", "kind-mita", "serena", "custom"] | None = None
 
 
 CATALOG = [

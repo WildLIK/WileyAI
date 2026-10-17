@@ -18,7 +18,7 @@ import psutil
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents, persona
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice
 from . import cloud_speech
 from .models import ModelJobs
 from .storage import Store
@@ -107,6 +107,8 @@ class SpeechBody(TextBody):
     device: Literal["auto", "cpu", "cuda"] | None = None
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    openvoice_enabled: bool | None = None
+    openvoice_voice: Literal["mita", "kind-mita", "serena", "custom"] | None = None
 
 
 class SpeechStopBody(BaseModel):
@@ -121,6 +123,11 @@ class CloudKeyBody(BaseModel):
     @classmethod
     def endpoint(cls, value):
         return Settings.valid_speech_endpoint(value)
+
+
+class SpeechVoiceBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    voice: str = Field(min_length=1, max_length=300)
 
 
 class NoteBody(BaseModel):
@@ -184,6 +191,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             await jobs.close()
             await voice.stop()
             await voice.cloud.close()
+            await voice.openvoice.close()
 
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
@@ -624,6 +632,22 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             result.append({"service": service, "base_url": url, "has_key": present})
         return {"connections": result, **voice.cloud.reference_info()}
 
+    @app.get("/voice/openvoice")
+    def openvoice_info():
+        return voice.openvoice.info()
+
+    @app.post("/voice/openvoice/install")
+    async def install_openvoice():
+        return await voice.openvoice.install()
+
+    @app.post("/voice/openvoice/reference")
+    async def openvoice_reference(file: UploadFile = File(...)):
+        data = await file.read(5 * 1024**2 + 1)
+        await file.close()
+        await voice.openvoice.stop()
+        voice.openvoice.save_reference(data)
+        return voice.openvoice.info()
+
     @app.put("/voice/cloud/key")
     def cloud_key(body: CloudKeyBody):
         cloud_speech.set_key(body.base_url, body.api_key.strip())
@@ -632,6 +656,34 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.get("/voice/cloud/catalog")
     async def cloud_catalog():
         return await voice.cloud.catalog(store.settings())
+
+    @app.post("/voice/cloud/voices")
+    def add_speech_voice(body: SpeechVoiceBody):
+        import uuid
+        config = store.settings()
+        name, selected = body.name.strip(), body.voice.strip()
+        if config.tts_model.startswith("fish-audio/"):
+            selected = cloud_speech.fish_voice_id(selected)
+        if not name or not selected or not config.tts_model.strip():
+            raise ValueError("Укажите название, голос и облачную модель")
+        existing = next((row for row in config.tts_saved_voices if row.voice == selected and row.base_url == config.tts_base_url and row.model == config.tts_model), None)
+        row = SavedSpeechVoice(id=existing.id if existing else uuid.uuid4().hex, name=name, voice=selected,
+                               service=config.tts_service, base_url=config.tts_base_url, model=config.tts_model)
+        rows = [item for item in config.tts_saved_voices if item.id != row.id] + [row]
+        if len(rows) > 100:
+            raise ValueError("В списке уже 100 голосов. Удалите ненужный голос")
+        store.save_settings(Settings.model_validate(config.model_dump() | {"tts_saved_voices": [item.model_dump() for item in rows]}))
+        return row.model_dump()
+
+    @app.delete("/voice/cloud/voices/{voice_id}")
+    def delete_speech_voice(voice_id: str):
+        config = store.settings()
+        row = next((row for row in config.tts_saved_voices if row.id == voice_id), None)
+        if row is None:
+            raise HTTPException(404, "Голос не найден")
+        config.tts_saved_voices = [item for item in config.tts_saved_voices if item.id != voice_id]
+        store.save_settings(config)
+        return {"ok": True}
 
     @app.post("/voice/cloud/reference")
     async def cloud_reference(file: UploadFile = File(...)):
@@ -683,6 +735,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         config = store.settings()
         if config.tts_engine == "cloud":
             voice.cloud.validate(config)
+        if config.openvoice_enabled and config.tts_engine in {"piper", "silero", "silero_v5_6"}:
+            voice.openvoice.validate(config.openvoice_voice)
         if config.tts_engine == "sapi" and not await voice.voices():
             raise ValueError("Системные голоса недоступны. Выберите Silero в настройках.")
         try:
@@ -716,12 +770,16 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         import uuid
         request_id = body.request_id or uuid.uuid4().hex
         engine = body.engine or config.tts_engine
+        config = Settings.model_validate(config.model_dump() | body.model_dump(include={"openvoice_enabled", "openvoice_voice"}, exclude_none=True))
         if engine == "cloud" and body.cloud:
             config = Settings.model_validate(config.model_dump() | body.cloud.model_dump(exclude_none=True))
         options = {"device": body.device or config.tts_device} if engine == "qwen3" else {}
         if engine == "cloud":
             options["cloud_config"] = config
-        if engine == "qwen3" and body.session_id:
+        convert = config.openvoice_enabled and engine in {"piper", "silero", "silero_v5_6"}
+        if convert:
+            options["openvoice_voice"] = config.openvoice_voice
+        if (engine == "qwen3" or convert) and body.session_id:
             options["session_id"] = body.session_id
         async def render():
             if engine == "cloud":
@@ -757,6 +815,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.delete("/voice/session/{session_id}")
     async def close_speech_session(session_id: str):
         await voice.qwen.close_session(session_id)
+        await voice.openvoice.close_session(session_id)
         return {"ok": True}
 
     @app.post("/chat/stop")

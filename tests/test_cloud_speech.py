@@ -43,6 +43,28 @@ def transport(monkeypatch, handler):
     monkeypatch.setattr(cloud_speech, "client", lambda *args, **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
+def test_named_voice_registry_normalizes_urls_updates_duplicates_and_survives_switch(api, monkeypatch):
+    api, _ = api
+    transport(monkeypatch, lambda request: pytest.fail("Saving a voice must not call the provider"))
+    voice = "f" * 32
+    row = api.post("/voice/cloud/voices", json={"name": "Мой голос", "voice": "https://fish.audio/ru/m/" + voice + "/?share=1"})
+    assert row.status_code == 200 and row.json()["voice"] == voice
+    identifier = row.json()["id"]
+    duplicate = api.post("/voice/cloud/voices", json={"name": "Новое название", "voice": voice})
+    assert duplicate.json()["id"] == identifier
+    assert len(api.get("/settings").json()["tts_saved_voices"]) == 1
+    assert api.post("/voice/cloud/voices", json={"name": " ", "voice": voice}).status_code == 400
+    assert api.post("/voice/cloud/voices", json={"name": "Ошибка", "voice": "https://fish.audio.evil.org/m/" + voice}).status_code == 400
+    api.put("/settings/speech", json={"tts_service": "routerai"})
+    other = api.post("/voice/cloud/voices", json={"name": "Второй", "voice": "custom-voice"}).json()
+    api.put("/settings/speech", json={"tts_service": "openrouter"})
+    rows = api.get("/settings").json()["tts_saved_voices"]
+    assert {row["base_url"] for row in rows} == {"https://openrouter.ai/api/v1", "https://routerai.ru/api/v1"}
+    assert api.delete("/voice/cloud/voices/" + identifier).status_code == 200
+    assert api.delete("/voice/cloud/voices/" + identifier).status_code == 404
+    assert api.get("/settings").json()["tts_saved_voices"] == [other]
+
+
 def test_connections_are_separate_secrets_and_settings_changes_do_not_call_provider(api, monkeypatch):
     api, keys = api
     transport(monkeypatch, lambda request: pytest.fail("Saving preferences must not call a cloud service"))

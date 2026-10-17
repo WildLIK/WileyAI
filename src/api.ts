@@ -23,6 +23,9 @@ export interface Settings {
   tts_connections?: Partial<
     Record<Settings["tts_service"], Omit<CloudOptions, "tts_service">>
   >;
+  tts_saved_voices?: SavedSpeechVoice[];
+  openvoice_enabled: boolean;
+  openvoice_voice: "mita" | "kind-mita" | "serena" | "custom";
   tts_device: "auto" | "cpu" | "cuda";
   tts_voice: string;
   speak_answers: boolean;
@@ -57,9 +60,22 @@ export type CloudOptions = Pick<
 >;
 export type SpeechSettings = Pick<
   Settings,
-  "tts_engine" | "tts_voice" | "tts_device" | "speak_answers"
+  | "tts_engine"
+  | "tts_voice"
+  | "tts_device"
+  | "speak_answers"
+  | "openvoice_enabled"
+  | "openvoice_voice"
 > &
   CloudOptions;
+export interface SavedSpeechVoice {
+  id: string;
+  name: string;
+  voice: string;
+  service: Settings["tts_service"];
+  base_url: string;
+  model: string;
+}
 export function cloudOptions(config: Settings): CloudOptions {
   return {
     tts_service: config.tts_service,
@@ -270,6 +286,7 @@ export async function audioRequest(
   onDevice?: (device: "cpu" | "cuda") => void,
   session_id?: string,
   cloud?: CloudOptions,
+  conversion?: Pick<Settings, "openvoice_enabled" | "openvoice_voice">,
 ): Promise<Blob> {
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
@@ -292,6 +309,7 @@ export async function audioRequest(
         request_id,
         session_id,
         cloud,
+        ...conversion,
       }),
       signal,
     });

@@ -17,6 +17,7 @@ from .piper import Piper
 from .speech_text import plain_speech, speech_chunks
 from .qwen import QwenSpeech
 from .cloud_speech import CloudSpeech
+from .openvoice import OpenVoice, LOCAL_ENGINES
 
 
 class SpeechCancelled(ValueError):
@@ -41,6 +42,7 @@ class Voice:
         self.piper = Piper(root)
         self.qwen = QwenSpeech(root)
         self.cloud = CloudSpeech(root)
+        self.openvoice = OpenVoice(root)
         self.synthesis_jobs: dict[str, threading.Event] = {}
         self.stopped: dict[str, float] = {}
         self.speech_id = None
@@ -200,6 +202,7 @@ class Voice:
 
     async def stop(self, request_id: str | None = None, preserve_session: str | None = None):
         await self.cloud.stop(request_id)
+        await self.openvoice.stop(request_id, preserve_session)
         self.stopped = {key: when for key, when in self.stopped.items() if time.monotonic() - when < 30}
         if request_id:
             self.stopped[request_id] = time.monotonic()
@@ -223,7 +226,7 @@ class Voice:
                 pass
             await process.wait()
 
-    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None, cloud_config=None) -> bytes:
+    async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None, cloud_config=None, openvoice_voice=None) -> bytes:
         request_id = request_id or uuid.uuid4().hex
         if request_id in self.synthesis_jobs:
             raise ValueError("Озвучка с таким идентификатором уже выполняется")
@@ -253,9 +256,21 @@ class Voice:
                 return await self.qwen.render(plain_speech(text), voice, device, request_id, cancel)
             if engine == "sapi":
                 return await self._sapi(text, voice, render=True, request_id=request_id, cancel=cancel)
+            if openvoice_voice is not None:
+                if engine not in LOCAL_ENGINES:
+                    raise ValueError("OpenVoice поддерживает основу Piper и Silero")
+                self.openvoice.validate(openvoice_voice)
             if self.monitor:
-                return await asyncio.to_thread(self.monitor.call, "tts:" + engine, self.synthesize, text, voice, cancel, engine)
-            return await asyncio.to_thread(self.synthesize, text, voice, cancel, engine)
+                audio = await asyncio.to_thread(self.monitor.call, "tts:" + engine, self.synthesize, text, voice, cancel, engine)
+            else:
+                audio = await asyncio.to_thread(self.synthesize, text, voice, cancel, engine)
+            check_cancelled(cancel)
+            if openvoice_voice is not None:
+                if self.monitor:
+                    with self.monitor.activity("tts:openvoice"):
+                        return await self.openvoice.render(audio, openvoice_voice, request_id, cancel, session_id)
+                return await self.openvoice.render(audio, openvoice_voice, request_id, cancel, session_id)
+            return audio
         finally:
             cancel.set()
             self.synthesis_jobs.pop(request_id, None)

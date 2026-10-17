@@ -104,6 +104,23 @@ def test_history_is_bounded_and_missing_gpu_is_not_zero(monitor, monkeypatch):
     assert snapshot["app"]["vram"] is None
 
 
+def test_openvoice_conversion_has_separate_process_and_work_idle_stats(monitor, monkeypatch):
+    converter = Process(321, command=["python", "-m", "core.openvoice_worker"], rss=800, private=750)
+    core = Process(monitor.core.pid, rss=100, private=60)
+    monitor.voice.openvoice.sessions["answer"] = NS(process=NS(pid=321, returncode=None))
+    monitor.store.save_settings(Settings(tts_engine="piper", openvoice_enabled=True))
+    monkeypatch.setattr(monitor, "owned_processes", lambda: [core, converter])
+    with monitor.activity("tts:openvoice"):
+        snapshot = monitor.sample()
+        row = next(row for row in snapshot["rows"] if row["id"] == "tts:openvoice")
+        assert row["active"] and row["ram"] == 800 and row["pids"] == [321]
+        assert snapshot["app"]["ram"] == 900 and row["shared"] is None
+    monitor.sample()
+    row = next(row for row in monitor.sample()["rows"] if row["id"] == "tts:openvoice")
+    assert row["state"] == "Простой" and row["calls"]["count"] == 1
+    assert set(row["statistics"]) == {"work", "idle"}
+
+
 def test_short_work_between_samples_is_not_misclassified_as_idle(monitor):
     monitor.sample()
     with monitor.activity("stt:tiny"):

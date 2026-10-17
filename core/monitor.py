@@ -229,6 +229,7 @@ class Monitor:
             self.touched.clear()
         qwen_pids = {p.pid for p in list(self.voice.qwen.processes.values()) if p.returncode is None}
         qwen_pids.update(s.process.pid for s in list(self.voice.qwen.sessions.values()) if s.process and s.process.returncode is None)
+        openvoice_pids = {s.process.pid for s in list(getattr(getattr(self.voice, "openvoice", None), "sessions", {}).values()) if s.process and s.process.returncode is None}
         sapi_pid = self.voice.speech.pid if self.voice.speech and self.voice.speech.returncode is None else None
         owned = self.owned_processes()
         owned_ids = {p.pid for p in owned}
@@ -248,6 +249,8 @@ class Monitor:
                 key = "core" if process.pid == self.core.pid else "desktop" if desktop_name and name == desktop_name else "services"
                 if process.pid in qwen_pids or runs_module(command, "core.qwen_worker"):
                     key = "tts:qwen3"
+                elif process.pid in openvoice_pids or runs_module(command, "core.openvoice_worker"):
+                    key = "tts:openvoice"
                 elif process.pid == sapi_pid:
                     key = "tts:sapi"
                 elif name in {"ollama.exe", "ollama", "llama-server.exe", "llama-server"}:
@@ -284,14 +287,14 @@ class Monitor:
         for item in loaded:
             models["brain:" + item["name"]] = {"name": item["name"], "category": "Мозг", "loaded": True,
                                                 "location": "local", "allocation": item.get("size_vram")}
-        tts_names = {"silero": "Silero v5", "silero_v5_6": "Silero v5.6", "piper": "Piper", "sapi": "Голос Windows", "qwen3": "Qwen3-TTS"}
-        tts_loaded = {"qwen3": bool(qwen_pids or groups.get("tts:qwen3")), "sapi": bool(sapi_pid)}
+        tts_names = {"silero": "Silero v5", "silero_v5_6": "Silero v5.6", "piper": "Piper", "sapi": "Голос Windows", "qwen3": "Qwen3-TTS", "openvoice": "OpenVoice V2"}
+        tts_loaded = {"qwen3": bool(qwen_pids or groups.get("tts:qwen3")), "sapi": bool(sapi_pid), "openvoice": bool(openvoice_pids)}
         if self.voice.tts_model is not None:
             tts_loaded["silero_v5_6" if self.voice.tts_version == "v5_6_ru" else "silero"] = True
         if self.voice.piper.model is not None:
             tts_loaded["piper"] = True
         used_tts = {key[4:] for key in calls.keys() | active.keys() if key.startswith("tts:")}
-        for engine in {*(key for key, value in tts_loaded.items() if value), config.tts_engine, *used_tts}:
+        for engine in {*(key for key, value in tts_loaded.items() if value), config.tts_engine, *used_tts, *({"openvoice"} if config.openvoice_enabled else set())}:
             if engine == "cloud":
                 continue
             models["tts:" + engine] = {"name": tts_names[engine], "category": "Озвучка", "loaded": tts_loaded.get(engine, False),

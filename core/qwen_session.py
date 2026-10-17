@@ -4,14 +4,16 @@ import json
 
 
 class WorkerExited(ValueError):
-    def __init__(self, code):
+    def __init__(self, code, name="Qwen3-TTS"):
         self.code = code
-        super().__init__(f"Qwen3-TTS завершился с кодом {code}. Подробности: logs/qwen-error.json в папке данных WileyAI")
+        detail = ". Подробности: logs/qwen-error.json в папке данных WileyAI" if name == "Qwen3-TTS" else ". Перезапустите озвучку или переустановите преобразователь"
+        super().__init__(f"{name} завершился с кодом {code}" + detail)
 
 
 class Session:
-    def __init__(self, device):
+    def __init__(self, device, name="Qwen3-TTS"):
         self.device = device
+        self.name = name
         self.process = None
         self.closed = False
         self.active_id = None
@@ -38,21 +40,21 @@ class Session:
             for message in reversed(self.errors.decode("utf-8", errors="replace").splitlines()):
                 if message.startswith("WILEY_ERROR:"):
                     raise ValueError(message.removeprefix("WILEY_ERROR:")[:300])
-            raise WorkerExited(process.returncode)
+            raise WorkerExited(process.returncode, self.name)
         try:
             header = json.loads(line)
         except (ValueError, UnicodeError) as error:
-            raise ValueError("Qwen3-TTS не вернул корректный WAV") from error
+            raise ValueError(f"{self.name} не вернул корректный WAV") from error
         if not isinstance(header, dict):
-            raise ValueError("Qwen3-TTS не вернул корректный WAV")
+            raise ValueError(f"{self.name} не вернул корректный WAV")
         if header.get("error"):
             raise ValueError(str(header["error"])[:300])
         size = header.get("size")
         if not isinstance(size, int) or not 44 <= size <= 64 * 1024 * 1024:
-            raise ValueError("Qwen3-TTS не вернул корректный WAV")
+            raise ValueError(f"{self.name} не вернул корректный WAV")
         audio = await process.stdout.readexactly(size)
         if not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE":
-            raise ValueError("Qwen3-TTS не вернул корректный WAV")
+            raise ValueError(f"{self.name} не вернул корректный WAV")
         return audio, header.get("device", "")
 
     async def close(self):

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { request, type Settings, type SpeechSettings } from "../api";
-import { fishVoiceId, FISH_VOICES } from "./fish";
+import { fishVoiceId } from "./fish";
+import { CloudVoices } from "./CloudVoices";
 
 const endpoints = {
   openrouter: "https://openrouter.ai/api/v1",
@@ -301,30 +302,21 @@ export function CloudSpeechSettings({
         </select>
       </label>
       {(customModel || !settings.tts_model) && modelId}
-      {fishReference ? (
-        <div className="cloud-fish-voice">
-          <p className="help">
-            {settings.tts_use_reference && info?.reference
-              ? `Голос из образца: ${info.reference.name} · ${info.reference.seconds} с`
-              : settings.tts_cloud_voice
-                ? `Голос Fish: ${FISH_VOICES.find((voice) => voice.id === settings.tts_cloud_voice)?.name || settings.tts_cloud_voice}`
-                : "Голос Fish по умолчанию. Для женского тембра выберите образец."}
-          </p>
+      <CloudVoices
+        settings={settings}
+        voices={voices}
+        reference={fishReference ? info?.reference?.name : undefined}
+        onChange={onChange}
+        flush={flush}
+        onError={onError}
+      />
+      {fishReference && (
+        <details className="cloud-advanced">
+          <summary>WAV-образец голоса</summary>
+          {settings.tts_use_reference && info?.reference && (
+            <p className="help">{`Голос из образца: ${info.reference.name} · ${info.reference.seconds} с`}</p>
+          )}
           <div className="button-row">
-            {FISH_VOICES.map((voice) => (
-              <button
-                key={voice.id}
-                className="outline"
-                onClick={() =>
-                  change({
-                    tts_cloud_voice: voice.id,
-                    tts_use_reference: false,
-                  })
-                }
-              >
-                {voice.name}
-              </button>
-            ))}
             {info?.serena_available && (
               <button
                 className="outline"
@@ -347,7 +339,6 @@ export function CloudSpeechSettings({
               Загрузить свой WAV
             </button>
           </div>
-          {voiceId}
           <input
             type="file"
             accept=".wav,audio/wav"
@@ -382,32 +373,7 @@ export function CloudSpeechSettings({
               Использовать WAV-образец для Fish
             </label>
           )}
-        </div>
-      ) : voices.length ? (
-        <label>
-          Облачный голос
-          <select
-            aria-label="Облачный голос"
-            value={settings.tts_cloud_voice}
-            onChange={(event) =>
-              change({ tts_cloud_voice: event.target.value })
-            }
-          >
-            <option value="">По умолчанию</option>
-            {[
-              ...new Set([
-                ...voices,
-                ...(settings.tts_cloud_voice ? [settings.tts_cloud_voice] : []),
-              ]),
-            ].map((voice) => (
-              <option key={voice} value={voice}>
-                {voice}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        voiceId
+        </details>
       )}
       <datalist id="cloud-voices">
         {voices.map((voice) => (
@@ -418,7 +384,7 @@ export function CloudSpeechSettings({
         <summary>Дополнительно: API, голос и формат</summary>
         {settings.tts_service !== "compatible" && address}
         {!customModel && settings.tts_model && modelId}
-        {voices.length > 0 && voiceId}
+        {voiceId}
         <Field
           label="Манера облачной речи"
           value={settings.tts_style}
@@ -456,10 +422,10 @@ export function CloudSpeechSettings({
         {fishReference && (
           <>
             <p className="help">
-              Скопируйте адрес страницы голоса Fish Audio в поле ссылки выше.
-              Женский образец задаёт тембр, сходство зависит от записи и модели.
-              WAV: PCM16, 1–30 секунд, до 5 МБ. Образец хранится на этом ПК и не
-              включается в резервную копию.
+              Для сохранения голоса по ссылке выберите «Добавить…» в списке
+              голосов. Женский образец задаёт тембр, сходство зависит от записи
+              и модели. WAV: PCM16, 1–30 секунд, до 5 МБ. Образец хранится на
+              этом ПК и не включается в резервную копию.
             </p>
             {info?.reference && (
               <button

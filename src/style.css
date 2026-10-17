@@ -2153,3 +2153,9 @@ html:has(.pet-window) {
 .cloud-speech-settings input {
   min-width: 0;
 }
+.cloud-voice-picker {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}

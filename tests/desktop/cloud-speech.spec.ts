@@ -114,6 +114,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
     ).not.toBeVisible();
     await saveKey("OpenRouter");
     await listen();
+    await group.getByText("WAV-образец голоса", { exact: true }).click();
     // Uploading a real file exercises the temporary local core, without any cloud request.
     await page
       .getByLabel("Загрузить WAV-образец", { exact: true })
@@ -145,15 +146,14 @@ test("cloud speech: compact service settings, female reference and persisted ind
     expect(samples[2].cloud.tts_use_reference).toBe(true);
     expect(samples[2].cloud.tts_cloud_voice).toBe("");
     expect(samples[2].cloud.tts_model).toBe("fish-audio/s2.1-pro-free:free");
-    await page
-      .getByRole("button", { name: "Мита Кепочка", exact: true })
-      .click();
+    const voiceSelect = page.getByLabel("Облачный голос", { exact: true });
+    await voiceSelect.selectOption("ff1ae409865e4c7493db061913d77a79");
     await expect(
       page.getByLabel("Использовать WAV-образец для Fish", { exact: true }),
     ).not.toBeChecked();
-    await expect(
-      page.getByText("Голос Fish: Мита Кепочка", { exact: true }),
-    ).toBeVisible();
+    await group
+      .getByText("Дополнительно: API, голос и формат", { exact: true })
+      .click();
     const voiceLink = page.getByLabel("Ссылка или ID голоса Fish Audio", {
       exact: true,
     });
@@ -166,17 +166,38 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "ff1ae409865e4c7493db061913d77a79",
     );
     expect(samples[3].cloud.tts_use_reference).toBe(false);
-    await page
-      .getByRole("button", { name: "Добрая Мита (Miside)", exact: true })
-      .click();
-    await expect(
-      page.getByText("Голос Fish: Добрая Мита (Miside)", { exact: true }),
-    ).toBeVisible();
+    await voiceSelect.selectOption("303b89e345f04bf4b3755e0ddf1b41c4");
+    await expect(voiceSelect).toHaveValue("303b89e345f04bf4b3755e0ddf1b41c4");
     await listen();
     expect(samples[4].cloud.tts_cloud_voice).toBe(
       "303b89e345f04bf4b3755e0ddf1b41c4",
     );
     expect(samples[4].cloud.tts_use_reference).toBe(false);
+    await group
+      .getByText("Дополнительно: API, голос и формат", { exact: true })
+      .click();
+    await group.getByText("WAV-образец голоса", { exact: true }).click();
+    await voiceSelect.selectOption("$add");
+    await page
+      .getByLabel("Название голоса", { exact: true })
+      .fill("Мой персонаж");
+    await page
+      .getByLabel("Ссылка или ID голоса", { exact: true })
+      .fill("https://fish.audio/ru/m/" + "a".repeat(32) + "/");
+    await page
+      .getByRole("button", { name: "Добавить голос", exact: true })
+      .click();
+    await expect(voiceSelect).toHaveValue("a".repeat(32));
+    await expect(
+      voiceSelect.locator("option", { hasText: "Мой персонаж" }),
+    ).toHaveCount(1);
+    await page.reload();
+    await page
+      .getByRole("button", { name: "⚙ Настройки", exact: true })
+      .click();
+    await expect(voiceSelect).toHaveValue("a".repeat(32));
+    expect((await settings()).tts_saved_voices[0].name).toBe("Мой персонаж");
+    await voiceSelect.selectOption("303b89e345f04bf4b3755e0ddf1b41c4");
     await group.screenshot({
       path: "local/screenshots/cloud-speech-fish-compact.png",
     });
@@ -195,6 +216,9 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await expect(
       page.getByLabel("Облачный голос", { exact: true }),
     ).toHaveValue("Sulafat");
+    await expect(
+      voiceSelect.locator("option", { hasText: "Мой персонаж" }),
+    ).toHaveCount(0);
     await saveKey("RouterAI");
     await listen();
     await model.selectOption("google/gemini-3.8-flash-lite-tts");
@@ -294,6 +318,9 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await modelId.fill("custom-speech");
     await modelId.blur();
     await expect(service).toBeEnabled();
+    await group
+      .getByText("Дополнительно: API, голос и формат", { exact: true })
+      .click();
     const customVoice = page.getByLabel("Облачный голос или ID голоса", {
       exact: true,
     });
@@ -305,13 +332,30 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await service.selectOption("compatible");
     await expect(model).toHaveValue("custom-speech");
     await expect(address).toHaveValue("https://speech.example.org/v1");
-    await expect(customVoice).toHaveValue("my-voice");
+    await expect(
+      page.getByLabel("Облачный голос", { exact: true }),
+    ).toHaveValue("my-voice");
     const saved = await settings();
     expect(saved.tts_connections.routerai.tts_cloud_voice).toBe("eve");
     expect(JSON.stringify(saved)).not.toContain("synthetic-ui-test-key");
     expect(keys.size).toBe(3);
 
     await service.selectOption("openrouter");
+    await expect(
+      voiceSelect.locator("option", { hasText: "Мой персонаж" }),
+    ).toHaveCount(1);
+    await voiceSelect.selectOption("a".repeat(32));
+    await page
+      .getByRole("button", {
+        name: "Удалить голос «Мой персонаж» из списка",
+        exact: true,
+      })
+      .click();
+    await expect(
+      voiceSelect.locator("option", { hasText: "Мой персонаж" }),
+    ).toHaveCount(0);
+    expect((await settings()).tts_saved_voices).toEqual([]);
+    await voiceSelect.selectOption("303b89e345f04bf4b3755e0ddf1b41c4");
     await page.setViewportSize({ width: 950, height: 750 });
     await expect(service).toBeEnabled();
     await group.scrollIntoViewIfNeeded();

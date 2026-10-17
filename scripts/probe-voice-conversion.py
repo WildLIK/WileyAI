@@ -147,6 +147,7 @@ def convert(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true", help="Install the optional converter without generating audio")
     parser.add_argument("--baseline-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--reference", type=Path, default=PROJECT / "local/voice-samples/fish-mita.mp3")
     parser.add_argument("--data-dir", type=Path, default=PROJECT / "data")
@@ -157,8 +158,10 @@ def main():
     args.data_dir = args.data_dir.resolve()
     args.reference = args.reference.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
-    if args.prepare:
+    if args.prepare or args.prepare_only:
         prepare()
+    if args.prepare_only:
+        return
     if args.baseline_only:
         baseline(args)
     else:
