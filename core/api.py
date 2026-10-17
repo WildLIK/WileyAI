@@ -20,6 +20,7 @@ from anyio import CancelScope
 from . import commands, documents, providers, websearch, intents, persona
 from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice
 from . import cloud_speech
+from .history import History
 from .models import ModelJobs
 from .storage import Store
 from .voice import Voice
@@ -472,8 +473,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise HTTPException(400, providers.describe_error(error)) from error
 
     @app.get("/messages")
-    def messages(conversation_id: str | None = None):
-        return store.for_chat(conversation_id).messages()
+    def messages(conversation_id: str | None = None, around: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")):
+        return store.for_chat(conversation_id).messages(around=around)
+
+    @app.get("/history/search")
+    def search_history(q: str = Query(min_length=2, max_length=200), scope: Literal["chat", "space", "all"] = "space",
+                       role: Literal["all", "user", "assistant"] = "all", offset: int = Query(default=0, ge=0, le=200_000),
+                       conversation_id: str | None = None):
+        return History(store.for_chat(conversation_id)).search(q, scope, role, offset)
 
     @app.get("/memories")
     def memories(q: str = "", conversation_id: str | None = None):

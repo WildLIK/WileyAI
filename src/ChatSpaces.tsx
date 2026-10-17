@@ -9,6 +9,7 @@ export function ChatSpaces({
   onSelect,
   onChanged,
   onError,
+  onSearch,
 }: {
   chats: Chat[];
   projects: Project[];
@@ -17,6 +18,7 @@ export function ChatSpaces({
   onSelect: (id: string) => Promise<void>;
   onChanged: (id?: string) => Promise<void>;
   onError: (error: unknown) => void;
+  onSearch: () => void;
 }) {
   const [editor, setEditor] = useState<{
     kind: "chat" | "project";
@@ -137,14 +139,25 @@ export function ChatSpaces({
             ＋ Проект
           </button>
         </div>
-        <input
-          className="chat-filter"
-          type="search"
-          aria-label="Найти чат"
-          placeholder="Найти чат…"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-        />
+        <div className="chat-search-actions">
+          <input
+            className="chat-filter"
+            type="search"
+            aria-label="Найти чат"
+            placeholder="Найти чат…"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+          <button
+            className="outline"
+            aria-label="Поиск в переписке"
+            title="Поиск по тексту сообщений"
+            disabled={disabled || working}
+            onClick={onSearch}
+          >
+            ⌕
+          </button>
+        </div>
         <div className="chat-tree">
           <div className="chat-group-title">ОБЩИЕ ЧАТЫ</div>
           {rows(null)}

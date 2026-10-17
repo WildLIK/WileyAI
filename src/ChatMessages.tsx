@@ -1,13 +1,29 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+export interface HistoryFocus {
+  id: string;
+  version: number;
+  terms: string[];
+}
 
 export function ChatMessages({
   children,
   chat,
   requestKey,
+  target,
+  onLatest,
 }: {
   children: ReactNode;
   chat: string;
   requestKey: number;
+  target?: HistoryFocus | null;
+  onLatest?: () => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -28,9 +44,28 @@ export function ChatMessages({
     element.scrollTop = element.scrollHeight;
     setBelow(false);
   };
-  useEffect(() => {
-    bottom();
-  }, [chat, requestKey]);
+  useLayoutEffect(() => {
+    if (!target) {
+      bottom();
+      return;
+    }
+    const element = viewport.current;
+    const article = element?.querySelector<HTMLElement>(
+      '[data-message-id="' + CSS.escape(target.id) + '"]',
+    );
+    if (!element || !article) return;
+    const match =
+      article.querySelector<HTMLElement>("[data-history-match]") || article;
+    follow.current = false;
+    article.focus({ preventScroll: true });
+    element.scrollTop +=
+      match.getBoundingClientRect().top -
+      element.getBoundingClientRect().top -
+      30;
+    setBelow(
+      element.scrollHeight - element.scrollTop - element.clientHeight > 80,
+    );
+  }, [chat, requestKey, target?.version]);
   useEffect(() => {
     const observer = new ResizeObserver(() => {
       if (follow.current) bottom();
@@ -61,7 +96,7 @@ export function ChatMessages({
           className="chat-scroll-bottom"
           aria-label="К последнему сообщению"
           title="Прокрутить чат вниз"
-          onClick={bottom}
+          onClick={onLatest || bottom}
         >
           ↓
         </button>

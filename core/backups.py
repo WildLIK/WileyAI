@@ -24,6 +24,7 @@ from .calendar import EventBody
 from .notifications import reminder_time
 from .document_library import rebuild_index as rebuild_document_index
 from .document_context import DocumentFragment
+from .history import rebuild_index as rebuild_history_index
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -475,6 +476,7 @@ class Backups:
                     db.executemany(f"INSERT INTO {name} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [tuple(row[column] for column in columns) for row in rows])
             db.execute("DELETE FROM memories_fts")
             rebuild_document_index(db)
+            rebuild_history_index(db)
             db.executemany("INSERT INTO memories_fts VALUES (?,?)", [(row["id"], normalized(row["content"])) for row in tables["memories"]])
             db.execute("DELETE FROM dialogue_state")
             db.execute("DELETE FROM chat_dialogue")

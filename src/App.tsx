@@ -39,7 +39,9 @@ import { DocumentContext } from "./DocumentContext";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
-import { ChatMessages } from "./ChatMessages";
+import { ChatMessages, type HistoryFocus } from "./ChatMessages";
+import { HistorySearch, type HistoryHit } from "./HistorySearch";
+import { historyParts } from "./historyText";
 import {
   Conversation,
   phaseLabels,
@@ -160,6 +162,52 @@ export function App() {
     localStorage.getItem("wiley-active-chat") || "",
   );
   const activeChatRef = useRef(activeChatId);
+  const historyWindow = useRef<{ chat: string; anchor: string } | null>(null);
+  const [historyWindowVisible, setHistoryWindowVisible] = useState(false);
+  const [historySearch, setHistorySearch] = useState<{
+    scope: "chat" | "space";
+  } | null>(null);
+  const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null);
+  const historyFocusVersion = useRef(0);
+  const messagePath = useCallback(
+    (id: string) =>
+      scoped(
+        "/messages" +
+          (historyWindow.current?.chat === id
+            ? "?around=" + encodeURIComponent(historyWindow.current.anchor)
+            : ""),
+        id,
+      ),
+    [],
+  );
+  function resetHistory() {
+    historyWindow.current = null;
+    setHistoryWindowVisible(false);
+    setHistoryFocus(null);
+  }
+  useEffect(() => {
+    const find = (event: KeyboardEvent) => {
+      if (
+        tab !== "chat" ||
+        historySearch ||
+        busyRef.current ||
+        conversationEnabled.current ||
+        chatLoadingRef.current ||
+        document.querySelector('[role="dialog"]')
+      )
+        return;
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        setHistorySearch({ scope: "chat" });
+      }
+    };
+    window.addEventListener("keydown", find);
+    return () => window.removeEventListener("keydown", find);
+  }, [tab, historySearch]);
   const [chatLoading, setChatLoading] = useState(true);
   const chatLoadingRef = useRef(true);
   const chatLoadEpoch = useRef(0);
@@ -313,7 +361,7 @@ export function App() {
     const [facts, candidates, history] = await Promise.all([
       request<Memory[]>(scoped("/memories", id)),
       request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
-      request<Message[]>(scoped("/messages", id)),
+      request<Message[]>(messagePath(id)),
     ]);
     if (epoch !== memoryRefreshEpoch.current) return;
     setMemories(facts);
@@ -391,6 +439,7 @@ export function App() {
         : chatList[0]?.id;
       if (!id) return;
       if (id !== activeChatRef.current) {
+        resetHistory();
         setReplyLimit("");
         setDraft(chatDrafts.current.get(id) || "");
         setSelectedDocs(readAttachments(id), id);
@@ -418,7 +467,7 @@ export function App() {
         candidates,
       ] = await Promise.all([
         request<Settings>("/settings"),
-        request<Message[]>(scoped("/messages", id)),
+        request<Message[]>(messagePath(id)),
         request<Memory[]>(scoped("/memories", id)),
         request<Doc[]>(
           scoped(
@@ -453,9 +502,14 @@ export function App() {
     }
   }, [refreshModels, acceptSettings]);
   const selectChat = useCallback(
-    async (id: string, broadcast = true) => {
+    async (id: string, broadcast = true, around?: string) => {
       if (busyRef.current || conversationEnabled.current)
         throw new Error("Завершите ответ или разговор перед сменой чата.");
+      if (around) {
+        historyWindow.current = { chat: id, anchor: around };
+        setHistoryWindowVisible(true);
+        setHistoryFocus(null);
+      } else resetHistory();
       chatDrafts.current.set(activeChatRef.current, draftRef.current);
       activeChatRef.current = id;
       setActiveChatId(id);
@@ -479,6 +533,31 @@ export function App() {
     },
     [refresh],
   );
+  async function openHistoryResult(hit: HistoryHit, terms: string[]) {
+    setHistorySearch(null);
+    setTab("chat");
+    try {
+      await selectChat(hit.conversation_id, false, hit.id);
+      if (activeChatRef.current !== hit.conversation_id)
+        throw new Error("Найденный чат уже удалён или изменён");
+      setHistoryFocus({
+        id: hit.id,
+        version: ++historyFocusVersion.current,
+        terms,
+      });
+    } catch (error) {
+      if (historyWindow.current?.anchor === hit.id) {
+        resetHistory();
+        await refresh().catch(() => {});
+      }
+      throw error;
+    }
+  }
+  async function returnToLatest() {
+    await selectChat(activeChatRef.current, false);
+    setTab("chat");
+    setScrollRequest((value) => value + 1);
+  }
   const spacesChanged = useCallback(
     async (id?: string) => {
       setNotice("");
@@ -609,7 +688,7 @@ export function App() {
       }
       if (event.data.type === "chat-updated") {
         const epoch = dataEpoch.current;
-        void request<Message[]>(scoped("/messages", activeChatRef.current))
+        void request<Message[]>(messagePath(activeChatRef.current))
           .then((history) => {
             if (epoch === dataEpoch.current) setMessages(history);
           })
@@ -634,6 +713,8 @@ export function App() {
       setError("Ядро остановилось. Перезапустите WileyAI.");
     });
     const offRestored = window.wiley.onDataRestored(() => {
+      resetHistory();
+      setHistorySearch(null);
       setReplyLimit("");
       settingsEpoch.current++;
       savedSettings.current = undefined;
@@ -881,6 +962,12 @@ export function App() {
       return output;
     };
     try {
+      if (historyWindow.current) {
+        const latest = await request<Message[]>(scoped("/messages", chatId));
+        controller.signal.throwIfAborted();
+        resetHistory();
+        setMessages(latest);
+      }
       await stream(
         text,
         selectedDocs,
@@ -1302,6 +1389,7 @@ export function App() {
           onSelect={selectChat}
           onChanged={spacesChanged}
           onError={fail}
+          onSearch={() => setHistorySearch({ scope: "space" })}
         />
         <div className="sidebar-bottom">
           <button
@@ -1419,18 +1507,58 @@ export function App() {
                   <h1>{currentChat?.title || "Новый чат"}</h1>
                   <small>{scopeName}</small>
                 </div>
-                <ConversationControl
-                  compact
-                  state={conversation}
-                  speaking={speaking}
-                  onToggle={() => run(toggleConversation)}
-                  onInterrupt={interruptConversation}
-                  disabled={
-                    busy || recording || uploading || speaking || chatLoading
-                  }
-                />
+                <div className="chat-toolbar-actions">
+                  <button
+                    className="outline"
+                    aria-label="Поиск в текущем чате"
+                    title="Поиск в чате · Ctrl+F"
+                    disabled={
+                      busy ||
+                      conversation.active ||
+                      chatLoading ||
+                      recording ||
+                      uploading
+                    }
+                    onClick={() => setHistorySearch({ scope: "chat" })}
+                  >
+                    ⌕
+                  </button>
+                  <ConversationControl
+                    compact
+                    state={conversation}
+                    speaking={speaking}
+                    onToggle={() => run(toggleConversation)}
+                    onInterrupt={interruptConversation}
+                    disabled={
+                      busy || recording || uploading || speaking || chatLoading
+                    }
+                  />
+                </div>
               </div>
-              <ChatMessages chat={activeChatId} requestKey={scrollRequest}>
+              {historyWindowVisible && (
+                <div className="history-window-banner">
+                  <span>
+                    Показан фрагмент переписки вокруг найденного сообщения
+                  </span>
+                  <button
+                    className="subtle"
+                    disabled={busy || chatLoading || conversation.active}
+                    onClick={() => void run(returnToLatest)}
+                  >
+                    Вернуться к последним сообщениям
+                  </button>
+                </div>
+              )}
+              <ChatMessages
+                chat={activeChatId}
+                requestKey={scrollRequest}
+                target={historyFocus}
+                onLatest={
+                  historyWindowVisible
+                    ? () => void run(returnToLatest)
+                    : undefined
+                }
+              >
                 {chatLoading && <p className="help">Загружаю чат…</p>}
                 {!chatLoading && !messages.length && (
                   <div className="welcome">
@@ -1457,7 +1585,13 @@ export function App() {
                 {messages.map((message) => (
                   <article
                     key={message.id}
-                    className={"message " + message.role}
+                    className={
+                      "message " +
+                      message.role +
+                      (historyFocus?.id === message.id ? " history-hit" : "")
+                    }
+                    data-message-id={message.id}
+                    tabIndex={historyFocus?.id === message.id ? -1 : undefined}
                   >
                     <div className="message-avatar">
                       {message.role === "user" ? "Вы" : "W"}
@@ -1476,10 +1610,26 @@ export function App() {
                           </button>
                         )}
                       </div>
-                      <div className="message-text">{message.content}</div>
+                      <div className="message-text">
+                        {historyFocus?.id === message.id
+                          ? historyParts(
+                              message.content,
+                              historyFocus.terms,
+                            ).map((part, index) =>
+                              part.match ? (
+                                <mark data-history-match key={index}>
+                                  {part.text}
+                                </mark>
+                              ) : (
+                                part.text
+                              ),
+                            )
+                          : message.content}
+                      </div>
                       {message.role === "assistant" &&
                         message.id === messages.at(-1)?.id &&
-                        !busy && (
+                        !busy &&
+                        !historyWindowVisible && (
                           <div className="button-row">
                             <button
                               className="subtle"
@@ -2938,6 +3088,22 @@ export function App() {
           </section>
         )}
       </main>
+      {historySearch && activeChatId && (
+        <HistorySearch
+          chat={activeChatId}
+          project={
+            projects.find((item) => item.id === currentChat?.project_id)?.name
+          }
+          initialScope={historySearch.scope}
+          onClose={() => setHistorySearch(null)}
+          onSelect={(hit, terms) =>
+            void run(() => openHistoryResult(hit, terms))
+          }
+          disabled={
+            busy || conversation.active || chatLoading || recording || uploading
+          }
+        />
+      )}
     </div>
   );
 }

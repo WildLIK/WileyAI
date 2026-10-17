@@ -14,6 +14,7 @@ from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
 from . import notifications
 from .document_library import migrate as migrate_documents
 from .document_context import DocumentFragment
+from .history import migrate as migrate_history
 
 
 def now() -> str:
@@ -59,6 +60,7 @@ class Store:
             migrate_documents(db)
             if "document_context" not in {row["name"] for row in db.execute("PRAGMA table_info(messages)")}:
                 db.execute("ALTER TABLE messages ADD COLUMN document_context TEXT NOT NULL DEFAULT '[]'")
+            migrate_history(db)
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -126,8 +128,21 @@ class Store:
                 item["web_search"] = web_search
         return item
 
-    def messages(self, limit: int = 250) -> list[dict]:
-        items = self.list("messages", limit)
+    def messages(self, limit: int = 250, around: str | None = None) -> list[dict]:
+        with self.db() as db:
+            db.execute("BEGIN")
+            if around:
+                target = db.execute("SELECT rowid,created FROM messages WHERE id=? AND conversation_id=?", (around, self.conversation_id)).fetchone()
+                if target is None:
+                    raise ValueError("Сообщение удалено или недоступно в этом чате")
+                before = db.execute("SELECT * FROM messages WHERE conversation_id=? AND (created<? OR (created=? AND rowid<=?)) ORDER BY created DESC,rowid DESC LIMIT 41", (self.conversation_id, target["created"], target["created"], target["rowid"])).fetchall()
+                after = db.execute("SELECT * FROM messages WHERE conversation_id=? AND (created>? OR (created=? AND rowid>?)) ORDER BY created,rowid LIMIT 40", (self.conversation_id, target["created"], target["created"], target["rowid"])).fetchall()
+                items = [dict(row) for row in [*reversed(before), *after]]
+            else:
+                items = [dict(row) for row in reversed(db.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY created DESC,rowid DESC LIMIT ?", (self.conversation_id, limit)).fetchall())]
+            return self._message_references(db, items)
+
+    def _message_references(self, db, items):
         for item in items:
             fragments = json.loads(item.pop("document_context", "[]"))
             if fragments:
@@ -136,9 +151,8 @@ class Store:
             by_id = {item["id"]: item for item in items}
             for item in items:
                 item["memory_context"] = []
-            with self.db() as db:
-                rows = db.execute(f"SELECT mm.message_id,m.id,m.content,m.revision FROM message_memories mm JOIN memories m ON m.id=mm.memory_id AND m.revision=mm.revision WHERE m.scope_id=? AND mm.message_id IN ({','.join('?' for _ in items)})", (self.scope_id, *by_id)).fetchall()
-                searches = db.execute(f"SELECT * FROM web_searches WHERE message_id IN ({','.join('?' for _ in items)})", tuple(by_id)).fetchall()
+            rows = db.execute(f"SELECT mm.message_id,m.id,m.content,m.revision FROM message_memories mm JOIN memories m ON m.id=mm.memory_id AND m.revision=mm.revision WHERE m.scope_id=? AND mm.message_id IN ({','.join('?' for _ in items)})", (self.scope_id, *by_id)).fetchall()
+            searches = db.execute(f"SELECT * FROM web_searches WHERE message_id IN ({','.join('?' for _ in items)})", tuple(by_id)).fetchall()
             for row in rows:
                 by_id[row["message_id"]]["memory_context"].append({"id": row["id"], "content": row["content"], "revision": row["revision"]})
             for row in searches:
