@@ -18,7 +18,15 @@ test("DOCX uploaded from chat stays attached across chat changes and restart and
     }
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    prompts.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (body.messages[0].content.startsWith("Выбери способ чтения")) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.end(
+        'data: {"choices":[{"delta":{"content":"{\\"mode\\":\\"fragments\\"}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      );
+      return;
+    }
+    prompts.push(body);
     res.setHeader("Content-Type", "text/event-stream");
     res.end(
       'data: {"choices":[{"delta":{"content":"Код в файле — 7351."}}]}\n\ndata: [DONE]\n\n',
@@ -146,7 +154,15 @@ test("documents: local search, preview, explicit project copy, model selection, 
     }
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    prompts.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (body.messages[0].content.startsWith("Выбери способ чтения")) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.end(
+        'data: {"choices":[{"delta":{"content":"{\\"mode\\":\\"fragments\\"}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      );
+      return;
+    }
+    prompts.push(body);
     res.setHeader("Content-Type", "text/event-stream");
     res.end(
       'data: {"choices":[{"delta":{"content":"Ответ по выбранным данным."}}]}\n\ndata: [DONE]\n\n',

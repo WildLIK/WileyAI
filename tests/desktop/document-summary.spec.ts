@@ -41,17 +41,20 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
         continueReading = done;
       });
     const ending = JSON.stringify(messages).includes("ЗАКАТ-7351");
-    const text =
-      messages[0].content.includes('"wiley_document_action":"read_all"') &&
-      messages.at(-1).content.includes("ну как бы")
-        ? JSON.stringify({ wiley_document_action: "read_all" })
-        : reading || merging
-          ? "Рейдж расследовал кражу и встретился с Меланией. ".repeat(8) +
-            (ending ? "Финал: ЗАКАТ-7351, герой вернулся домой." : "")
-          : messages[0].content.includes("Последовательное чтение завершено")
-            ? "Рейдж расследовал кражу. В финале герой вернулся домой: " +
-              (ending ? "ЗАКАТ-7351." : "финал не найден.")
-            : "Это история расследования кражи. Здесь доступны выбранные отрывки.";
+    const text = messages[0].content.startsWith("Выбери способ чтения")
+      ? "Я готова прочитать документ. Выберите режим: " +
+        JSON.stringify({
+          mode: messages.at(-1).content.includes("прочитай")
+            ? "full"
+            : "fragments",
+        })
+      : reading || merging
+        ? "Рейдж расследовал кражу и встретился с Меланией. ".repeat(8) +
+          (ending ? "Финал: ЗАКАТ-7351, герой вернулся домой." : "")
+        : messages[0].content.includes("Последовательное чтение завершено")
+          ? "Рейдж расследовал кражу. В финале герой вернулся домой: " +
+            (ending ? "ЗАКАТ-7351." : "финал не найден.")
+          : "Это история расследования кражи. Здесь доступны выбранные отрывки.";
     res.write(
       "data: " +
         JSON.stringify({ choices: [{ delta: { content: text } }] }) +
@@ -118,9 +121,11 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     await expect(page.locator(".document-coverage")).toContainText(
       "Это не чтение файла целиком",
     );
-    expect(prompts[0][0].content).toContain(
-      "конец отрывка НЕ означает конец файла",
-    );
+    expect(
+      prompts.some((messages) =>
+        messages[0].content.includes("конец отрывка НЕ означает конец файла"),
+      ),
+    ).toBe(true);
     await expect(whole).toBeEnabled();
     await whole.click();
     await expect.poll(() => !!pending).toBe(true);
@@ -146,9 +151,7 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     hold = false;
     reads.length = 0;
     await expect(whole).toBeEnabled();
-    await composer.fill(
-      "ну как бы, мне нужно было краткий пересказ от начала до конца",
-    );
+    await composer.fill("прочитай");
     await page.getByRole("button", { name: "Отправить", exact: true }).click();
     await expect.poll(() => !!continueReading).toBe(true);
     await expect(progress).toHaveAttribute("aria-valuenow", /^[1-9]\d?$/);
@@ -168,6 +171,9 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     expect(reads.join("")).toBe(content);
     await expect(page.locator(".message.assistant").last()).not.toContainText(
       "wiley_document_action",
+    );
+    await expect(page.locator(".message.assistant").last()).not.toContainText(
+      "Выберите режим",
     );
     expect(
       prompts.some((messages) =>

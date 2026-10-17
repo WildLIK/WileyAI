@@ -16,52 +16,32 @@ TOKEN = "document-summary-tests-0123456789"
 
 
 @pytest.mark.parametrize("text,expected", [
-    ('{"wiley_document_action":"read_all"}', True),
-    ('```json\n{"wiley_document_action": "read_all"}\n```', True),
-    ('```\n{"wiley_document_action": "read_all"}\n```', True),
-    ('{"wiley_document_action":"read_all","path":"private.txt"}', False),
-    ('{"wiley_document_action":"open_app"}', False),
-    ('[{"wiley_document_action":"read_all"}]', False),
-    ('{"wiley_document_action":', False),
-    ('Пример: {"wiley_document_action":"read_all"}', False),
-    ('Перескажи этот файл', False),
+    ('{"mode":"full"}', "full"),
+    ('```json\n{"mode": "fragments"}\n```', "fragments"),
+    ('Я готова прочитать файл.\nВыберите режим: {"mode":"full"}', "full"),
+    ('{"mode":"full","path":"private.txt"}', None),
+    ('{"mode":"open_app"}', None),
+    ('{"mode":', None),
+    ('[{"mode":"full"}]', None),
+    ('{"mode":"full"} {"mode":"fragments"}', None),
+    ('Прочитай файл', None),
 ])
-def test_only_the_exact_model_read_request_is_accepted(text, expected):
-    assert summary.read_action(text) is expected
-
-
-@pytest.mark.parametrize("fenced", [None, "json", ""])
-def test_streamed_read_request_is_hidden_and_closes_the_initial_model_stream(monkeypatch, fenced):
-    closed = []
-    action = json.dumps(summary.READ_ACTION)
-    if fenced is not None:
-        action = "```" + fenced + "\n" + action + "\n```"
-    async def model(*args):
-        try:
-            for char in action:
-                yield char
-            pytest.fail("A completed read request must close this stream immediately")
-        finally:
-            closed.append(True)
-    monkeypatch.setattr(providers, "chat", model)
-    async def scenario():
-        visible = []
-        with pytest.raises(summary.ReadAllRequested):
-            async for delta in summary.answer_stream(Settings(), [], True):
-                visible.append(delta)
-        assert visible == [] and closed == [True]
-    asyncio.run(scenario())
+def test_internal_mode_is_validated_and_prose_around_it_stays_internal(text, expected):
+    if expected is None:
+        with pytest.raises(ValueError): summary.parse_mode(text)
+    else:
+        assert summary.parse_mode(text) == expected
 
 
 @pytest.mark.parametrize("failure", [providers.ResponseLimitReached, ValueError])
-def test_ordinary_text_streams_immediately_and_partial_json_is_preserved(monkeypatch, failure):
+def test_ordinary_text_streams_after_mode_selection_and_partial_json_is_preserved(monkeypatch, failure):
     async def ordinary(*args):
         yield "Обычный ответ"
         pytest.fail("First text must be visible without waiting for another chunk")
     monkeypatch.setattr(providers, "chat", ordinary)
     async def first():
-        output = summary.answer_stream(Settings(), [], True)
-        assert await anext(output) == "Обычный ответ"
+        output = summary.respond(Settings(), [], [], "Вопрос")
+        assert await anext(output) == {"type": "delta", "text": "Обычный ответ"}
         await output.aclose()
     asyncio.run(first())
     async def partial(*args):
@@ -71,8 +51,8 @@ def test_ordinary_text_streams_immediately_and_partial_json_is_preserved(monkeyp
     async def second():
         visible = []
         with pytest.raises(failure):
-            async for delta in summary.answer_stream(Settings(), [], True):
-                visible.append(delta)
+            async for update in summary.respond(Settings(), [], [], "Вопрос"):
+                visible.append(update["text"])
         assert visible == ['{"answer":"частичный']
     asyncio.run(second())
 
@@ -81,19 +61,22 @@ def test_ordinary_text_streams_immediately_and_partial_json_is_preserved(monkeyp
     "ну как бы,  мне нужно было краткий пересказ от начала до конца",
     "Можешь кратко рассказать всю историю, включая финал?",
     "Мне хотелось бы узнать общую картину книги",
+    "прочитай",
 ])
 def test_model_decides_to_read_after_a_free_form_followup(tmp_path, monkeypatch, question):
     initial = []
+    async def decision(config, messages, schema):
+        initial.append(messages)
+        assert config.response_tokens == 64 and config.context_tokens == 4096
+        assert schema == summary.MODE_SCHEMA
+        return 'Я готова прочитать документ. Выберите режим: {"mode":"full"}'
     async def model(config, messages):
-        if summary.READ_TOOL in messages[0]["content"]:
-            initial.append(messages)
-            for char in json.dumps(summary.READ_ACTION):
-                yield char
-        elif messages[0]["content"] in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
+        if messages[0]["content"] in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
             yield "Сначала кража, затем расследование, в финале возвращение домой."
         else:
             yield "История началась с кражи. В финале герой вернулся домой."
     monkeypatch.setattr(providers, "chat", model)
+    monkeypatch.setattr(providers, "structured", decision)
     app = create_app(tmp_path, TOKEN)
     with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
         store = app.state.store
@@ -168,15 +151,16 @@ def events(response):
 
 def test_api_distinguishes_partial_context_from_full_read_and_keeps_project_scope(tmp_path, monkeypatch):
     captured = []
+    async def decision(config, messages, schema):
+        return json.dumps({"mode": "full" if "Перескажи этот файл" in messages[-1]["content"] else "fragments"})
     async def model(config, messages):
         captured.append(messages)
-        if summary.READ_TOOL in messages[0]["content"] and "Перескажи этот файл" in messages[-1]["content"]:
-            yield json.dumps(summary.READ_ACTION)
-        elif messages[0]["content"] in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
+        if messages[0]["content"] in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
             yield "Рейдж расследует кражу. В конце он возвращается домой."
         else:
             yield "В книге Рейдж расследует кражу и возвращается домой."
     monkeypatch.setattr(providers, "chat", model)
+    monkeypatch.setattr(providers, "structured", decision)
     app = create_app(tmp_path, TOKEN)
     with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
         store = app.state.store
@@ -223,13 +207,72 @@ def test_full_read_flag_does_not_execute_a_command_or_save_memory(tmp_path, monk
         assert store.memories() == []
 
 
+def test_complete_small_document_needs_no_separate_decision(monkeypatch):
+    async def unexpected(*args):
+        pytest.fail("The entire file is already visible")
+    async def model(*args):
+        yield "Содержание небольшого файла."
+    monkeypatch.setattr(providers, "structured", unexpected)
+    monkeypatch.setattr(providers, "chat", model)
+    doc = {"id": "doc", "name": "Файл.txt", "content": "Весь текст 😺"}
+    sources = [{"document_id": "doc", "offset": 0, "text": doc["content"]}]
+    async def scenario():
+        result = [item async for item in summary.respond(Settings(), [], [doc], "Что в файле?", sources=sources)]
+        assert result == [{"type": "delta", "text": "Содержание небольшого файла."}]
+    asyncio.run(scenario())
+    assert summary.fully_visible([doc], [sources[0], sources[0]])
+    assert not summary.fully_visible([doc], [{"document_id": "doc", "offset": 1, "text": doc["content"][1:]}])
+
+
+def test_stopping_the_internal_decision_cancels_it_without_showing_its_text(tmp_path, monkeypatch):
+    started, cancelled = threading.Event(), threading.Event()
+    async def decision(*args):
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+            return '{"mode":"full"}'
+        finally:
+            cancelled.set()
+    async def unexpected(*args):
+        pytest.fail("No answer or reading after cancellation")
+        yield ""
+    monkeypatch.setattr(providers, "structured", decision)
+    monkeypatch.setattr(providers, "chat", unexpected)
+    app = create_app(tmp_path, TOKEN)
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
+        doc = Library(app.state.store).add("Книга.txt", "Текст " * 2000)
+        with ThreadPoolExecutor() as pool:
+            pending = pool.submit(api.post, "/chat", json={"text": "прочитай", "document_ids": [doc["id"]], "request_id": "mode-turn"})
+            assert started.wait(5)
+            assert api.post("/chat/stop", json={"request_id": "mode-turn"}).status_code == 200
+            result = events(pending.result(timeout=5))
+        assert cancelled.is_set() and not any(item["type"] in {"delta", "done"} for item in result)
+
+
+def test_invalid_internal_decision_is_not_published_as_an_answer(tmp_path, monkeypatch):
+    async def decision(*args):
+        return 'Я готова прочитать документ. {"mode":"full","path":"unknown.txt"}'
+    async def unexpected(*args):
+        pytest.fail("An invalid decision cannot start reading or an answer")
+        yield ""
+    monkeypatch.setattr(providers, "structured", decision)
+    monkeypatch.setattr(providers, "chat", unexpected)
+    app = create_app(tmp_path, TOKEN)
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
+        doc = Library(app.state.store).add("Книга.txt", "Текст " * 2000)
+        result = events(api.post("/chat", json={"text": "прочитай", "document_ids": [doc["id"]]}))
+        assert any(item["type"] == "error" for item in result)
+        assert not any(item["type"] in {"delta", "done"} for item in result)
+        assert "unknown.txt" not in str(result)
+        assert [item["role"] for item in app.state.store.messages()] == ["user"]
+
+
 @pytest.mark.parametrize("full", [False, True])
 def test_stop_cancels_reading_without_saving_notes_as_finished_answer(tmp_path, monkeypatch, full):
     started, cancelled = threading.Event(), threading.Event()
+    async def decision(*args):
+        return '{"mode":"full"}'
     async def model(config, messages):
-        if summary.READ_TOOL in messages[0]["content"]:
-            yield json.dumps(summary.READ_ACTION)
-            return
         started.set()
         try:
             await asyncio.sleep(3600)
@@ -237,6 +280,7 @@ def test_stop_cancels_reading_without_saving_notes_as_finished_answer(tmp_path, 
         finally:
             cancelled.set()
     monkeypatch.setattr(providers, "chat", model)
+    monkeypatch.setattr(providers, "structured", decision)
     app = create_app(tmp_path, TOKEN)
     with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
         doc = Library(app.state.store).add("Книга.txt", "Текст " * 5000)

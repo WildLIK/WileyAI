@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 import json
 
 import httpx
@@ -56,15 +57,19 @@ async def list_models(settings: Settings) -> list[dict]:
     return [{"id": item["id"], "size": 0} for item in data.get("data", [])]
 
 
-async def chat(settings: Settings, messages: list[dict]) -> AsyncIterator[str]:
+async def chat(settings: Settings, messages: list[dict], output_schema: dict | None = None) -> AsyncIterator[str]:
     if settings.provider == "ollama":
         endpoint = "api/chat"
         body = {"model": settings.model, "messages": messages, "stream": True, "options": {"num_ctx": settings.context_tokens, "num_predict": response_limit(settings), "temperature": settings.temperature}, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile]}
         if "qwen3" in settings.model.casefold():
             body["think"] = False
+        if output_schema is not None:
+            body["format"] = output_schema
     else:
         endpoint = compatible_path(settings, "chat/completions")
         body = {"model": settings.model, "messages": messages, "stream": True, "temperature": settings.temperature, "max_tokens": response_limit(settings)}
+        if output_schema is not None:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "document_reading_mode", "strict": True, "schema": output_schema}}
     async with client(settings) as http:
         async with http.stream("POST", endpoint, json=body) as response:
             response.raise_for_status()
@@ -92,6 +97,26 @@ async def chat(settings: Settings, messages: list[dict]) -> AsyncIterator[str]:
                     finished = True
             if not finished:
                 raise IncompleteResponse("Поток ответа оборвался без подтверждения завершения. Можно продолжить сохранённый текст.")
+
+
+async def structured(settings: Settings, messages: list[dict], schema: dict) -> str:
+    """A bounded internal decision, separate from user-visible answer streaming."""
+    async def collect(output_schema):
+        result = ""
+        async with aclosing(chat(settings, messages, output_schema=output_schema)) as output:
+            async for delta in output:
+                result += delta
+                if len(result) > 2048:
+                    raise ValueError("Слишком длинный служебный ответ модели")
+        return result
+    try:
+        return await collect(schema)
+    except httpx.HTTPStatusError as error:
+        # Some compatible services do not support response_format. Retry only
+        # a rejected format, never auth, quota, server or interrupted responses.
+        if settings.provider != "compatible" or error.response.status_code not in {400, 422} or not any(word in error.response.text.casefold() for word in ("response_format", "json_schema", "structured output")):
+            raise
+        return await collect(None)
 
 
 async def unload(settings: Settings):

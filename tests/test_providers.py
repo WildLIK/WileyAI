@@ -34,3 +34,42 @@ def test_response_budget_and_completion_are_not_silently_ignored(monkeypatch, pr
 
 def test_answer_does_not_implicitly_expand_context_memory():
     assert providers.response_limit(Settings(context_tokens=4096, response_tokens=8192)) == 2048
+
+
+@pytest.mark.parametrize("provider", ["ollama", "compatible"])
+def test_structured_decision_uses_native_schema_and_a_small_output_budget(monkeypatch, provider):
+    requests = []
+    schema = {"type": "object", "properties": {"mode": {"type": "string", "enum": ["full", "fragments"]}}, "required": ["mode"], "additionalProperties": False}
+    def handler(request):
+        requests.append(json.loads(request.content))
+        if provider == "ollama":
+            text = json.dumps({"message": {"content": '{"mode":"full"}'}, "done": True}) + "\n"
+        else:
+            text = 'data: ' + json.dumps({"choices": [{"delta": {"content": '{"mode":"full"}'}, "finish_reason": "stop"}]}) + '\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, text=text)
+    monkeypatch.setattr(providers, "client", lambda config: httpx.AsyncClient(base_url="http://127.0.0.1/", transport=httpx.MockTransport(handler)))
+    settings = Settings(provider=provider).model_copy(update={"response_tokens": 64, "temperature": 0})
+    assert asyncio.run(providers.structured(settings, [{"role": "user", "content": "прочитай"}], schema)) == '{"mode":"full"}'
+    assert len(requests) == 1
+    if provider == "ollama":
+        assert requests[0]["format"] == schema and requests[0]["options"]["num_predict"] == 64
+    else:
+        assert requests[0]["response_format"]["json_schema"]["schema"] == schema and requests[0]["max_tokens"] == 64
+
+
+@pytest.mark.parametrize("status,detail,retry", [(400, "response_format unsupported", True), (422, "json_schema unsupported", True), (400, "model is invalid", False), (401, "auth", False), (429, "quota", False), (500, "response_format failure", False)])
+def test_only_unsupported_compatible_format_gets_one_retry(monkeypatch, status, detail, retry):
+    requests = []
+    def handler(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return httpx.Response(status, json={"error": detail})
+        return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"{\\"mode\\":\\"fragments\\"}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    monkeypatch.setattr(providers, "client", lambda config: httpx.AsyncClient(base_url="http://127.0.0.1/", transport=httpx.MockTransport(handler)))
+    if retry:
+        assert asyncio.run(providers.structured(Settings(provider="compatible"), [], {"type": "object"})) == '{"mode":"fragments"}'
+        assert len(requests) == 2 and "response_format" in requests[0] and "response_format" not in requests[1]
+    else:
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(providers.structured(Settings(provider="compatible"), [], {"type": "object"}))
+        assert len(requests) == 1
