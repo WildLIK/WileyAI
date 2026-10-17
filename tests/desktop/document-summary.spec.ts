@@ -19,12 +19,10 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     }
     let body = "";
     for await (const chunk of req) body += chunk;
-    const { messages } = JSON.parse(body);
+    const { messages, response_format } = JSON.parse(body);
     prompts.push(messages);
-    const reading = messages[0].content.startsWith("Составь краткий конспект");
-    const merging = messages[0].content.startsWith(
-      "Объедини последовательные конспекты",
-    );
+    const reading = messages[0].content.startsWith("Выбери опорные отрывки");
+    const merging = messages[0].content.startsWith("Отбери ключевые отрывки");
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     if (reading && hold) {
       pending = res;
@@ -35,26 +33,64 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
       return;
     }
     if (reading)
-      reads.push(messages[1].content.split("\n").slice(1).join("\n"));
+      reads.push(
+        JSON.parse(messages[1].content)
+          .map((row: { text: string }) => row.text)
+          .join(""),
+      );
     if (reading && reads.length === 2)
       await new Promise<void>((done) => {
         continueReading = done;
       });
-    const ending = JSON.stringify(messages).includes("ЗАКАТ-7351");
-    const text = messages[0].content.startsWith("Выбери способ чтения")
-      ? "Я готова прочитать документ. Выберите режим: " +
+    let text: string;
+    if (messages[0].content.startsWith("Выбери способ чтения")) {
+      text =
+        "Я готова прочитать документ. Выберите режим: " +
         JSON.stringify({
           mode: messages.at(-1).content.includes("прочитай")
             ? "full"
             : "fragments",
-        })
-      : reading || merging
-        ? "Рейдж расследовал кражу и встретился с Меланией. ".repeat(8) +
-          (ending ? "Финал: ЗАКАТ-7351, герой вернулся домой." : "")
-        : messages[0].content.includes("Последовательное чтение завершено")
-          ? "Рейдж расследовал кражу. В финале герой вернулся домой: " +
-            (ending ? "ЗАКАТ-7351." : "финал не найден.")
-          : "Это история расследования кражи. Здесь доступны выбранные отрывки.";
+        });
+    } else if (reading || merging) {
+      const rows = JSON.parse(messages[1].content) as { id: number }[];
+      text = JSON.stringify({
+        ids: reading
+          ? [...new Set([rows[0].id, rows.at(-1)!.id])]
+          : [rows[0].id],
+      });
+    } else if (
+      messages[0].content.startsWith("Составь краткий хронологический пересказ")
+    ) {
+      const parts =
+        response_format.json_schema.schema.properties.claims.properties;
+      text = JSON.stringify({
+        claims: Object.fromEntries(
+          Object.entries(parts).map(([key, spec]) => {
+            const ids = (
+              spec as { properties: { sources: { items: { enum: number[] } } } }
+            ).properties.sources.items.enum;
+            return [
+              key,
+              {
+                text: "Финал: ЗАКАТ-7351, герой вернулся домой.",
+                sources: [ids.at(-1)],
+              },
+            ];
+          }),
+        ),
+      });
+    } else if (
+      messages[0].content.startsWith("Проверь утверждения пересказа")
+    ) {
+      text = JSON.stringify({
+        supported: JSON.parse(messages[1].content).map(
+          (row: { id: number }) => row.id,
+        ),
+      });
+    } else {
+      text =
+        "Это история расследования кражи. Здесь доступны выбранные отрывки.";
+    }
     res.write(
       "data: " +
         JSON.stringify({ choices: [{ delta: { content: text } }] }) +
@@ -177,7 +213,7 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     );
     expect(
       prompts.some((messages) =>
-        messages[0].content.startsWith("Объедини последовательные конспекты"),
+        messages[0].content.startsWith("Отбери ключевые отрывки"),
       ),
     ).toBe(true);
     await page.reload();
@@ -187,6 +223,17 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     await expect(page.locator(".message.assistant").last()).toContainText(
       "ЗАКАТ-7351",
     );
+    const lastMessage = page.locator(".message.assistant").last();
+    await expect(lastMessage.locator(".document-coverage")).toHaveCount(0);
+    await lastMessage.getByText(/Опорные фрагменты пересказа/).click();
+    await expect(lastMessage.locator("blockquote").last()).toContainText(
+      "ЗАКАТ-7351",
+    );
+    await expect(lastMessage).not.toContainText("не прошёл проверку");
+    await lastMessage.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "local/screenshots/document-summary-grounded.png",
+    });
     expect(errors).toEqual([]);
   } finally {
     continueReading?.();

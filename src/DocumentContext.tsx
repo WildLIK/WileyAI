@@ -3,9 +3,14 @@ import { documentCoverage } from "./documentCoverage";
 
 export function DocumentContext({ message }: { message: Message }) {
   if (!message.document_context?.length) return null;
-  const partial = documentCoverage(message.document_context).filter(
-    (item) => item.partial,
+  const evidence = message.document_context.every(
+    (source) => source.purpose === "summary_evidence",
   );
+  const partial = documentCoverage(
+    message.document_context.filter(
+      (source) => source.purpose !== "summary_evidence",
+    ),
+  ).filter((item) => item.partial);
   return (
     <>
       {partial.length > 0 && (
@@ -22,11 +27,13 @@ export function DocumentContext({ message }: { message: Message }) {
       )}
       <details className="document-context">
         <summary>
-          Документы в контексте · {message.document_context.length}
+          {evidence ? "Опорные фрагменты пересказа" : "Документы в контексте"} ·{" "}
+          {message.document_context.length}
         </summary>
         <p className="help">
-          Текст, выбранный для этой реплики. Диапазоны показывают, какая часть
-          документа попала в контекст.
+          {evidence
+            ? "Номера [1], [2] в пересказе ссылаются на эти дословные отрывки. При чтении обработаны все части файла; здесь сохранены опоры для итогового ответа."
+            : "Текст, выбранный для этой реплики. Диапазоны показывают, какая часть документа попала в контекст."}
         </p>
         <ol>
           {message.document_context.map((source, index) => (

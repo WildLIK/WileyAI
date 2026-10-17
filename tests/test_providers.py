@@ -69,7 +69,23 @@ def test_only_unsupported_compatible_format_gets_one_retry(monkeypatch, status, 
     if retry:
         assert asyncio.run(providers.structured(Settings(provider="compatible"), [], {"type": "object"})) == '{"mode":"fragments"}'
         assert len(requests) == 2 and "response_format" in requests[0] and "response_format" not in requests[1]
+        assert "схеме" in requests[1]["messages"][0]["content"] and '"type": "object"' in requests[1]["messages"][0]["content"]
     else:
         with pytest.raises(httpx.HTTPStatusError):
             asyncio.run(providers.structured(Settings(provider="compatible"), [], {"type": "object"}))
         assert len(requests) == 1
+
+
+def test_structured_long_drafts_are_bounded_and_the_stream_is_closed(monkeypatch):
+    closed = []
+    async def chat(*args, **kwargs):
+        try:
+            yield "а" * 2049
+        finally:
+            closed.append(True)
+    monkeypatch.setattr(providers, "chat", chat)
+    with pytest.raises(ValueError, match="длинный"):
+        asyncio.run(providers.structured(Settings(), [], {"type": "object"}))
+    assert closed == [True]
+    assert len(asyncio.run(providers.structured(Settings(), [], {"type": "object"}, max_chars=8192))) == 2049
+    assert closed == [True, True]

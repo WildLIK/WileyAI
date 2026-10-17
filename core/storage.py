@@ -106,7 +106,7 @@ class Store:
 
     def add_message(self, role: str, content: str, memory_context: list[dict] | None = None, web_search: dict | None = None, document_context: list[dict] | None = None) -> dict:
         item = dict(id=uuid.uuid4().hex, role=role, content=content, created=now())
-        fragments = [DocumentFragment.model_validate(row).model_dump() for row in document_context or []]
+        fragments = [DocumentFragment.model_validate(row).model_dump(exclude_defaults=True) for row in document_context or []]
         if len(fragments) > 20 or (fragments and role != "assistant"):
             raise ValueError("Фрагменты документов сохраняются только для ответа, не более 20")
         with self.db() as db:

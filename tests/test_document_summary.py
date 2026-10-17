@@ -15,6 +15,24 @@ from core.chatspaces import Spaces
 TOKEN = "document-summary-tests-0123456789"
 
 
+def grounded_claims(schema, text, source=None):
+    return {"claims": {name: {"text": text, "sources": [source if source is not None else spec["properties"]["sources"]["items"]["enum"][0]]}
+            for name, spec in schema["properties"]["claims"]["properties"].items()}}
+
+
+def grounded_reply(messages, schema=None):
+    prompt, data = messages[0]["content"], messages[-1]["content"]
+    if prompt in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
+        rows = json.loads(data)
+        ids = [rows[0]["id"], rows[-1]["id"]] if len(rows) > 1 and prompt == summary.READ_PROMPT else [rows[0]["id"]]
+        return json.dumps({"ids": ids})
+    if prompt == summary.ANSWER_PROMPT:
+        return json.dumps(grounded_claims(schema, "В финале возвращение домой."))
+    if prompt == summary.VERIFY_PROMPT:
+        return json.dumps({"supported": [row["id"] for row in json.loads(data)]})
+    raise AssertionError(prompt)
+
+
 @pytest.mark.parametrize("text,expected", [
     ('{"mode":"full"}', "full"),
     ('```json\n{"mode": "fragments"}\n```', "fragments"),
@@ -65,7 +83,9 @@ def test_ordinary_text_streams_after_mode_selection_and_partial_json_is_preserve
 ])
 def test_model_decides_to_read_after_a_free_form_followup(tmp_path, monkeypatch, question):
     initial = []
-    async def decision(config, messages, schema):
+    async def decision(config, messages, schema, **kwargs):
+        if messages[0]["content"] != summary.MODE_PROMPT:
+            return grounded_reply(messages, schema)
         initial.append(messages)
         assert config.response_tokens == 64 and config.context_tokens == 4096
         assert schema == summary.MODE_SCHEMA
@@ -89,7 +109,7 @@ def test_model_decides_to_read_after_a_free_form_followup(tmp_path, monkeypatch,
         done = next(item["message"] for item in result if item["type"] == "done")
         assert "обработан весь извлечённый текст" in done["content"]
         assert "wiley_document_action" not in str(result)
-        assert "document_context" not in done
+        assert all(row["purpose"] == "summary_evidence" for row in done["document_context"])
 
 
 def test_every_character_is_read_in_order_with_paragraph_boundaries():
@@ -103,13 +123,12 @@ def test_every_character_is_read_in_order_with_paragraph_boundaries():
 
 def test_large_document_reads_all_parts_then_reduces_with_bounded_context(monkeypatch):
     calls, inputs = [], []
-    async def model(settings, messages):
+    async def model(settings, messages, schema, **kwargs):
         calls.append((settings, messages))
         if messages[0]["content"] == summary.READ_PROMPT:
-            inputs.append(messages[1]["content"].split("\n", 1)[1])
-        marker = " ФИНАЛ: герой вернулся домой." if "ФИНАЛ" in messages[1]["content"] else ""
-        yield "Последовательность событий и важные решения. " * 9 + marker
-    monkeypatch.setattr(providers, "chat", model)
+            inputs.extend(row["text"] for row in json.loads(messages[1]["content"]))
+        return grounded_reply(messages, schema)
+    monkeypatch.setattr(providers, "structured", model)
     original = Settings()
     content = ("Рейдж вышел из города и встретил Меланию.\n" * 15000) + "ФИНАЛ: герой вернулся домой."
     async def scenario():
@@ -118,10 +137,10 @@ def test_large_document_reads_all_parts_then_reduces_with_bounded_context(monkey
     assert "".join(inputs) == content
     final = events[-1]
     assert final["type"] == "prepared" and len(final["text"]) <= 1400
-    assert "ФИНАЛ" in final["text"] and final["parts"] == len(inputs) > 80
+    assert "ФИНАЛ" in final["text"] and final["parts"] > 80
     assert any(item.get("phase") == "reducing" for item in events)
     reads = [item for item in events if item.get("phase") == "reading"]
-    assert reads[0]["current"] == 0 and reads[-1]["current"] == reads[-1]["total"] == len(inputs)
+    assert reads[0]["current"] == 0 and reads[-1]["current"] == reads[-1]["total"] == final["parts"]
     for config, payload in calls:
         assert config.context_tokens == original.context_tokens
         assert sum(len(item["content"]) for item in payload) <= (config.context_tokens - providers.response_limit(config)) * 2 - 256
@@ -130,12 +149,11 @@ def test_large_document_reads_all_parts_then_reduces_with_bounded_context(monkey
 
 @pytest.mark.parametrize("failure", ["empty", "limit", "broken"])
 def test_failed_intermediate_read_does_not_claim_complete(monkeypatch, failure):
-    async def model(*args):
+    async def model(*args, **kwargs):
         if failure != "empty":
-            yield "Незавершённый конспект"
             raise (providers.ResponseLimitReached("лимит") if failure == "limit" else providers.IncompleteResponse("обрыв"))
-        if False: yield ""
-    monkeypatch.setattr(providers, "chat", model)
+        return ""
+    monkeypatch.setattr(providers, "structured", model)
     async def scenario():
         events = []
         with pytest.raises(ValueError, match="Полный пересказ не подготовлен"):
@@ -151,8 +169,11 @@ def events(response):
 
 def test_api_distinguishes_partial_context_from_full_read_and_keeps_project_scope(tmp_path, monkeypatch):
     captured = []
-    async def decision(config, messages, schema):
-        return json.dumps({"mode": "full" if "Перескажи этот файл" in messages[-1]["content"] else "fragments"})
+    async def decision(config, messages, schema, **kwargs):
+        if messages[0]["content"] == summary.MODE_PROMPT:
+            return json.dumps({"mode": "full" if "Перескажи этот файл" in messages[-1]["content"] else "fragments"})
+        captured.append(messages)
+        return grounded_reply(messages, schema)
     async def model(config, messages):
         captured.append(messages)
         if messages[0]["content"] in {summary.READ_PROMPT, summary.MERGE_PROMPT}:
@@ -177,13 +198,13 @@ def test_api_distinguishes_partial_context_from_full_read_and_keeps_project_scop
         result = events(response)
         done = next(item["message"] for item in result if item["type"] == "done")
         assert "обработан весь извлечённый текст" in done["content"]
-        assert "возвращается домой" in done["content"] and "document_context" not in done
+        assert "возвращение домой" in done["content"] and done["document_context"]
         assert any(item.get("phase") == "reading" for item in result)
         assert any(item.get("phase") == "answering" for item in result)
-        assert "Последовательное чтение завершено" in captured[-1][0]["content"]
+        assert any("Все части выбранных файлов обработаны" in str(messages) for messages in captured)
         assert "Это только выбранные отрывки" not in captured[-1][0]["content"]
         assert len(captured[-1]) == 2  # Old inaccurate assistant answers are excluded.
-        assert all("НАЧАЛО" not in str(message[0]) for message in captured[1:])
+        assert "По отрывку" not in str(captured[-1])
         assert "wiley_document_action" not in done["content"]
         assert store.memories() == []
         project = Spaces(store).create_project("Изолированный")
@@ -197,6 +218,9 @@ def test_api_distinguishes_partial_context_from_full_read_and_keeps_project_scop
 def test_full_read_flag_does_not_execute_a_command_or_save_memory(tmp_path, monkeypatch):
     async def model(*args):
         yield "Сжатое описание всего документа."
+    async def structured(config, messages, schema, **kwargs):
+        return grounded_reply(messages, schema)
+    monkeypatch.setattr(providers, "structured", structured)
     monkeypatch.setattr(providers, "chat", model)
     app = create_app(tmp_path, TOKEN)
     with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
@@ -270,16 +294,15 @@ def test_invalid_internal_decision_is_not_published_as_an_answer(tmp_path, monke
 @pytest.mark.parametrize("full", [False, True])
 def test_stop_cancels_reading_without_saving_notes_as_finished_answer(tmp_path, monkeypatch, full):
     started, cancelled = threading.Event(), threading.Event()
-    async def decision(*args):
-        return '{"mode":"full"}'
-    async def model(config, messages):
+    async def decision(config, messages, schema, **kwargs):
+        if messages[0]["content"] == summary.MODE_PROMPT:
+            return '{"mode":"full"}'
         started.set()
         try:
             await asyncio.sleep(3600)
-            yield "Недоступный поздний ответ"
+            return "Недоступный поздний ответ"
         finally:
             cancelled.set()
-    monkeypatch.setattr(providers, "chat", model)
     monkeypatch.setattr(providers, "structured", decision)
     app = create_app(tmp_path, TOKEN)
     with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
@@ -297,8 +320,148 @@ def test_too_small_final_context_fails_before_any_model_request(monkeypatch):
     async def model(*args):
         pytest.fail("No model request expected")
         yield ""
-    monkeypatch.setattr(providers, "chat", model)
     async def scenario():
         with pytest.raises(ValueError, match="мало места"):
             [item async for item in summary.prepare(Settings(), [{"name": "Книга.txt", "content": "Текст"}], 300)]
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("raw", [
+    '{"ids":[999]}', '{"ids":[true]}', '{"ids":[1,1]}', '{"ids":[]}',
+    '{"ids":["1"]}', '{"ids":[1],"note":"Новый персонаж"}',
+    'Конспект: {"ids":[1]}', '[]',
+])
+def test_reader_cannot_invent_or_rewrite_source_excerpts(raw):
+    with pytest.raises(ValueError):
+        summary.parse_ids(raw, "ids", [1, 2], 2)
+
+
+@pytest.mark.parametrize("failure", ["rejected", "bad_citation", "malformed", "interrupted"])
+def test_unsupported_draft_is_neither_published_nor_spoken_and_quotes_are_kept(tmp_path, monkeypatch, failure):
+    seen, drafts = [], []
+    async def model(config, messages, schema, **kwargs):
+        prompt = messages[0]["content"]
+        seen.append(prompt)
+        if prompt == summary.ANSWER_PROMPT:
+            if failure == "malformed":
+                return "Сборник историй с Мартином и Таносом."
+            return json.dumps(grounded_claims(schema, "Мартин победил Таноса в дуэли.", 999 if failure == "bad_citation" else 1))
+        if prompt == summary.VERIFY_PROMPT:
+            drafts.extend(json.loads(messages[-1]["content"]))
+            if failure == "interrupted":
+                raise providers.ResponseLimitReached("Лимит проверки")
+            return '{"supported":[]}'
+        return grounded_reply(messages, schema)
+    monkeypatch.setattr(providers, "structured", model)
+    app = create_app(tmp_path, TOKEN)
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
+        doc = Library(app.state.store).add("Книга.txt", "Рейдж нашёл пропавшую книгу. Затем он вернулся домой.")
+        result = events(api.post("/chat", json={"text": "Перескажи целиком", "document_ids": [doc["id"]], "full_document": True}))
+        answer = next(item["message"] for item in result if item["type"] == "done")
+        visible = "".join(item["text"] for item in result if item["type"] == "delta")
+        assert visible == answer["content"]
+        assert "не прошёл проверку" in visible and "Рейдж нашёл" in visible
+        assert all(term not in visible for term in ("Мартин", "Танос", "дуэли"))
+        assert answer["document_context"][0]["purpose"] == "summary_evidence"
+        if failure in {"rejected", "interrupted"}:
+            assert drafts and drafts[0]["quotes"] == ["Рейдж нашёл пропавшую книгу. Затем он вернулся домой."]
+        else:
+            assert summary.VERIFY_PROMPT not in seen
+
+
+def test_only_original_text_from_selected_file_can_reach_summary_even_with_foreign_history(tmp_path, monkeypatch):
+    inputs = []
+    async def model(config, messages, schema, **kwargs):
+        inputs.append(messages)
+        if messages[0]["content"] == summary.ANSWER_PROMPT:
+            return json.dumps(grounded_claims(schema, "Рейдж нашёл книгу и вернулся домой."))
+        return grounded_reply(messages, schema)
+    monkeypatch.setattr(providers, "structured", model)
+    app = create_app(tmp_path, TOKEN)
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
+        store = app.state.store
+        Library(store).add("Другой.txt", "Мартин встретил Таноса.")
+        store.add_message("assistant", "Выдуманный пересказ: Мартин встретил Таноса.")
+        book = "Рейдж нашёл книгу и вернулся домой.\n" * 150
+        doc = Library(store).add("Выбранный.txt", book)
+        result = events(api.post("/chat", json={"text": "Перескажи целиком", "full_document": True, "document_ids": [doc["id"]]}))
+        answer = next(item["message"] for item in result if item["type"] == "done")
+        assert "не прошёл проверку" not in answer["content"]
+        assert all("Танос" not in str(messages) and "Мартин" not in str(messages) for messages in inputs)
+        for source in answer["document_context"]:
+            assert source["document_id"] == doc["id"] and source["purpose"] == "summary_evidence"
+            assert book[source["offset"]:source["offset"] + len(source["text"])] == source["text"]
+        assert "[1]" in answer["content"]
+
+
+def test_sources_from_different_files_cannot_be_combined_into_one_event(monkeypatch):
+    async def model(config, messages, schema, **kwargs):
+        value = grounded_claims(schema, "Рейдж победил Таноса.")
+        value["claims"]["part_6"]["sources"] = [6, 7]
+        return json.dumps(value)
+    monkeypatch.setattr(providers, "structured", model)
+    evidence = [{"file": 1, "text": "Рейдж ушёл домой."}] * 6 + [{"file": 2, "text": "Танос остался."}]
+    with pytest.raises(ValueError, match="разных файлов"):
+        asyncio.run(summary.verified_answer(Settings(), "Перескажи", "Контекст", evidence))
+
+
+def test_cancel_during_fact_check_keeps_unchecked_draft_out_of_history(tmp_path, monkeypatch):
+    started, cancelled = threading.Event(), threading.Event()
+    async def model(config, messages, schema, **kwargs):
+        if messages[0]["content"] != summary.VERIFY_PROMPT:
+            return grounded_reply(messages, schema)
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+        finally:
+            cancelled.set()
+    monkeypatch.setattr(providers, "structured", model)
+    app = create_app(tmp_path, TOKEN)
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as api:
+        doc = Library(app.state.store).add("Книга.txt", "Текст книги.")
+        with ThreadPoolExecutor() as pool:
+            pending = pool.submit(api.post, "/chat", json={"text": "Перескажи", "full_document": True, "document_ids": [doc["id"]], "request_id": "checking-turn"})
+            assert started.wait(5)
+            assert api.post("/chat/stop", json={"request_id": "checking-turn"}).status_code == 200
+            result = events(pending.result(timeout=5))
+        assert cancelled.is_set() and not any(item["type"] in {"delta", "done"} for item in result)
+        assert [row["role"] for row in app.state.store.messages()] == ["user"]
+
+
+def test_selection_biased_to_first_id_cannot_erase_the_middle_of_a_long_book(monkeypatch):
+    async def model(settings, messages, schema, **kwargs):
+        rows = json.loads(messages[-1]["content"])
+        return json.dumps({"ids": [rows[0]["id"]]})
+    monkeypatch.setattr(providers, "structured", model)
+    content = "".join(f"Сцена {i}: Рейдж продолжил путешествие по дороге.\n" for i in range(7000))
+    async def run():
+        return [item async for item in summary.prepare(Settings(), [{"name": "Книга.txt", "content": content}], 4000)]
+    prepared = asyncio.run(run())[-1]
+    evidence = prepared["evidence"]
+    assert len(prepared["text"]) <= 4000 and len(evidence) <= 20
+    assert {min(3, row["offset"] * 4 // len(content)) for row in evidence} == {0, 1, 2, 3}
+    assert all(row["text"] == content[row["offset"]:row["offset"] + len(row["text"])] for row in evidence)
+
+
+def test_final_draft_must_cover_each_assigned_timeline_section():
+    schema = summary.answer_schema(12)
+    value = grounded_claims(schema, "Подтверждённое событие.")
+    claims = summary.parse_claims(json.dumps(value), 12)
+    assert [claim["sources"] for claim in claims] == [[1], [3], [5], [7], [9], [11]]
+    value["claims"]["part_6"]["sources"] = [1]
+    with pytest.raises(ValueError, match="другой участок"):
+        summary.parse_claims(json.dumps(value), 12)
+    del value["claims"]["part_6"]
+    with pytest.raises(ValueError, match="хронологические"):
+        summary.parse_claims(json.dumps(value), 12)
+
+
+@pytest.mark.parametrize("sources", [[1, 1, 1], [True, 1], [1.0, 1], [999]])
+def test_duplicate_citations_are_normalized_only_after_strict_validation(sources):
+    value = grounded_claims(summary.answer_schema(1), "Событие.")
+    value["claims"]["part_1"]["sources"] = sources
+    if sources == [1, 1, 1] and all(type(source) is int for source in sources):
+        assert summary.parse_claims(json.dumps(value), 1)[0]["sources"] == [1]
+    else:
+        with pytest.raises(ValueError):
+            summary.parse_claims(json.dumps(value), 1)

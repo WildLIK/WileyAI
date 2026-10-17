@@ -469,7 +469,8 @@ class Backups:
                 if name == "web_searches":
                     rows = [{**row, "results": json.dumps(row["results"], ensure_ascii=False)} for row in rows]
                 if name == "messages":
-                    rows = [{**row, "document_context": json.dumps(row["document_context"], ensure_ascii=False)} for row in rows]
+                    rows = [{**row, "document_context": json.dumps([DocumentFragment.model_validate(fragment).model_dump(exclude_defaults=True)
+                             for fragment in row["document_context"]], ensure_ascii=False)} for row in rows]
                 if name == "routines":
                     rows = [{**row, "steps": json.dumps(row["steps"], ensure_ascii=False)} for row in rows]
                 if rows:

@@ -1,4 +1,6 @@
 """A bounded snapshot of the exact document text selected for one answer."""
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -9,6 +11,7 @@ class DocumentFragment(BaseModel):
     offset: int = Field(ge=0, lt=1_000_000)
     text: str = Field(min_length=1, max_length=1200)
     total: int = Field(ge=1, le=1_000_000)
+    purpose: Literal["context", "summary_evidence"] = "context"
 
     @model_validator(mode="after")
     def valid_range(self):

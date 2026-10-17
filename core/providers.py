@@ -99,14 +99,19 @@ async def chat(settings: Settings, messages: list[dict], output_schema: dict | N
                 raise IncompleteResponse("Поток ответа оборвался без подтверждения завершения. Можно продолжить сохранённый текст.")
 
 
-async def structured(settings: Settings, messages: list[dict], schema: dict) -> str:
+async def structured(settings: Settings, messages: list[dict], schema: dict, *, max_chars: int = 2048) -> str:
     """A bounded internal decision, separate from user-visible answer streaming."""
     async def collect(output_schema):
         result = ""
-        async with aclosing(chat(settings, messages, output_schema=output_schema)) as output:
+        payload = messages
+        if output_schema is None:
+            instruction = "\nВерни только JSON по этой схеме: " + json.dumps(schema, ensure_ascii=False)
+            payload = ([{**messages[0], "content": messages[0]["content"] + instruction}, *messages[1:]]
+                       if messages and messages[0]["role"] == "system" else [{"role": "system", "content": instruction}, *messages])
+        async with aclosing(chat(settings, payload, output_schema=output_schema)) as output:
             async for delta in output:
                 result += delta
-                if len(result) > 2048:
+                if len(result) > max_chars:
                     raise ValueError("Слишком длинный служебный ответ модели")
         return result
     try:

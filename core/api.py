@@ -1044,6 +1044,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                         return
                                     if update["type"] == "read_all":
                                         memory_context, document_context = [], []
+                                    elif update["type"] == "summary_sources":
+                                        document_context = update["sources"]
                                     elif update["type"] == "delta":
                                         answer += update["text"]
                                         yield event("delta", text=update["text"])

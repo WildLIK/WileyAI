@@ -149,3 +149,15 @@ def test_local_command_does_not_claim_it_read_an_attached_document(tmp_path):
         doc = Library(store).add("Файл.txt", "Данные документа")
         api.post("/chat", json={"text": "Запомни: предпочитаю короткие ответы", "document_ids": [doc["id"]]})
         assert "document_context" not in api.get("/messages").json()[-1]
+
+
+def test_summary_evidence_keeps_its_purpose_after_source_deletion_and_backup_restore(tmp_path):
+    store = Store(tmp_path / "original")
+    doc = Library(store).add("Книга.txt", "Рейдж вернулся домой.")
+    source = {"document_id": doc["id"], "name": doc["name"], "offset": 0,
+              "text": "Рейдж вернулся домой.", "total": doc["characters"], "purpose": "summary_evidence"}
+    store.add_message("assistant", "Рейдж вернулся домой. [1]", document_context=[source])
+    Library(store).remove(doc["id"])
+    backup = Backups(Store(tmp_path / "restored"))
+    backup.restore(backup.preview(Backups(store).export())["ticket"])
+    assert backup.store.messages()[-1]["document_context"] == [source]

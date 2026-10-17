@@ -103,6 +103,7 @@ export interface DocumentFragment {
   offset: number;
   text: string;
   total: number;
+  purpose?: "context" | "summary_evidence";
 }
 export interface ReadingProgress {
   phase: "reading" | "reducing" | "answering";
