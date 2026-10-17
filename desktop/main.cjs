@@ -22,6 +22,7 @@ const { ConversationLease } = require("./conversation.cjs");
 const { liveContents, sendToWindow } = require("./window-messages.cjs");
 const { installBackups } = require("./backups.cjs");
 const { createNotificationDelivery } = require("./notifications.cjs");
+const { APP_ID } = require("./identity.cjs");
 
 const root = path.resolve(__dirname, "..");
 const backend = app.isPackaged
@@ -478,7 +479,7 @@ app.whenReady().then(async () => {
     await startManagedOllama();
     showWindow("chat");
     if (!test) {
-      app.setAppUserModelId("WileyAI");
+      app.setAppUserModelId(app.isPackaged ? APP_ID : "WileyAI");
       notificationTimer = setInterval(deliverNotifications, 2500);
       let updatePolling = false;
       updateTimer = setInterval(async () => {

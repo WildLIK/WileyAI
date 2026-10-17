@@ -1,9 +1,10 @@
 import { _electron as electron } from "@playwright/test";
-import { mkdtemp, mkdir, writeFile, cp } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, cp, readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
 const data = await mkdtemp(resolve("local", "Standalone test "));
 const executable = resolve("local/releases/win-unpacked/WileyAI.exe");
+const version = JSON.parse(await readFile(resolve("package.json"), "utf8")).version;
 const env = {
   ...process.env,
   WILEYAI_TEST: "1",
@@ -43,7 +44,7 @@ try {
     return response.json();
   };
   const health = await api("/health");
-  if (health.version !== "0.2.0" || health.stt_available)
+  if (health.version !== version || health.stt_available)
     throw new Error("Unexpected base runtime state");
   const components = await api("/components");
   if (components.items.some((item) => item.installed))
