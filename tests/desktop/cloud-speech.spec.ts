@@ -166,6 +166,17 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "ff1ae409865e4c7493db061913d77a79",
     );
     expect(samples[3].cloud.tts_use_reference).toBe(false);
+    await page
+      .getByRole("button", { name: "Добрая Мита (Miside)", exact: true })
+      .click();
+    await expect(
+      page.getByText("Голос Fish: Добрая Мита (Miside)", { exact: true }),
+    ).toBeVisible();
+    await listen();
+    expect(samples[4].cloud.tts_cloud_voice).toBe(
+      "303b89e345f04bf4b3755e0ddf1b41c4",
+    );
+    expect(samples[4].cloud.tts_use_reference).toBe(false);
     await group.screenshot({
       path: "local/screenshots/cloud-speech-fish-compact.png",
     });
@@ -204,6 +215,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "fish-audio/s2.1-pro-free:free",
       "fish-audio/s2.1-pro-free:free",
       "fish-audio/s2.1-pro-free:free",
+      "fish-audio/s2.1-pro-free:free",
       "google/gemini-3.8-flash-tts",
       "google/gemini-3.8-flash-lite-tts",
       "x-ai/grok-voice-tts-1.0",
@@ -213,6 +225,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "",
       "",
       "ff1ae409865e4c7493db061913d77a79",
+      "303b89e345f04bf4b3755e0ddf1b41c4",
       "Sulafat",
       "Achernar",
       "eve",
@@ -224,7 +237,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
       page.getByLabel("Использовать WAV-образец для Fish", { exact: true }),
     ).not.toBeChecked();
     expect((await settings()).tts_cloud_voice).toBe(
-      "ff1ae409865e4c7493db061913d77a79",
+      "303b89e345f04bf4b3755e0ddf1b41c4",
     );
     await service.selectOption("routerai");
     await expect(model).toHaveValue("x-ai/grok-voice-tts-1.0");

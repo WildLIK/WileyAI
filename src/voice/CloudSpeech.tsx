@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { request, type Settings, type SpeechSettings } from "../api";
-import { fishVoiceId, MITA_VOICE } from "./fish";
+import { fishVoiceId, FISH_VOICES } from "./fish";
 
 const endpoints = {
   openrouter: "https://openrouter.ai/api/v1",
@@ -307,21 +307,24 @@ export function CloudSpeechSettings({
             {settings.tts_use_reference && info?.reference
               ? `Голос из образца: ${info.reference.name} · ${info.reference.seconds} с`
               : settings.tts_cloud_voice
-                ? `Голос Fish: ${settings.tts_cloud_voice === MITA_VOICE ? "Мита Кепочка" : settings.tts_cloud_voice}`
+                ? `Голос Fish: ${FISH_VOICES.find((voice) => voice.id === settings.tts_cloud_voice)?.name || settings.tts_cloud_voice}`
                 : "Голос Fish по умолчанию. Для женского тембра выберите образец."}
           </p>
           <div className="button-row">
-            <button
-              className="outline"
-              onClick={() =>
-                change({
-                  tts_cloud_voice: MITA_VOICE,
-                  tts_use_reference: false,
-                })
-              }
-            >
-              Мита Кепочка
-            </button>
+            {FISH_VOICES.map((voice) => (
+              <button
+                key={voice.id}
+                className="outline"
+                onClick={() =>
+                  change({
+                    tts_cloud_voice: voice.id,
+                    tts_use_reference: false,
+                  })
+                }
+              >
+                {voice.name}
+              </button>
+            ))}
             {info?.serena_available && (
               <button
                 className="outline"

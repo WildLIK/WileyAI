@@ -1,4 +1,9 @@
 export const MITA_VOICE = "ff1ae409865e4c7493db061913d77a79";
+export const KIND_MITA_VOICE = "303b89e345f04bf4b3755e0ddf1b41c4";
+export const FISH_VOICES = [
+  { id: MITA_VOICE, name: "Мита Кепочка" },
+  { id: KIND_MITA_VOICE, name: "Добрая Мита (Miside)" },
+];
 
 /** Accept public voice-page links without fetching the page or its media. */
 export function fishVoiceId(value: string): string {

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fishVoiceId, MITA_VOICE } from "../../src/voice/fish.ts";
+import {
+  fishVoiceId,
+  MITA_VOICE,
+  KIND_MITA_VOICE,
+} from "../../src/voice/fish.ts";
 
 test("Fish accepts the Mita voice page and share links, without changing other voice IDs", () => {
   for (const prefix of [
@@ -13,6 +17,10 @@ test("Fish accepts the Mita voice page and share links, without changing other v
       MITA_VOICE,
     );
   assert.equal(fishVoiceId(" " + MITA_VOICE + " "), MITA_VOICE);
+  assert.equal(
+    fishVoiceId("https://fish.audio/ru/m/" + KIND_MITA_VOICE + "/"),
+    KIND_MITA_VOICE,
+  );
   assert.equal(fishVoiceId(""), "");
   assert.equal(fishVoiceId("custom-speaker"), "custom-speaker");
   for (const url of [
