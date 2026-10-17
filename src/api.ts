@@ -104,6 +104,12 @@ export interface DocumentFragment {
   text: string;
   total: number;
 }
+export interface ReadingProgress {
+  phase: "reading" | "reducing" | "answering";
+  current: number;
+  total: number;
+  text: string;
+}
 export interface Chat {
   id: string;
   title: string;
@@ -343,10 +349,14 @@ export async function stream(
     message?: Message;
     seconds?: number;
     changed?: string[];
+    phase?: ReadingProgress["phase"];
+    current?: number;
+    total?: number;
   }) => void,
   mode: "text" | "conversation" = "text",
   web_search = false,
   conversation_id?: string,
+  full_document = false,
 ) {
   const request_id = crypto.randomUUID();
   let stopping: Promise<unknown> | undefined;
@@ -368,6 +378,7 @@ export async function stream(
         web_search,
         request_id,
         conversation_id,
+        full_document,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
       signal,

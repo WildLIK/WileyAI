@@ -2556,3 +2556,92 @@ html:has(.pet-window) {
   background: #3b614e;
   color: #e3ffed;
 }
+.document-coverage {
+  margin: 12px 0 6px;
+  color: #a6b9c8;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.full-document-button {
+  font-size: 11px;
+  padding: 7px 11px;
+}
+.document-reading-progress {
+  width: min(100%, 560px);
+  margin: 10px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #34483d;
+  border-radius: 9px;
+  background: #16251f;
+  white-space: normal;
+}
+.document-reading-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.document-reading-heading button {
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.document-reading-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #0d1713;
+}
+.document-reading-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    110deg,
+    #5a9980 0px,
+    #5a9980 18px,
+    #9cd9b9 18px,
+    #9cd9b9 36px
+  );
+  background-size: 80px 100%;
+  transition: width 0.4s ease;
+  animation: document-progress-flow 1.4s linear infinite;
+}
+.document-reading-track.indeterminate > span {
+  opacity: 0.7;
+}
+.document-reading-track.starting > span {
+  animation:
+    document-progress-flow 1.4s linear infinite,
+    document-progress-start 1.8s ease-in-out infinite;
+}
+.document-reading-progress > small {
+  display: block;
+  margin-top: 7px;
+  font-size: 10px;
+  color: #acc7b8;
+}
+@keyframes document-progress-flow {
+  to {
+    background-position: 80px 0;
+  }
+}
+@keyframes document-progress-start {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-reading-track > span,
+  .document-reading-track.starting > span {
+    animation: none;
+    transition: none;
+  }
+}

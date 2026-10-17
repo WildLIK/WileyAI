@@ -23,6 +23,7 @@ import {
   type Chat,
   type Project,
   type SpeechSettings,
+  type ReadingProgress,
   cloudOptions,
 } from "./api";
 import { Productivity, Capabilities } from "./Productivity";
@@ -36,6 +37,7 @@ import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
 import { DocumentContext } from "./DocumentContext";
+import { DocumentReadingProgress } from "./DocumentReadingProgress";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
@@ -226,6 +228,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [searchNext, setSearchNext] = useState(false);
   const [stage, setStage] = useState("");
+  const [readingProgress, setReadingProgress] =
+    useState<ReadingProgress | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [conversation, setConversation] = useState<ConversationState>({
     active: false,
@@ -920,6 +924,7 @@ export function App() {
       conversation?: boolean;
       speechConfig?: Settings;
       onSpeaking?: () => void;
+      fullDocument?: boolean;
     } = {},
   ) {
     try {
@@ -943,7 +948,9 @@ export function App() {
     stopAudio();
     setBusy(true);
     setStage("Отвечает…");
-    const useSearch = !options.conversation && searchNext;
+    setReadingProgress(null);
+    const useSearch =
+      !options.conversation && !options.fullDocument && searchNext;
     if (!options.conversation) setSearchNext(false);
     busyRef.current = true;
     const controller = new AbortController();
@@ -984,6 +991,20 @@ export function App() {
             startOutput()?.push(event.text);
           }
           if (event.type === "stage") setStage(event.text || "Отвечает…");
+          if (
+            event.type === "progress" &&
+            event.phase &&
+            event.current !== undefined &&
+            event.total !== undefined
+          ) {
+            setStage("Читаю документ…");
+            setReadingProgress({
+              phase: event.phase,
+              current: event.current,
+              total: event.total,
+              text: event.text || "Чтение документа",
+            });
+          }
           if (event.type === "limit")
             setReplyLimit(event.text || "Ответ достиг лимита длины.");
           if (event.type === "error") {
@@ -999,6 +1020,7 @@ export function App() {
         options.conversation ? "conversation" : "text",
         useSearch,
         chatId,
+        !!options.fullDocument,
       );
       if (streamError) throw new Error(streamError);
       if (controller.signal.aborted)
@@ -1038,6 +1060,7 @@ export function App() {
         }
       }
       setBusy(false);
+      setReadingProgress(null);
       busyRef.current = false;
       setAnswer("");
       abort.current = null;
@@ -1675,7 +1698,16 @@ export function App() {
                         <span className="thinking">{stage}</span>
                       </div>
                       <div className="message-text">
-                        {answer || <span className="dots">•••</span>}
+                        {readingProgress && (
+                          <DocumentReadingProgress
+                            value={readingProgress}
+                            onStop={stop}
+                          />
+                        )}
+                        {answer ||
+                          (!readingProgress && (
+                            <span className="dots">•••</span>
+                          ))}
                       </div>
                     </div>
                   </article>
@@ -1724,6 +1756,27 @@ export function App() {
                         </button>
                       </div>
                     ))}
+                  <button
+                    type="button"
+                    className="outline full-document-button"
+                    disabled={
+                      busy ||
+                      recording ||
+                      uploading ||
+                      conversation.active ||
+                      chatLoading
+                    }
+                    title="Последовательно прочитать все части выбранных файлов. Для большой книги это может занять длительное время; облачная модель расходует свой тариф."
+                    onClick={() =>
+                      void send(
+                        draft.trim() ||
+                          "Перескажи целиком прикреплённые документы, сохрани порядок событий и объясни, чем заканчивается текст.",
+                        { fullDocument: true },
+                      )
+                    }
+                  >
+                    Пересказать целиком
+                  </button>
                 </div>
               )}
               <div className="composer-area">
