@@ -693,7 +693,14 @@ export function App() {
   }, [notice]);
 
   function saveVoice(patch: Partial<SpeechSettings>) {
-    setSettings((current) => (current ? { ...current, ...patch } : current));
+    setSettings((current) => {
+      if (!current) return current;
+      // A service switch restores its full profile on the server. Keep the old
+      // form disabled until that response arrives, rather than mixing services.
+      if (patch.tts_service && patch.tts_service !== current.tts_service)
+        return current;
+      return { ...current, ...patch };
+    });
     const version = ++voiceSaveVersion.current;
     setVoiceSaving(true);
     const pending = voiceSave.current
@@ -2588,15 +2595,6 @@ export function App() {
                     disabled={speaking || conversation.active || voiceSaving}
                     onError={fail}
                     onNotice={setNotice}
-                    onPreview={async (patch) => {
-                      await voiceSave.current;
-                      await speak(
-                        "Привет! Я Уайли. Рада тебя слышать. Давай спокойно обсудим твои планы.",
-                        { ...(savedSettings.current || settings), ...patch },
-                        undefined,
-                        true,
-                      );
-                    }}
                   />
                 )}
                 {settings.tts_engine === "qwen3" && (
@@ -2653,6 +2651,7 @@ export function App() {
                 </label>
                 <button
                   className="outline"
+                  disabled={speaking || conversation.active || voiceSaving}
                   onClick={() =>
                     run(() =>
                       speak(

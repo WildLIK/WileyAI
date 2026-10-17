@@ -10,6 +10,22 @@ from .piper import catalog as piper_catalog
 DATA_DIR = Path(os.environ.get("WILEYAI_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
 
 
+class CloudSpeechProfile(BaseModel):
+    """Per-service preferences, without credentials or reference audio."""
+    model_config = {"extra": "forbid"}
+    tts_base_url: str = "https://openrouter.ai/api/v1"
+    tts_model: str = Field(default="fish-audio/s2.1-pro-free:free", max_length=200)
+    tts_cloud_voice: str = Field(default="", max_length=300)
+    tts_format: Literal["auto", "mp3", "pcm", "wav"] = "auto"
+    tts_style: str = Field(default="", max_length=1000)
+    tts_use_reference: bool = False
+
+    @field_validator("tts_base_url")
+    @classmethod
+    def valid_endpoint(cls, value: str) -> str:
+        return Settings.valid_search_endpoint(value)
+
+
 class Settings(BaseModel):
     name: str = Field(default="Уайли", min_length=1, max_length=60)
     grammatical_gender: Literal["feminine", "masculine", "neutral"] = "feminine"
@@ -30,6 +46,7 @@ class Settings(BaseModel):
     tts_format: Literal["auto", "mp3", "pcm", "wav"] = "auto"
     tts_style: str = Field(default="", max_length=1000)
     tts_use_reference: bool = False
+    tts_connections: dict[Literal["openrouter", "routerai", "compatible"], CloudSpeechProfile] = Field(default_factory=dict, max_length=3)
     tts_voice: str = Field(default="", max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] = "auto"
     speak_answers: bool = False

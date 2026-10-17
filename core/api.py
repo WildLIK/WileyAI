@@ -18,7 +18,7 @@ import psutil
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents, persona
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile
 from . import cloud_speech
 from .models import ModelJobs
 from .storage import Store
@@ -259,9 +259,21 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def save_voice_settings(body: VoiceSettings):
         updates = body.model_dump(exclude_none=True)
         current = store.settings()
+        profiles = dict(current.tts_connections)
+        profiles[current.tts_service] = CloudSpeechProfile.model_validate({key: getattr(current, key) for key in CloudSpeechProfile.model_fields})
+        service = updates.get("tts_service", current.tts_service)
+        if service != current.tts_service:
+            default = CloudSpeechProfile()
+            if service == "routerai":
+                default = CloudSpeechProfile(tts_base_url="https://routerai.ru/api/v1", tts_model="google/gemini-3.8-flash-tts", tts_cloud_voice="Sulafat")
+            elif service == "compatible":
+                default = CloudSpeechProfile(tts_base_url="https://api.example.com/v1", tts_model="")
+            updates = profiles.get(service, default).model_dump() | updates
         if "tts_engine" in updates and updates["tts_engine"] != current.tts_engine:
             updates.setdefault("tts_voice", "")
         selected = Settings.model_validate(current.model_dump() | updates)
+        profiles[service] = CloudSpeechProfile.model_validate({key: getattr(selected, key) for key in CloudSpeechProfile.model_fields})
+        selected.tts_connections = profiles
         store.save_settings(selected)
         return settings()
 

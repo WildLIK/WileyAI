@@ -48,6 +48,40 @@ def test_connections_are_separate_secrets_and_settings_changes_do_not_call_provi
     assert api.put("/settings/speech", json={"tts_base_url": "https://key@example.com"}).status_code == 400
 
 
+def test_service_switch_restores_its_model_voice_and_format_without_changing_local_voice(api, monkeypatch):
+    api, _ = api
+    transport(monkeypatch, lambda request: pytest.fail("Changing service must not start synthesis"))
+    api.put("/settings/speech", json={"tts_engine": "cloud", "tts_voice": "Serena", "tts_cloud_voice": "fish-voice", "tts_style": "warm", "tts_use_reference": True})
+    router = api.put("/settings/speech", json={"tts_service": "routerai"}).json()
+    assert router["tts_base_url"] == cloud_speech.SERVICES["routerai"]
+    assert router["tts_model"] == "google/gemini-3.8-flash-tts" and router["tts_cloud_voice"] == "Sulafat"
+    assert not router["tts_use_reference"]
+    api.put("/settings/speech", json={"tts_model": "x-ai/grok-voice-tts-1.0", "tts_cloud_voice": "eve", "tts_format": "pcm", "tts_style": "calm"})
+    fish = api.put("/settings/speech", json={"tts_service": "openrouter"}).json()
+    assert fish["tts_model"] == "fish-audio/s2.1-pro-free:free" and fish["tts_cloud_voice"] == "fish-voice"
+    assert fish["tts_use_reference"] and fish["tts_style"] == "warm" and fish["tts_format"] == "auto"
+    assert fish["tts_voice"] == "Serena" and fish["provider"] == "ollama"
+    # A fresh read, not an in-memory UI cache, preserves the second service too.
+    assert api.get("/settings").json()["tts_connections"]["routerai"]["tts_cloud_voice"] == "eve"
+    again = api.put("/settings/speech", json={"tts_service": "routerai"}).json()
+    assert again["tts_model"] == "x-ai/grok-voice-tts-1.0" and again["tts_cloud_voice"] == "eve"
+    assert again["tts_format"] == "pcm" and again["tts_style"] == "calm"
+    # An explicit combined patch still overrides the restored defaults.
+    custom = api.put("/settings/speech", json={"tts_service": "compatible", "tts_base_url": "https://speech.example.org/v1", "tts_model": "custom", "tts_cloud_voice": "v1"}).json()
+    assert custom["tts_base_url"] == "https://speech.example.org/v1" and custom["tts_model"] == "custom"
+    api.put("/settings/speech", json={"tts_service": "openrouter"})
+    assert api.put("/settings/speech", json={"tts_service": "compatible"}).json()["tts_cloud_voice"] == "v1"
+
+
+def test_saved_service_profiles_validate_urls_and_never_accept_credentials(api):
+    api, _ = api
+    config = api.get("/settings").json()
+    config["tts_connections"] = {"routerai": {"tts_base_url": "https://secret@example.com"}}
+    assert api.put("/settings", json=config).status_code == 422
+    config["tts_connections"] = {"routerai": {"api_key": "secret"}}
+    assert api.put("/settings", json=config).status_code == 422
+
+
 @pytest.mark.parametrize("model,service,voice,format", [
     ("fish-audio/s2.1-pro-free:free", "openrouter", "fish-id", "mp3"),
     ("google/gemini-3.8-flash-tts", "routerai", "Sulafat", "pcm"),
@@ -108,6 +142,28 @@ def test_reference_validation_sending_and_removal_are_explicit(api, monkeypatch)
     assert api.get("/voice/cloud/connections").json()["reference"] is None
     assert api.post("/voice/synthesize", json=payload).status_code == 400
     assert len(bodies) == 2
+
+
+def test_serena_sample_is_copied_without_starting_qwen_and_used_as_fish_reference(api, monkeypatch, tmp_path):
+    api, keys = api
+    sample = tmp_path / "serena.wav"
+    sample.write_bytes(wav(2))
+    monkeypatch.setattr(api.app.state.monitor.voice.cloud, "serena", sample)
+    assert api.get("/voice/cloud/connections").json()["serena_available"]
+    saved = api.post("/voice/cloud/reference/serena")
+    assert saved.status_code == 200
+    assert saved.json()["reference"] == {"name": "Serena · локальный пример.wav", "seconds": 2}
+    assert (tmp_path / "voices/cloud-reference.wav").read_bytes() == sample.read_bytes()
+    keys[cloud_speech.SERVICES["openrouter"]] = "test-key"
+    sent = []
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, content=wav(), headers={"content-type": "audio/wav"})
+    transport(monkeypatch, handler)
+    response = api.post("/voice/synthesize", json={"text": "Привет!", "engine": "cloud", "cloud": {"tts_use_reference": True}})
+    assert response.status_code == 200
+    assert "voice" not in sent[0] and "input_references" in sent[0]
+    assert api.get("/settings").json()["tts_engine"] == "silero"
 
 
 @pytest.mark.parametrize("code", [400, 401, 402, 403, 404, 429, 500])

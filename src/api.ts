@@ -20,6 +20,9 @@ export interface Settings {
   tts_format: "auto" | "mp3" | "pcm" | "wav";
   tts_style: string;
   tts_use_reference: boolean;
+  tts_connections?: Partial<
+    Record<Settings["tts_service"], Omit<CloudOptions, "tts_service">>
+  >;
   tts_device: "auto" | "cpu" | "cuda";
   tts_voice: string;
   speak_answers: boolean;
