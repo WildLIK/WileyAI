@@ -61,14 +61,16 @@ CALENDAR_PENDING = """SELECT a.id,a.event_id,a.scheduled_for,a.created,e.title,e
     WHERE a.delivered=0 AND e.reminder_sent=1 AND a.scheduled_for=e.reminder_at
     AND e.reminder_at<=? AND e.ends_at>?"""
 
+TASK_PENDING = """SELECT n.id,n.task_id,t.title,n.created FROM notifications n JOIN tasks t ON t.id=n.task_id
+    WHERE n.delivered=0 AND t.done=0 AND n.scheduled_for<=?
+    AND (t.recurrence IS NOT NULL OR (t.notified=1 AND t.due=n.scheduled_for))"""
+
 
 def pending(db, current, limit=500):
     moment = datetime.fromisoformat(current)
     calendar = [dict(id=row["id"], event_id=row["event_id"], kind="calendar", created=row["created"], title=calendar_message(db, row))
                 for row in db.execute(CALENDAR_PENDING + " ORDER BY a.created,a.id LIMIT ?", (utc_stamp(moment), utc_stamp(moment), limit))]
-    tasks = [dict(row) | {"kind": "task"} for row in db.execute("""SELECT n.id,n.task_id,t.title,n.created FROM notifications n
-        JOIN tasks t ON t.id=n.task_id WHERE n.delivered=0 AND t.done=0 AND t.notified=1 AND t.due<=?
-        ORDER BY n.created,n.id LIMIT ?""", (current, limit))]
+    tasks = [dict(row) | {"kind": "task"} for row in db.execute(TASK_PENDING + " ORDER BY n.created,n.id LIMIT ?", (current, limit))]
     return sorted(tasks + calendar, key=lambda item: (datetime.fromisoformat(item["created"]), item["id"]))[:limit]
 
 
@@ -81,8 +83,7 @@ def claim(db, item_id, current):
         item = dict(id=row["id"], event_id=row["event_id"], kind="calendar", title=calendar_message(db, row), created=row["created"])
         db.execute("UPDATE calendar_alerts SET delivered=1 WHERE id=?", (item_id,))
         return item
-    row = db.execute("""SELECT n.id,n.task_id,t.title,n.created FROM notifications n JOIN tasks t ON t.id=n.task_id
-        WHERE n.id=? AND n.delivered=0 AND t.done=0 AND t.notified=1 AND t.due<=?""", (item_id, current)).fetchone()
+    row = db.execute(TASK_PENDING + " AND n.id=?", (current, item_id)).fetchone()
     if row:
         db.execute("UPDATE notifications SET delivered=1 WHERE id=?", (item_id,))
         return dict(row) | {"kind": "task"}

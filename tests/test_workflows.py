@@ -139,7 +139,7 @@ def test_non_commands_have_no_effect(workflow, text):
 
 @pytest.mark.parametrize("text", [
     "Напомни завтра в 25 купить хлеб", "Напомни 31.02.2027 в 10 позвонить", "Напомни сегодня в 8 позвонить",
-    "Поставь таймер на 0 минут", "Напомни завтра в 10 или 11 позвонить", "Напомни каждый день в 10 позвонить",
+    "Поставь таймер на 0 минут", "Напомни завтра в 10 или 11 позвонить",
     "Напомни завтра в 10:5 позвонить", "Напомни завтра в 10 через 5 минут позвонить",
 ])
 def test_invalid_or_ambiguous_times_never_create_records(workflow, text):
@@ -203,3 +203,135 @@ def test_chat_actions_do_not_call_llm_and_share_voice_context(tmp_path, monkeypa
         assert local.hour == 11 and task["title"] == "купить хлеб"
         assert "11:00 (UTC+05:00)" in response.text
         assert api.post("/chat", json={"text": "Привет", "timezone": "Bad/Timezone"}).status_code == 422
+
+
+# ── Recurring reminders ─────────────────────────────────────────────────────
+
+import json as _json
+
+
+@pytest.mark.parametrize("text,rule,weekday", [
+    ("Напомни ежедневно в 10 купить хлеб", "daily", None),
+    ("Напомни каждый день в 9 проверить почту", "daily", None),
+    ("Напомни по будням в 9 проверить почту", "weekdays", None),
+    ("Напомни по рабочим дням в 9 проверить почту", "weekdays", None),
+    ("Напомни каждый понедельник в 14 заполнить отчёт", "weekly", 0),
+    ("Напомни каждую пятницу в 18 подвести итоги", "weekly", 4),
+])
+def test_create_recurring_reminder(workflow, text, rule, weekday):
+    store, handle = workflow
+    result = handle(text)
+    assert result.changed == ["tasks"], result.text
+    task, = store.list("tasks")
+    assert task["recurrence"] is not None, "recurrence must be saved"
+    rec = _json.loads(task["recurrence"])
+    assert rec["rule"] == rule
+    assert rec.get("weekday") == weekday
+    # Confirmation message must mention recurrence
+    assert any(kw in result.text for kw in ("ежедневно", "будн", "понедельник", "пятниц", "рабочи")), result.text
+
+
+def test_recurring_reminder_confirmation_contains_due_and_recurrence(workflow):
+    store, handle = workflow
+    result = handle("Напомни ежедневно в 10 купить хлеб")
+    # Must mention both a due time and the recurrence label
+    assert "10:00" in result.text
+    assert "ежедневно" in result.text
+
+
+def test_non_recurring_reminder_has_no_recurrence_field(workflow):
+    store, handle = workflow
+    handle("Напомни завтра в 10 купить хлеб")
+    task, = store.list("tasks")
+    assert task["recurrence"] is None
+
+
+def test_cancel_series_clears_recurrence_and_keeps_task(workflow):
+    store, handle = workflow
+    handle("Напомни ежедневно в 10 купить хлеб")
+    task, = store.list("tasks")
+    assert task["recurrence"] is not None
+
+    result = handle("Отмени повтор напоминания")
+    assert result.changed == ["tasks"], result.text
+    assert "Повтор отменён" in result.text
+    task_after = store.task(task["id"])
+    assert task_after is not None, "task must still exist"
+    assert task_after["done"] == 0, "task must not be marked done"
+    assert task_after["recurrence"] is None, "recurrence must be cleared"
+
+
+def test_cancel_series_on_non_recurring_returns_error(workflow):
+    store, handle = workflow
+    handle("Напомни завтра в 10 купить хлеб")
+    result = handle("Отмени повтор")
+    assert "не повторяется" in result.text
+    assert result.changed == []
+
+
+def test_queue_due_advances_recurring_reminder(tmp_path):
+    store = Store(tmp_path)
+    # Create a recurring reminder due 1 min in the past
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    rec_json = _json.dumps({"rule": "daily"})
+    task = store.save_task("Купить хлеб", "reminder", past, recurrence=rec_json)
+
+    fired = store.queue_due_notifications()
+    assert len(fired) == 1
+
+    updated = store.task(task["id"])
+    assert updated is not None
+    # due must be in the future
+    new_due = datetime.fromisoformat(updated["due"])
+    assert new_due > datetime.now(timezone.utc)
+    # notified must be reset to 0 so the next firing will work
+    assert updated["notified"] == 0
+    assert updated["done"] == 0
+    # recurrence must be preserved
+    assert updated["recurrence"] == rec_json
+
+
+def test_queue_due_does_not_advance_non_recurring(tmp_path):
+    store = Store(tmp_path)
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    task = store.save_task("Купить хлеб", "reminder", past)
+
+    store.queue_due_notifications()
+    updated = store.task(task["id"])
+    assert updated["notified"] == 1
+    # due stays unchanged
+    assert updated["due"] == past
+
+
+def test_reschedule_preserves_recurrence(workflow):
+    store, handle = workflow
+    handle("Напомни ежедневно в 10 купить хлеб")
+    task_before, = store.list("tasks")
+    rec = task_before["recurrence"]
+    assert rec is not None
+
+    result = handle("Перенеси напоминание на 11")
+    assert result.changed == ["tasks"], result.text
+    task_after, = store.list("tasks")
+    assert task_after["recurrence"] == rec, "recurrence must survive reschedule"
+    new_due = datetime.fromisoformat(task_after["due"]).astimezone(ZoneInfo(ZONE))
+    assert new_due.hour == 11
+
+
+def test_revise_task_allows_clearing_recurrence(tmp_path):
+    store = Store(tmp_path)
+    rec_json = _json.dumps({"rule": "daily"})
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    task = store.save_task("Тест", "reminder", future, recurrence=rec_json)
+    assert store.task(task["id"])["recurrence"] == rec_json
+
+    updated = store.revise_task(task["id"], recurrence=None)
+    assert updated is not None
+    assert updated["recurrence"] is None
+
+
+def test_revise_task_rejects_unknown_key(tmp_path):
+    store = Store(tmp_path)
+    task = store.save_task("Тест", "todo", None)
+    with pytest.raises(ValueError):
+        store.revise_task(task["id"], unknown_field="x")

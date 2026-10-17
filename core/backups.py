@@ -11,7 +11,7 @@ import time
 from typing import Annotated, Literal
 import uuid
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .config import Settings
 from .memory import fingerprint, normalized
@@ -22,6 +22,7 @@ from .commands import normalize
 from .tools import ACCESS_FIELDS
 from .calendar import EventBody
 from .notifications import reminder_time
+from . import repeats
 from .document_library import rebuild_index as rebuild_document_index
 from .document_context import DocumentFragment
 from .history import rebuild_index as rebuild_history_index
@@ -118,6 +119,12 @@ class Task(Dated):
     done: Bit
     notified: Bit
     scope_id: ScopeId = ""
+    recurrence: str | None = Field(default=None, max_length=2048)
+
+    @model_validator(mode="after")
+    def valid_recurrence(self):
+        repeats.validate(self.recurrence, self.kind, self.due)
+        return self
 
 
 class CalendarEvent(Dated):
@@ -163,6 +170,7 @@ class Notification(Dated):
     task_id: Id
     title: str = Field(max_length=500)
     delivered: Bit
+    scheduled_for: Timestamp | None = None
 
 
 def valid_source_url(value: str) -> str:
@@ -221,7 +229,7 @@ class Data(Record):
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3, 4, 5, 6, 7]
+    version: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     created: Timestamp
     settings: dict
     data: Data
@@ -252,6 +260,8 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 8 and (any(row.recurrence for row in bundle.data.tasks) or any(row.scheduled_for for row in bundle.data.notifications)):
+            raise ValueError("Повторы и сроки уведомлений требуют формат 8")
         if bundle.version < 7 and any(row.document_context for row in bundle.data.messages):
             raise ValueError("Контекст документов требует формат 7")
         if any(row.document_context and row.role != "assistant" for row in bundle.data.messages):
@@ -357,9 +367,26 @@ def parse(data: bytes) -> Bundle:
         names = [row["name"].casefold().strip() for row in tables["aliases"]]
         if any(not name for name in names) or len(names) != len(set(names)):
             raise ValueError("Повторяющиеся команды")
+        pending_tasks = set()
         for row in tables["notifications"]:
             if not row["delivered"] and row["task_id"] not in tasks:
                 raise ValueError("Напоминание без задачи")
+            if not row["delivered"]:
+                if bundle.version >= 8 and (row["task_id"] in pending_tasks or row["scheduled_for"] is None):
+                    raise ValueError("Повторяющееся ожидающее уведомление")
+                pending_tasks.add(row["task_id"])
+        # Before format 8, a pending one-shot alert used its task's due time.
+        if bundle.version < 8:
+            legacy_pending = {}
+            for row in bundle.data.notifications:
+                if not row.delivered:
+                    parent = tasks[row.task_id]
+                    if parent["due"] and parent["notified"] and not parent["done"]:
+                        row.scheduled_for = parent["due"]
+                        legacy_pending[row.task_id] = row
+            # Old edits could leave multiple stale pending rows. Preserve history
+            # and coalesce the currently deliverable one instead of duplicating it.
+            bundle.data.notifications = [row for row in bundle.data.notifications if row.delivered] + list(legacy_pending.values())
         return bundle
     except (ValueError, TypeError, RecursionError, OverflowError) as error:
         raise ValueError("Не удалось проверить копию: файл повреждён, имеет другую версию или содержит некорректные записи") from error
@@ -381,7 +408,7 @@ def snapshot(db) -> dict:
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 7, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 8, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:

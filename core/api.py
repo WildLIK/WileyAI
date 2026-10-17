@@ -27,6 +27,7 @@ from .voice import Voice
 from .capabilities import catalog as capabilities_catalog
 from .scheduler import run_scheduler
 from .workflows import Workflows
+from .repeats import RepeatRule
 from .calendar import Calendar, EventBody
 from .calendar_workflows import CalendarWorkflows
 from .document_library import Library
@@ -153,6 +154,7 @@ class TaskBody(BaseModel):
     kind: Literal["todo", "reminder", "timer", "alarm"] = "todo"
     due: datetime | None = None
     done: bool = False
+    recurrence: RepeatRule | None = None
 
 
 class ProjectBody(BaseModel):
@@ -491,7 +493,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if body.kind != "todo" and body.due is None:
             raise HTTPException(400, "Для напоминания, таймера или будильника нужно время")
         due = body.due.astimezone(timezone.utc).isoformat() if body.due else None
-        return store.for_chat(conversation_id).save_task(body.title, body.kind, due, body.done, item_id)
+        recurrence = body.recurrence.model_dump_json(exclude_defaults=True) if body.recurrence else None
+        return store.for_chat(conversation_id).save_task(body.title, body.kind, due, body.done, item_id, recurrence)
 
     @app.post("/tasks")
     def new_task(body: TaskBody, conversation_id: str | None = None):

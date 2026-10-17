@@ -8,7 +8,46 @@ type Task = {
   due: string | null;
   done: boolean;
   created: string;
+  recurrence: string | null;
 };
+type RepeatRule = {
+  rule: "daily" | "weekdays" | "weekly";
+  weekday?: number;
+  weekdays?: number[];
+  timezone?: string;
+};
+const weekdays = [
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+  "Воскресенье",
+];
+const dayShort = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+function repeatRule(task: Task): RepeatRule | null {
+  return task.recurrence ? JSON.parse(task.recurrence) : null;
+}
+function repeatLabel(task: Task) {
+  try {
+    const rule = repeatRule(task);
+    if (!rule) return "";
+    const days = rule.weekdays?.length ? rule.weekdays : [rule.weekday ?? 0];
+    return (
+      (rule.rule === "daily"
+        ? "ежедневно"
+        : rule.rule === "weekdays"
+          ? "по будням"
+          : "по " + days.map((day) => dayShort[day]).join(", ")) +
+      " · " +
+      (rule.timezone || "UTC")
+    );
+  } catch {
+    return "Некорректное правило повтора";
+  }
+}
 type Note = { id: string; title: string; content: string; created: string };
 type Capability = {
   id: string;
@@ -46,6 +85,14 @@ export function Productivity({
   const [due, setDue] = useState("");
   const [minutes, setMinutes] = useState(5);
   const [editing, setEditing] = useState<string | null>(null);
+  const [repeat, setRepeat] = useState<"none" | RepeatRule["rule"]>("none");
+  const [repeatDays, setRepeatDays] = useState<number[]>([
+    (new Date().getDay() + 6) % 7,
+  ]);
+  const [repeatZone, setRepeatZone] = useState(deviceZone);
+  const [taskDone, setTaskDone] = useState(false);
+  const [working, setWorking] = useState(false);
+  const busy = useRef(false);
   const channel = useRef<BroadcastChannel | null>(null);
   const load = useCallback(async () => {
     if (mode === "tasks") setTasks(await request("/tasks"));
@@ -56,6 +103,9 @@ export function Productivity({
     setContent("");
     setDue("");
     setEditing(null);
+    setRepeat("none");
+    setRepeatZone(deviceZone);
+    setTaskDone(false);
     void load().catch(onError);
   }, [mode, load]);
   useEffect(() => {
@@ -74,11 +124,17 @@ export function Productivity({
     };
   }, [load]);
   const run = async (action: () => Promise<void>) => {
+    if (busy.current) return;
+    busy.current = true;
+    setWorking(true);
     try {
       await action();
       channel.current?.postMessage({ type: "productivity-changed" });
     } catch (error) {
       onError(error);
+    } finally {
+      busy.current = false;
+      setWorking(false);
     }
   };
   async function save() {
@@ -89,6 +145,30 @@ export function Productivity({
         { title, content },
       );
     } else {
+      if (repeat === "weekly" && !repeatDays.length)
+        throw new Error("Выберите хотя бы один день повтора");
+      const recurrence: RepeatRule | null =
+        repeat === "none" || !["reminder", "alarm"].includes(kind)
+          ? null
+          : {
+              rule: repeat,
+              timezone: repeatZone,
+              ...(repeat === "weekly" ? { weekdays: repeatDays } : {}),
+            };
+      if (due) {
+        const parsed = new Date(due);
+        if (!Number.isFinite(parsed.getTime()))
+          throw new Error("Укажите корректную дату и время");
+        const local = new Date(
+          parsed.getTime() - parsed.getTimezoneOffset() * 60000,
+        )
+          .toISOString()
+          .slice(0, 16);
+        if (local !== due.slice(0, 16))
+          throw new Error(
+            "Это местное время пропускается при переводе часов. Выберите другое время.",
+          );
+      }
       const timestamp =
         kind === "timer"
           ? new Date(Date.now() + minutes * 60000).toISOString()
@@ -98,19 +178,37 @@ export function Productivity({
       await request(
         editing ? "/tasks/" + editing : "/tasks",
         editing ? "PUT" : "POST",
-        { title, kind, due: timestamp, done: false },
+        { title, kind, due: timestamp, done: taskDone, recurrence },
       );
     }
     setTitle("");
     setContent("");
     setDue("");
     setEditing(null);
+    setRepeat("none");
+    setTaskDone(false);
+    setRepeatZone(deviceZone);
     await load();
   }
   function editTask(task: Task) {
+    let rule: RepeatRule | null;
+    try {
+      rule = repeatRule(task);
+    } catch (error) {
+      onError(error);
+      return;
+    }
     setEditing(task.id);
     setTitle(task.title);
     setKind(task.kind);
+    setTaskDone(Boolean(task.done));
+    setRepeat(rule?.rule || "none");
+    setRepeatDays(
+      rule?.weekdays?.length
+        ? rule.weekdays
+        : [rule?.weekday ?? (new Date().getDay() + 6) % 7],
+    );
+    setRepeatZone(rule?.timezone || deviceZone);
     if (task.due) {
       const date = new Date(task.due);
       setDue(
@@ -135,7 +233,7 @@ export function Productivity({
           </p>
           <p className="help">
             {mode === "tasks"
-              ? "Можно сказать в чате: «напомни завтра в 10 купить хлеб», «поставь таймер на 5 минут», затем «перенеси на 11»."
+              ? "Можно сказать: «напомни по будням в 9 проверить почту», «напомни по понедельникам и средам в 10 позвонить», затем «перенеси на 11»."
               : "Можно сказать в чате: «создай заметку Покупки: хлеб и молоко»."}
           </p>
         </div>
@@ -178,8 +276,13 @@ export function Productivity({
             <label>
               Тип
               <select
+                aria-label="Тип"
                 value={kind}
-                onChange={(event) => setKind(event.target.value)}
+                onChange={(event) => {
+                  setKind(event.target.value);
+                  if (!["reminder", "alarm"].includes(event.target.value))
+                    setRepeat("none");
+                }}
               >
                 {Object.entries(kinds).map(([id, label]) => (
                   <option value={id} key={id}>
@@ -202,7 +305,8 @@ export function Productivity({
               </label>
             ) : (
               <label>
-                Дата и время{kind === "todo" ? " (необязательно)" : ""}
+                {repeat !== "none" ? "Ближайшее напоминание" : "Дата и время"}
+                {kind === "todo" ? " (необязательно)" : ""}
                 <input
                   type="datetime-local"
                   required={kind !== "todo"}
@@ -213,8 +317,72 @@ export function Productivity({
             )}
           </div>
         )}
+        {mode === "tasks" && ["reminder", "alarm"].includes(kind) && (
+          <div className="task-repeat">
+            <label>
+              Повтор
+              <select
+                aria-label="Повтор"
+                value={repeat}
+                onChange={(event) =>
+                  setRepeat(event.target.value as typeof repeat)
+                }
+              >
+                <option value="none">Не повторять</option>
+                <option value="daily">Ежедневно</option>
+                <option value="weekdays">По будням · пн–пт</option>
+                <option value="weekly">По выбранным дням недели</option>
+              </select>
+            </label>
+            {repeat === "weekly" && (
+              <fieldset className="task-repeat-days">
+                <legend>Дни повтора</legend>
+                {weekdays.map((day, index) => (
+                  <label className="checkbox" key={day}>
+                    <input
+                      type="checkbox"
+                      checked={repeatDays.includes(index)}
+                      onChange={(event) =>
+                        setRepeatDays((days) =>
+                          event.target.checked
+                            ? [...days, index].sort()
+                            : days.filter((value) => value !== index),
+                        )
+                      }
+                    />
+                    {day}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {repeat !== "none" && (
+              <p className="help">
+                Часовой пояс повтора: {repeatZone}. Ближайший срок задаётся по
+                времени устройства; следующие сохраняют соответствующее время
+                суток в поясе повтора. Редактирование меняет всю серию. По
+                будням — пн–пт без учёта праздников.
+                {repeatZone !== deviceZone && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setRepeatZone(deviceZone)}
+                  >
+                    Использовать {deviceZone}
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+        )}
         <div className="button-row">
-          <button className="primary" disabled={!title.trim()}>
+          <button
+            className="primary"
+            disabled={
+              working ||
+              !title.trim() ||
+              (repeat === "weekly" && !repeatDays.length)
+            }
+          >
             {editing ? "Сохранить изменения" : "Добавить"}
           </button>
           {editing && (
@@ -226,6 +394,9 @@ export function Productivity({
                 setTitle("");
                 setContent("");
                 setDue("");
+                setRepeat("none");
+                setTaskDone(false);
+                setRepeatZone(deviceZone);
               }}
             >
               Отмена
@@ -236,8 +407,8 @@ export function Productivity({
           <p className="help">
             Уведомления работают, пока WileyAI запущен, в том числе в трее.
             Пропущенные срабатывают при следующем запуске. Время устройства:{" "}
-            {Intl.DateTimeFormat().resolvedOptions().timeZone}. Повторяющиеся
-            события пока не поддерживаются.
+            {deviceZone}. Если пропущено несколько повторов, придёт одно
+            уведомление, а следующий срок будет в будущем.
           </p>
         )}
       </form>
@@ -246,6 +417,8 @@ export function Productivity({
           <h2>Мои дела</h2>
           {tasks.map((task) => (
             <div
+              role="group"
+              aria-label={task.title}
               className={"alias-row " + (task.done ? "task-done" : "")}
               key={task.id}
             >
@@ -256,7 +429,12 @@ export function Productivity({
                   {task.due
                     ? " · " + new Date(task.due).toLocaleString("ru-RU")
                     : ""}
-                  {task.done ? " · выполнено" : ""}
+                  {task.recurrence ? " · " + repeatLabel(task) : ""}
+                  {task.done
+                    ? task.recurrence
+                      ? " · серия остановлена"
+                      : " · выполнено"
+                    : ""}
                 </small>
               </div>
               <div className="button-row">
@@ -265,14 +443,23 @@ export function Productivity({
                   onClick={() =>
                     run(async () => {
                       await request("/tasks/" + task.id, "PUT", {
-                        ...task,
+                        title: task.title,
+                        kind: task.kind,
+                        due: task.due,
+                        recurrence: repeatRule(task),
                         done: !task.done,
                       });
                       await load();
                     })
                   }
                 >
-                  {task.done ? "Вернуть" : "Готово"}
+                  {task.recurrence
+                    ? task.done
+                      ? "Возобновить серию"
+                      : "Остановить серию"
+                    : task.done
+                      ? "Вернуть"
+                      : "Готово"}
                 </button>
                 <button className="subtle" onClick={() => editTask(task)}>
                   Изменить

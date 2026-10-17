@@ -129,7 +129,7 @@ def test_project_backups_roundtrip_and_old_copy(tmp_path):
     original = library.add("План.txt", "ПРОЕКТНАЯ-БИБЛИОТЕКА")
     shared = library.publish(original["id"])
     archive = Backups(store).export()
-    assert json.loads(archive)["version"] == 7
+    assert json.loads(archive)["version"] == 8
     target = Store(tmp_path / "target")
     manager = Backups(target)
     preview = manager.preview(archive)

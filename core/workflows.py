@@ -5,7 +5,8 @@ import re
 from zoneinfo import ZoneInfo
 
 from .storage import Store
-from .timeparse import describe_due, due_time, parse_time
+from .timeparse import describe_due, due_time, parse_time, parse_recurrence, recurrence_label, Recurrence
+from .repeats import RepeatRule, first_due
 
 
 LABELS = {"todo": "Задача", "reminder": "Напоминание", "timer": "Таймер", "alarm": "Будильник"}
@@ -74,7 +75,8 @@ class Workflows:
             lines = []
             for item in items[:8]:
                 due = datetime.fromisoformat(item["due"]).astimezone(zone_info) if item["due"] else None
-                lines.append(f"{LABELS[item['kind']]}: {item['title']}" + (f" — {describe_due(due)}" if due else ""))
+                repeat = " · " + recurrence_label(RepeatRule.model_validate_json(item["recurrence"])) if item.get("recurrence") else ""
+                lines.append(f"{LABELS[item['kind']]}: {item['title']}" + (f" — {describe_due(due)}" if due else "") + repeat)
             return Result("\n".join(lines) + ("\nОстальные записи — в разделе «Задачи»." if len(items) > 8 else ""))
 
         create = re.fullmatch(r"(напомни(?: мне)?|создай напоминание|(?:создай|добавь) задачу|добавь в список дел|(?:поставь|запусти|установи) таймер|(?:поставь|установи) будильник)\s*[:,—-]?\s*(.*)", value, re.I)
@@ -82,24 +84,44 @@ class Workflows:
             verb = create[1].casefold()
             kind = "timer" if "таймер" in verb else "alarm" if "будильник" in verb else "todo" if "задачу" in verb or "список дел" in verb else "reminder"
             body = re.sub(r"^пожалуйста[, ]+", "", create[2], flags=re.I)
+            try:
+                recurrence = parse_recurrence(body)
+            except ValueError as error:
+                return Result(str(error))
+            if recurrence and kind not in {"reminder", "alarm"}:
+                return Result("Повтор доступен для напоминаний и будильников. Например: «напомни ежедневно в 10 проверить почту».")
             if kind == "timer" and body.strip() and not re.match(r"(?:на|через)\b", body, re.I):
                 body = "на " + body
-            parts = parse_time(body, now, clock_context=kind != "timer")
+            parts = parse_time(body, now, clock_context=kind != "timer", allow_recurrence=True)
             if parts.error:
                 return Result(parts.error)
             title = parts.rest or ({"timer": "Таймер", "alarm": "Будильник"}.get(kind, ""))
             if len(title) > 500:
                 return Result("Название задачи должно быть короче 500 символов.")
-            draft = {"kind": kind, "title": title, "day": parts.day.isoformat() if parts.day else None, "clock": parts.clock.isoformat() if parts.clock else None, "seconds": parts.seconds}
+            if recurrence and not isinstance(zone_info, ZoneInfo):
+                return Result("Для повторов нужен часовой пояс. Создайте напоминание из чата программы или раздела «Задачи».")
+            draft = {"kind": kind, "title": title, "day": parts.day.isoformat() if parts.day else None, "clock": parts.clock.isoformat() if parts.clock else None, "seconds": parts.seconds, "recurrence": self._rec_json(recurrence, str(zone_info))}
             return self._create(draft, state, now, remember)
 
         pending = state.get("pending")
         if pending:
-            parts = parse_time(value, now, bare=True, clock_context=pending["draft"]["kind"] != "timer")
+            if pending["draft"].get("recurrence") and re.fullmatch(r"(?:отмени|отключи|убери) повтор(?: напоминания)?", normalized):
+                pending["draft"]["recurrence"] = None
+                remember()
+                return Result("Повтор в новом напоминании отменён. Укажите оставшиеся данные или скажите «отмена».")
+            try:
+                pending_recurrence = parse_recurrence(value)
+            except ValueError as error:
+                return Result(str(error))
+            parts = parse_time(value, now, bare=True, clock_context=pending["draft"]["kind"] != "timer", allow_recurrence=True)
             if parts.error:
                 return Result(parts.error)
-            if parts.found:
+            if parts.found or pending_recurrence:
                 draft = dict(pending["draft"])
+                if pending_recurrence:
+                    if draft["kind"] not in {"reminder", "alarm"} or not isinstance(zone_info, ZoneInfo):
+                        return Result("Повтор доступен для напоминаний и будильников с часовым поясом.")
+                    draft["recurrence"] = self._rec_json(pending_recurrence, str(zone_info))
                 if parts.rest and not re.fullmatch(r"(?:нет|лучше|тогда|да)[, ]*", parts.rest, re.I):
                     # Do not hide an extra task, condition or alternative inside a time slot.
                     return Result("Укажите только дату и время, например «завтра в 10», или скажите «отмена».")
@@ -137,16 +159,32 @@ class Workflows:
                 parts.day, parts.clock, parts.seconds = shifted.date(), shifted.timetz().replace(tzinfo=None), None
             elif parts.rest:
                 return Result("Для сдвига срока скажите, например, «перенеси на 15 минут позже».")
-            draft = {"kind": task["kind"], "title": task["title"], "day": (parts.day or (old.date() if old else None)).isoformat() if parts.day or old else None, "clock": (parts.clock or (old.timetz().replace(tzinfo=None) if old else None)).isoformat() if parts.clock or old else None, "seconds": parts.seconds}
+            draft = {"kind": task["kind"], "title": task["title"], "day": (parts.day or (old.date() if old else None)).isoformat() if parts.day or old else None, "clock": (parts.clock or (old.timetz().replace(tzinfo=None) if old else None)).isoformat() if parts.clock or old else None, "seconds": parts.seconds, "recurrence": task.get("recurrence")}
             return self._reschedule(task["id"], draft, state, now, remember)
 
         cancel = re.fullmatch(r"(?:отмени|удали) (?:это |эту |этот |последнее |последнюю |последний )?(напоминание|задачу|таймер|будильник)", normalized)
         complete = re.fullmatch(r"(?:отметь (?:эту )?задачу (?:выполненной|завершенной)|задача выполнена|я это сделал|я это сделала)", normalized)
-        if cancel or complete:
+        cancel_series = re.fullmatch(r"(?:отмени|удали|убери|отключи) (?:повтор|серию|повторение|повторения|повторяющееся напоминание|расписание)(?: (?:напоминания|задачи|этого|этой))?", normalized)
+        if cancel or complete or cancel_series:
             task = self._recent(state)
             expected = {"напоминание": "reminder", "таймер": "timer", "будильник": "alarm"}.get(cancel[1]) if cancel else None
             if not task or (expected and expected != task["kind"]):
                 return Result("Не вижу подходящую недавнюю запись. Выберите её в разделе «Задачи».")
+            if cancel_series:
+                if re.search(r"\b(?:серию|повторяющееся напоминание)\b", normalized):
+                    self.store.remove("tasks", task["id"])
+                    self.store.audit("task", task["id"], "series_deleted")
+                    state.pop("last_task", None)
+                    state.pop("pending", None)
+                    remember()
+                    return Result(f"Отменил серию: «{task['title']}». Запись удалена из задач.", ["tasks"])
+                if not task.get("recurrence"):
+                    return Result("Это напоминание не повторяется.")
+                self.store.revise_task(task["id"], recurrence=None)
+                self.store.audit("task", task["id"], "series_cancelled")
+                state["last_task"] = task["id"]
+                remember()
+                return Result(f"Повтор отменён: «{task['title']}» больше не будет повторяться. Ближайшее напоминание осталось однократным; «отмени напоминание» удалит его полностью.", ["tasks"])
             if cancel:
                 self.store.remove("tasks", task["id"])
                 state.pop("last_task", None)
@@ -162,6 +200,12 @@ class Workflows:
         if re.match(r"^(?:перенесено|перенесена|перенесен|переноси|перенеси|перенести|переставь)\b", normalized):
             return Result("Срок не менял: не распознал точную команду переноса. Повторите, например: «перенеси напоминание на одиннадцать часов».")
         return None
+
+    @staticmethod
+    def _rec_json(rec: Recurrence | None, zone="UTC") -> str | None:
+        if rec is None:
+            return None
+        return RepeatRule(rule=rec.rule, weekday=rec.weekday, weekdays=list(rec.weekdays), timezone=zone).model_dump_json(exclude_defaults=True)
 
     def _recent(self, state):
         task = self.store.task(state.get("last_task", ""))
@@ -182,13 +226,17 @@ class Workflows:
             if not draft["title"]:
                 return Result("Что нужно сделать или о чём напомнить?")
             return Result(f"Когда напомнить: «{draft['title']}»? Например: «завтра в 10» или «через 15 минут». Пока запись не создана.")
-        item = self.store.save_task(draft["title"], draft["kind"], due.astimezone(timezone.utc).isoformat() if due else None)
+        rec_json = draft.get("recurrence")
+        item = self.store.save_task(draft["title"], draft["kind"], due.astimezone(timezone.utc).isoformat() if due else None, recurrence=rec_json)
         state.pop("pending", None)
         state["last_task"] = item["id"]
         remember()
         self.store.audit("task", item["id"], "created")
         verb = {"todo": "создана", "reminder": "создано", "timer": "создан", "alarm": "создан"}[item["kind"]]
-        return Result(f"{LABELS[item['kind']]} {verb}: «{item['title']}»" + (f" — {describe_due(due)}." if due else "."), ["tasks"])
+        rec_suffix = ""
+        if rec_json:
+            rec_suffix = " — " + recurrence_label(RepeatRule.model_validate_json(rec_json))
+        return Result(f"{LABELS[item['kind']]} {verb}: «{item['title']}»" + (f" — {describe_due(due)}" if due else "") + rec_suffix + ".", ["tasks"])
 
     def _reschedule(self, task_id, draft, state, now, remember):
         try:
@@ -199,7 +247,7 @@ class Workflows:
             state["pending"] = {"draft": draft, "task_id": task_id}
             remember()
             return Result("На какое время перенести? Например: «в 11».")
-        item = self.store.revise_task(task_id, due=due.astimezone(timezone.utc).isoformat())
+        item = self.store.revise_task(task_id, due=due.astimezone(timezone.utc).isoformat(), recurrence=draft.get("recurrence"))
         if not item:
             state.pop("pending", None)
             state.pop("last_task", None)
@@ -209,8 +257,15 @@ class Workflows:
         state["last_task"] = task_id
         remember()
         self.store.audit("task", task_id, "rescheduled")
-        return Result(f"Перенёс «{item['title']}» на {describe_due(due)}.", ["tasks"])
+        suffix = " Время будущих повторов изменено; дни недели сохранены." if item.get("recurrence") else ""
+        return Result(f"Перенёс «{item['title']}» на {describe_due(due)}." + suffix, ["tasks"])
 
     @staticmethod
     def _due(draft, now):
+        if draft.get("recurrence"):
+            if draft.get("seconds") is not None:
+                raise ValueError("Для повтора укажите время суток, например «ежедневно в 10», а не интервал.")
+            if not draft.get("clock"):
+                return None
+            return first_due(now, RepeatRule.model_validate_json(draft["recurrence"]), time.fromisoformat(draft["clock"]), date.fromisoformat(draft["day"]) if draft.get("day") else None)
         return due_time(date.fromisoformat(draft["day"]) if draft.get("day") else None, time.fromisoformat(draft["clock"]) if draft.get("clock") else None, now, draft.get("seconds"))

@@ -69,6 +69,16 @@ async function verifyPackaged(data) {
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
     await api("/memories", "POST", { text: "Standalone restart check" });
+    await api("/tasks", "POST", {
+      title: "Standalone recurring reminder",
+      kind: "reminder",
+      due: new Date(Date.now() + 86400000).toISOString(),
+      recurrence: {
+        rule: "weekly",
+        weekdays: [0, 2, 4],
+        timezone: "Asia/Yekaterinburg",
+      },
+    });
     const components = await api("/components");
     if (components.items.some((item) => item.installed))
       throw new Error("Installer contains optional runtimes");
@@ -165,6 +175,15 @@ async function verifyPackaged(data) {
     console.log(
       "Standalone full restart OK: existing profile and connection restored.",
     );
+    const tasks = await (
+      await fetch(connection.url + "/tasks", { headers })
+    ).json();
+    const series = tasks.find(
+      (item) => item.title === "Standalone recurring reminder",
+    );
+    if (!series || JSON.parse(series.recurrence).weekdays.join(",") !== "0,2,4")
+      throw new Error("Recurring reminder did not survive standalone restart");
+    console.log("Standalone recurring schedule preserved after full restart.");
     if (process.argv.includes("--install-piper")) {
       const voice = await (
         await fetch(connection.url + "/voice", { headers })

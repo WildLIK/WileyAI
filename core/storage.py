@@ -12,6 +12,7 @@ from .config import Settings
 from .memory import CATEGORIES, fingerprint, infer_category, normalized, search_expression, suggestions
 from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
 from . import notifications
+from . import repeats
 from .document_library import migrate as migrate_documents
 from .document_context import DocumentFragment
 from .history import migrate as migrate_history
@@ -36,7 +37,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, recurrence TEXT);
                 CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS dialogue_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS memory_candidates (id TEXT PRIMARY KEY, content TEXT NOT NULL, category TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE, source_message_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', memory_id TEXT, created TEXT NOT NULL);
@@ -47,6 +48,16 @@ class Store:
                 CREATE INDEX IF NOT EXISTS calendar_scope_time ON calendar_events(scope_id,starts_at,ends_at);
                 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(id UNINDEXED, text);
             """)
+            # Migrate recurrence column if absent (old databases)
+            task_cols = {row["name"] for row in db.execute("PRAGMA table_info(tasks)")}
+            if "recurrence" not in task_cols:
+                db.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT")
+            if "scheduled_for" not in {row["name"] for row in db.execute("PRAGMA table_info(notifications)")}:
+                db.execute("ALTER TABLE notifications ADD COLUMN scheduled_for TEXT")
+                if "due" in task_cols:
+                    db.execute("UPDATE notifications SET scheduled_for=(SELECT due FROM tasks WHERE tasks.id=notifications.task_id)")
+            db.execute("DELETE FROM notifications WHERE delivered=0 AND rowid NOT IN (SELECT MIN(rowid) FROM notifications WHERE delivered=0 GROUP BY task_id)")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS task_alert_pending ON notifications(task_id) WHERE delivered=0")
             columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}
             for column, definition in {"category": "TEXT NOT NULL DEFAULT 'fact'", "pinned": "INTEGER NOT NULL DEFAULT 0", "source_message_id": "TEXT", "updated": "TEXT", "revision": "INTEGER NOT NULL DEFAULT 1", "fingerprint": "TEXT"}.items():
                 if column not in columns:
@@ -324,8 +335,8 @@ class Store:
             db.execute("INSERT INTO notes (id,title,content,created,scope_id) VALUES (:id,:title,:content,:created,:scope_id) ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content", {**item, "scope_id": self.scope_id})
         return item
 
-    def save_task(self, title: str, kind: str, due: str | None, done: bool = False, item_id: str | None = None) -> dict:
-        item = dict(id=item_id or uuid.uuid4().hex, title=title, kind=kind, due=due, done=int(done), created=now())
+    def save_task(self, title: str, kind: str, due: str | None, done: bool = False, item_id: str | None = None, recurrence: str | None = None) -> dict:
+        item = dict(id=item_id or uuid.uuid4().hex, title=title, kind=kind, due=due, done=int(done), created=now(), recurrence=recurrence)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             self._check_scope(db)
@@ -336,10 +347,17 @@ class Store:
         return item
 
     def _write_task(self, db, item):
-        previous = db.execute("SELECT due FROM tasks WHERE id=?", (item["id"],)).fetchone()
-        if previous and previous["due"] != item["due"]:
+        repeats.validate(item.get("recurrence"), item["kind"], item["due"])
+        previous = db.execute("SELECT due,recurrence,kind FROM tasks WHERE id=?", (item["id"],)).fetchone()
+        if previous and any(previous[key] != item[key] for key in ("due", "recurrence", "kind")):
             db.execute("DELETE FROM notifications WHERE task_id=? AND delivered=0", (item["id"],))
-        db.execute("INSERT INTO tasks (id,title,kind,due,done,created,scope_id) VALUES (:id,:title,:kind,:due,:done,:created,:scope_id) ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,due=excluded.due,done=excluded.done,notified=CASE WHEN tasks.due IS excluded.due THEN tasks.notified ELSE 0 END", {**item, "scope_id": self.scope_id})
+        db.execute(
+            "INSERT INTO tasks (id,title,kind,due,done,created,scope_id,recurrence) VALUES (:id,:title,:kind,:due,:done,:created,:scope_id,:recurrence)"
+            " ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,due=excluded.due,done=excluded.done,"
+            "notified=CASE WHEN tasks.due IS excluded.due AND tasks.recurrence IS excluded.recurrence AND tasks.kind=excluded.kind THEN tasks.notified ELSE 0 END,"
+            "recurrence=excluded.recurrence",
+            {**item, "scope_id": self.scope_id}
+        )
         if item["done"]:
             db.execute("UPDATE notifications SET delivered=1 WHERE task_id=?", (item["id"],))
 
@@ -349,7 +367,7 @@ class Store:
         return dict(row) if row else None
 
     def revise_task(self, item_id: str, **changes) -> dict | None:
-        if changes.keys() - {"title", "due", "done"}:
+        if changes.keys() - {"title", "due", "done", "recurrence"}:
             raise ValueError("Недопустимое изменение задачи")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -376,12 +394,21 @@ class Store:
         pending = []
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            for task in db.execute("SELECT * FROM tasks WHERE done=0 AND notified=0 AND due IS NOT NULL AND due<=?", (now(),)).fetchall():
-                item = dict(id=uuid.uuid4().hex, task_id=task["id"], title=task["title"], created=now())
-                db.execute("INSERT INTO notifications (id,task_id,title,created) VALUES (:id,:task_id,:title,:created)", item)
-                db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task["id"],))
-                pending.append(item)
-            pending.extend(notifications.queue_calendar(db, now()))
+            current = now()
+            for task in db.execute("SELECT * FROM tasks WHERE done=0 AND notified=0 AND due IS NOT NULL AND due<=? ORDER BY due,id LIMIT 1000", (current,)).fetchall():
+                # Keep at most one missed alert per series. Its snapshot remains
+                # claimable even though the task already shows its NEXT due time.
+                if not db.execute("SELECT 1 FROM notifications WHERE task_id=? AND delivered=0", (task["id"],)).fetchone():
+                    item = dict(id=uuid.uuid4().hex, task_id=task["id"], title=task["title"], created=current, scheduled_for=task["due"])
+                    db.execute("INSERT INTO notifications (id,task_id,title,created,scheduled_for) VALUES (:id,:task_id,:title,:created,:scheduled_for)", item)
+                    pending.append(item)
+                if task["recurrence"]:
+                    rule = repeats.RepeatRule.model_validate_json(task["recurrence"])
+                    next_dt = repeats.next_due(datetime.fromisoformat(task["due"]), rule, datetime.fromisoformat(current))
+                    db.execute("UPDATE tasks SET due=?,notified=0 WHERE id=?", (next_dt.astimezone(timezone.utc).isoformat(), task["id"]))
+                else:
+                    db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task["id"],))
+            pending.extend(notifications.queue_calendar(db, current))
         return pending
 
     def pending_notifications(self):

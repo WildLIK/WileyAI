@@ -51,7 +51,7 @@ def test_snapshots_survive_document_changes_deletion_restart_and_backup(tmp_path
     Library(store).remove(doc["id"])
     assert Store(root).messages()[-1]["document_context"] == message["document_context"]
     archive = Backups(store).export()
-    assert json.loads(archive)["version"] == 7
+    assert json.loads(archive)["version"] == 8
     target = Store(tmp_path / "target")
     backup = Backups(target)
     backup.restore(backup.preview(archive)["ticket"])

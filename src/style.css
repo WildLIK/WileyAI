@@ -288,6 +288,16 @@ small {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+.task-repeat-days {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 14px;
+  margin-top: 16px;
+}
+.task-repeat-days label.checkbox { margin: 0; }
 .two-columns .card {
   min-width: 0;
 }

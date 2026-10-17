@@ -164,7 +164,7 @@ def test_backup_current_roundtrip_scopes_and_v1_conversion(tmp_path):
     source.for_chat(a["id"]).add_memory("Первый факт")
     source.for_chat(c["id"]).add_memory("Другой факт")
     archive = Backups(source).export()
-    assert json.loads(archive)["version"] == 7
+    assert json.loads(archive)["version"] == 8
     target = Store(tmp_path / "target")
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])

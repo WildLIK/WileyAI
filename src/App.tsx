@@ -730,9 +730,10 @@ export function App() {
     const offStop = window.wiley.onStop(stop);
     const offConversation = window.wiley.onConversation(setConversation);
     void window.wiley.conversationState().then(setConversation).catch(fail);
-    const offReminder = window.wiley.onReminder((title) =>
-      setNotice("Напоминание: " + title),
-    );
+    const offReminder = window.wiley.onReminder((title) => {
+      setNotice("Напоминание: " + title);
+      window.dispatchEvent(new Event("wiley-data-updated"));
+    });
     const offOffline = window.wiley.onOffline(() => {
       stop();
       setError("Ядро остановилось. Перезапустите WileyAI.");

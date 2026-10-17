@@ -4,6 +4,9 @@ from datetime import date, datetime, time, timedelta, timezone
 import re
 
 
+from .repeats import Recurrence, parse_recurrence, recurrence_label, next_recurrence, split_recurrence
+
+
 ONES = {"ноль": 0, "один": 1, "одну": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9}
 TEENS = dict(zip("десять одиннадцать двенадцать тринадцать четырнадцать пятнадцать шестнадцать семнадцать восемнадцать девятнадцать".split(), range(10, 20)))
 TENS = {"двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50}
@@ -28,12 +31,20 @@ def number(value: str) -> float:
     return float(NUMBERS[value]) if value in NUMBERS else float(value.replace(",", "."))
 
 
-def parse_time(text: str, now: datetime, bare: bool = False, clock_context: bool = False) -> TimeParts:
+def parse_time(text: str, now: datetime, bare: bool = False, clock_context: bool = False, allow_recurrence: bool = False) -> TimeParts:
     result = TimeParts(text)
     value = text.casefold().replace("ё", "е")
     spans = []
-    if re.search(r"\b(?:ежедневно|еженедельно|кажды[йе]|каждую)\b", value) or re.search(rf"\b(?:или|либо)\s+(?:в\b|на\b|завтра\b|сегодня\b|послезавтра\b|{INTEGER}\b)", value):
-        result.error = "Укажите одно точное время. Повторяющиеся напоминания пока доступны только как план развития."
+    try:
+        recurrence, text = split_recurrence(text)
+        if recurrence and not allow_recurrence:
+            return TimeParts(rest=text, error="В этой команде повторы пока не поддерживаются. Повторяющееся напоминание можно создать в разделе «Задачи».")
+    except ValueError as error:
+        result.error = str(error)
+        return result
+    value = text.casefold().replace("ё", "е")
+    if re.search(rf"\b(?:или|либо)\s+(?:в\b|на\b|завтра\b|сегодня\b|послезавтра\b|{INTEGER}\b)", value):
+        result.error = "В реплике несколько вариантов времени. Укажите один."
         return result
 
     half = re.search(r"\b(?:через|на)\s+(полчаса|полтора часа|полторы минуты)\b", value)
@@ -70,7 +81,7 @@ def parse_time(text: str, now: datetime, bare: bool = False, clock_context: bool
         if match:
             value = "в " + value.strip().rstrip(".!")
             # Recurse only for the explicitly requested missing time slot.
-            return parse_time(value, now, clock_context=clock_context)
+            return parse_time(value, now, clock_context=clock_context, allow_recurrence=allow_recurrence)
     if len(clocks) > 1:
         result.error = "В реплике несколько вариантов времени. Укажите один."
         return result
