@@ -1,4 +1,5 @@
 import type { ConversationState, Phase } from "./voice/conversation";
+import { validateConnection, type Connection } from "./connection";
 
 export interface Settings {
   name: string;
@@ -259,11 +260,19 @@ declare global {
     };
   }
 }
-let connection: { url: string; token: string };
+let connection: Connection | undefined;
+function readyConnection(): Connection {
+  if (!connection)
+    throw new Error(
+      "Нет подключения к локальному ядру WileyAI. Перезапустите программу.",
+    );
+  return connection;
+}
 export async function init() {
+  connection = undefined;
   if (!window.wiley)
-    throw new Error("Откройте WileyAI через npm run dev или npm start");
-  connection = await window.wiley.connection();
+    throw new Error("Запустите установленную программу WileyAI.");
+  connection = validateConnection(await window.wiley.connection());
 }
 export async function request<T = unknown>(
   route: string,
@@ -271,6 +280,7 @@ export async function request<T = unknown>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
+  const connection = readyConnection();
   const multipart = body instanceof FormData;
   const response = await fetch(connection.url + route, {
     method,
@@ -308,6 +318,7 @@ export async function audioRequest(
   cloud?: CloudOptions,
   conversion?: Pick<Settings, "openvoice_enabled" | "openvoice_voice">,
 ): Promise<Blob> {
+  const connection = readyConnection();
   signal.throwIfAborted();
   const request_id = crypto.randomUUID();
   const cancel = () => {
@@ -364,6 +375,7 @@ export async function stream(
   conversation_id?: string,
   full_document = false,
 ) {
+  const connection = readyConnection();
   const request_id = crypto.randomUUID();
   let stopping: Promise<unknown> | undefined;
   const cancel = () => {

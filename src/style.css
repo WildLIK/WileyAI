@@ -1252,6 +1252,29 @@ small {
   padding: 60px;
   color: #e0a8b3;
 }
+.startup-error { text-align: center; }
+.startup-error h1 { font-size: 20px; }
+.startup-progress {
+  width: min(260px, 80vw);
+  height: 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2c3441;
+}
+.startup-progress span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: #92dfc6;
+  animation: startup-progress 1.4s ease-in-out infinite;
+}
+@keyframes startup-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-progress span { animation: none; width: 100%; }
+}
 .pet-window {
   height: 100vh;
   background: transparent;

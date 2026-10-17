@@ -23,6 +23,7 @@ const { liveContents, sendToWindow } = require("./window-messages.cjs");
 const { installBackups } = require("./backups.cjs");
 const { createNotificationDelivery } = require("./notifications.cjs");
 const { APP_ID } = require("./identity.cjs");
+const { CoreConnection, portFromOutput } = require("./core-connection.cjs");
 
 const root = path.resolve(__dirname, "..");
 const backend = app.isPackaged
@@ -61,6 +62,7 @@ const serviceEnv = {
 const windows = new Map();
 let core;
 let connection;
+const coreConnection = new CoreConnection();
 let tray;
 let quitting = false;
 let ollamaProcess;
@@ -192,7 +194,8 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
-if (!app.requestSingleInstanceLock()) {
+const primary = app.requestSingleInstanceLock();
+if (!primary) {
   app.quit();
 }
 
@@ -235,6 +238,7 @@ async function startCore() {
       30000,
     );
     let output = "";
+    let probing = false;
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -242,22 +246,30 @@ async function startCore() {
     child.on("exit", (code) => {
       clearTimeout(timer);
       if (!quitting) {
-        reject(new Error(`Ядро завершилось с кодом ${code}`));
+        const error = new Error(
+          `Ядро завершилось с кодом ${code}. Перезапустите WileyAI.`,
+        );
+        connection = undefined;
+        coreConnection.fail(error);
+        reject(error);
         for (const window of windows.values())
           sendToWindow(window, "core-offline");
       }
     });
     child.stdout.on("data", async (data) => {
       output += data.toString();
-      const match = output.match(/WILEYAI_PORT=(\d+)/);
-      if (!match || connection) return;
-      const info = { url: `http://127.0.0.1:${match[1]}`, token };
+      const port = portFromOutput(output);
+      if (!port || connection || probing || quitting) return;
+      probing = true;
+      const info = { url: `http://127.0.0.1:${port}`, token };
       for (let attempt = 0; attempt < 80; attempt++) {
         try {
           const response = await fetch(info.url + "/health", {
             headers: { Authorization: "Bearer " + token },
+            signal: AbortSignal.timeout(1000),
           });
           if (response.ok) {
+            if (quitting || !coreConnection.ready(info)) return;
             connection = info;
             clearTimeout(timer);
             resolve(info);
@@ -279,6 +291,7 @@ function showWindow(view = "chat") {
     throw new Error("Неизвестное окно");
   const existing = windows.get(view);
   if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
     existing.show();
     existing.focus();
     return;
@@ -338,6 +351,7 @@ function showWindow(view = "chat") {
 
 app.on("second-instance", () => showWindow("chat"));
 app.whenReady().then(async () => {
+  if (!primary) return;
   protocol.handle("app", (request) => {
     const url = new URL(request.url);
     if (url.host !== "wileyai")
@@ -373,7 +387,7 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle("connection", (event) => {
     trusted(event);
-    return connection;
+    return coreConnection.wait();
   });
   ipcMain.handle("restart", (event) => {
     trusted(event);
@@ -441,8 +455,9 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("avatar-bytes", async (event) => {
     trusted(event);
-    const response = await fetch(connection.url + "/settings", {
-      headers: { Authorization: "Bearer " + connection.token },
+    const current = await coreConnection.wait();
+    const response = await fetch(current.url + "/settings", {
+      headers: { Authorization: "Bearer " + current.token },
     });
     const settings = await response.json();
     const file = settings.avatar_path;
@@ -542,6 +557,8 @@ app.whenReady().then(async () => {
       });
     }
   } catch (error) {
+    coreConnection.fail(error);
+    if (quitting) return;
     dialog.showErrorBox(
       "WileyAI не запустился",
       error.message +
@@ -559,6 +576,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  coreConnection.fail(new Error("WileyAI завершает работу"));
   conversation.stop();
   for (const window of windows.values()) sendToWindow(window, "stop-all");
   clearInterval(notificationTimer);
