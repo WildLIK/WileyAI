@@ -35,6 +35,8 @@ run(uv, [
   "python",
   "install",
   "3.12.13",
+  "--no-bin",
+  "--no-registry",
   "--install-dir",
   join(staging, "managed"),
 ]);
