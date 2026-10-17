@@ -2,6 +2,8 @@ import asyncio
 import io
 import json
 import wave
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 
 from fastapi.testclient import TestClient
 import httpx
@@ -15,6 +17,16 @@ from core import cloud_speech
 
 def wav(seconds=1):
     return pcm_wave(b"\x01\x00" * 24000 * seconds)
+
+
+def test_fish_voice_page_links_resolve_to_the_requested_voice_id():
+    voice = "ff1ae409865e4c7493db061913d77a79"
+    for prefix in ["https://fish.audio/ru/m/", "https://fish.audio/m/", "https://www.fish.audio/app/m/"]:
+        assert cloud_speech.fish_voice_id(prefix + voice + "/?share=1#sample") == voice
+    assert cloud_speech.fish_voice_id(" custom-id ") == "custom-id"
+    for url in ["https://fish.audio.evil.org/m/" + voice, "https://user:pass@fish.audio/m/" + voice, "http://fish.audio/m/" + voice, "https://fish.audio/m/invalid"]:
+        with pytest.raises(ValueError, match="ссылку"):
+            cloud_speech.fish_voice_id(url)
 
 
 @pytest.fixture
@@ -198,7 +210,46 @@ def test_cloud_stop_cancels_pending_http_and_does_not_cancel_a_new_request(tmp_p
         with pytest.raises(ValueError, match="остановлена"):
             await task
         assert not cloud.requests
+        await cloud.close()
     asyncio.run(scenario())
+
+
+def test_following_phrases_reuse_the_connection_and_fish_page_becomes_the_voice_id(tmp_path, monkeypatch):
+    received = []
+    audio = wav()
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def do_POST(self):
+            received.append((self.client_address, self.headers.get("Authorization"), json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            self.wfile.write(audio)
+        def log_message(self, *_args):
+            pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    url = f"http://127.0.0.1:{server.server_port}/v1"
+    monkeypatch.setattr(cloud_speech, "get_key", lambda _: "speech-key")
+    cloud = CloudSpeech(tmp_path)
+    config = Settings(tts_base_url=url, tts_cloud_voice="https://fish.audio/ru/m/ff1ae409865e4c7493db061913d77a79/")
+    async def scenario():
+        try:
+            for index in range(2):
+                assert await cloud.render("Привет!", config, str(index)) == audio
+        finally:
+            await cloud.close()
+    try:
+        asyncio.run(scenario())
+        assert len(received) == 2 and received[0][0] == received[1][0]
+        assert all(key == "Bearer speech-key" and body["voice"] == "ff1ae409865e4c7493db061913d77a79" and "input_references" not in body for _, key, body in received)
+        assert cloud.http is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
 
 
 def test_catalog_does_not_generate_audio_and_filters_text_only_models(api, monkeypatch):

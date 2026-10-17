@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { request, type Settings, type SpeechSettings } from "../api";
+import { fishVoiceId, MITA_VOICE } from "./fish";
 
 const endpoints = {
   openrouter: "https://openrouter.ai/api/v1",
@@ -175,15 +176,24 @@ export function CloudSpeechSettings({
   );
   const voiceId = (
     <Field
-      label={fish ? "ID голоса Fish Audio" : "Облачный голос или ID голоса"}
+      label={
+        fish
+          ? "Ссылка или ID голоса Fish Audio"
+          : "Облачный голос или ID голоса"
+      }
       value={settings.tts_cloud_voice}
       list="cloud-voices"
-      onSave={(value) =>
-        change({
-          tts_cloud_voice: value,
-          ...(fish && value ? { tts_use_reference: false } : {}),
-        })
-      }
+      onSave={(value) => {
+        try {
+          const voice = fish ? fishVoiceId(value) : value;
+          change({
+            tts_cloud_voice: voice,
+            ...(fish && voice ? { tts_use_reference: false } : {}),
+          });
+        } catch (error) {
+          onError(error);
+        }
+      }}
     />
   );
 
@@ -297,10 +307,21 @@ export function CloudSpeechSettings({
             {settings.tts_use_reference && info?.reference
               ? `Голос из образца: ${info.reference.name} · ${info.reference.seconds} с`
               : settings.tts_cloud_voice
-                ? `Голос Fish: ${settings.tts_cloud_voice}`
+                ? `Голос Fish: ${settings.tts_cloud_voice === MITA_VOICE ? "Мита Кепочка" : settings.tts_cloud_voice}`
                 : "Голос Fish по умолчанию. Для женского тембра выберите образец."}
           </p>
           <div className="button-row">
+            <button
+              className="outline"
+              onClick={() =>
+                change({
+                  tts_cloud_voice: MITA_VOICE,
+                  tts_use_reference: false,
+                })
+              }
+            >
+              Мита Кепочка
+            </button>
             {info?.serena_available && (
               <button
                 className="outline"
@@ -323,6 +344,7 @@ export function CloudSpeechSettings({
               Загрузить свой WAV
             </button>
           </div>
+          {voiceId}
           <input
             type="file"
             accept=".wav,audio/wav"
@@ -393,7 +415,7 @@ export function CloudSpeechSettings({
         <summary>Дополнительно: API, голос и формат</summary>
         {settings.tts_service !== "compatible" && address}
         {!customModel && settings.tts_model && modelId}
-        {(fishReference || voices.length > 0) && voiceId}
+        {voices.length > 0 && voiceId}
         <Field
           label="Манера облачной речи"
           value={settings.tts_style}
@@ -431,10 +453,10 @@ export function CloudSpeechSettings({
         {fishReference && (
           <>
             <p className="help">
-              ID берётся из Fish Audio; слово «female» и имя Serena не являются
-              ID. Женский образец задаёт тембр, сходство зависит от записи и
-              модели. WAV: PCM16, 1–30 секунд, до 5 МБ. Образец хранится на этом
-              ПК и не включается в резервную копию.
+              Скопируйте адрес страницы голоса Fish Audio в поле ссылки выше.
+              Женский образец задаёт тембр, сходство зависит от записи и модели.
+              WAV: PCM16, 1–30 секунд, до 5 МБ. Образец хранится на этом ПК и не
+              включается в резервную копию.
             </p>
             {info?.reference && (
               <button

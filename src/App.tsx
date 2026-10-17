@@ -782,8 +782,15 @@ export function App() {
           config.tts_engine === "qwen3"
             ? 240
             : config.tts_engine === "cloud"
-              ? 800
+              ? 300
               : 0,
+        ...(config.tts_engine === "cloud"
+          ? {
+              firstCharacters: 180,
+              firstMinimum: 24,
+              firstWaitMs: 200,
+            }
+          : {}),
       },
     );
     localSpeechId.current = speechId;

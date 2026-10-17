@@ -3,7 +3,9 @@ import asyncio
 import base64
 import io
 import json
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 import wave
 
 import httpx
@@ -20,8 +22,23 @@ MAX_REFERENCE = 5 * 1024**2
 MAX_AUDIO = 40 * 1024**2
 
 
+def fish_voice_id(value):
+    text = value.strip()
+    if not re.match(r"https?://", text, re.I):
+        return text
+    try:
+        url = urlparse(text)
+        match = re.fullmatch(r"/(?:[a-z]{2}(?:-[a-z]{2})?/|app/)?m/([a-f\d]{32})/?", url.path, re.I)
+        if url.scheme.lower() == "https" and url.hostname in {"fish.audio", "www.fish.audio"} and not url.username and not url.password and url.port is None and match:
+            return match[1].lower()
+    except ValueError:
+        pass
+    raise ValueError("Вставьте ссылку на страницу голоса fish.audio/m/ID/ или сам ID голоса")
+
+
 def client(timeout=180):
-    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10), trust_env=False)
+    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10), trust_env=False,
+                             limits=httpx.Limits(max_connections=4, max_keepalive_connections=2, keepalive_expiry=60))
 
 
 def get_key(url):
@@ -66,6 +83,13 @@ class CloudSpeech:
         self.metadata = self.reference.with_suffix(".json")
         self.serena = Path(__file__).resolve().parents[1] / "local/voice-samples/qwen3-serena.wav"
         self.requests = {}
+        self.http = None
+
+    async def close(self):
+        await self.stop()
+        if self.http is not None:
+            await self.http.aclose()
+            self.http = None
 
     def reference_info(self):
         try:
@@ -144,7 +168,7 @@ class CloudSpeech:
             fmt = "pcm" if config.tts_model.startswith("google/") else "mp3"
         body = {"model": config.tts_model, "input": text, "response_format": fmt}
         if config.tts_cloud_voice.strip():
-            body["voice"] = config.tts_cloud_voice.strip()
+            body["voice"] = fish_voice_id(config.tts_cloud_voice) if config.tts_model.startswith("fish-audio/") else config.tts_cloud_voice.strip()
         if config.tts_style.strip():
             if config.tts_service == "routerai":
                 if config.tts_model.startswith("google/"):
@@ -159,18 +183,19 @@ class CloudSpeech:
             body["input_references"] = [{"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64," + base64.b64encode(sample).decode("ascii")}}]
         self.requests[request_id] = asyncio.current_task()
         try:
-            async with client() as http:
-                async with http.stream("POST", config.tts_base_url + "/audio/speech", headers={"Authorization": "Bearer " + key}, json=body) as response:
-                    if response.status_code != 200:
-                        messages = {401: "Ключ озвучки отклонён", 403: "Нет доступа к выбранной модели озвучки", 402: "Недостаточно средств на балансе сервиса озвучки",
-                                    404: "Облачная модель или адрес озвучки не найдены", 429: "Лимит запросов озвучки исчерпан. Подождите и повторите"}
-                        raise ValueError(messages.get(response.status_code, "Сервис озвучки отклонил запрос. Проверьте модель, голос и формат") + f" (HTTP {response.status_code})")
-                    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                    data = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        data.extend(chunk)
-                        if len(data) > MAX_AUDIO:
-                            raise ValueError("Аудио превысило допустимый размер; сократите фрагмент текста")
+            if self.http is None or self.http.is_closed:
+                self.http = client()
+            async with self.http.stream("POST", config.tts_base_url + "/audio/speech", headers={"Authorization": "Bearer " + key}, json=body) as response:
+                if response.status_code != 200:
+                    messages = {401: "Ключ озвучки отклонён", 403: "Нет доступа к выбранной модели озвучки", 402: "Недостаточно средств на балансе сервиса озвучки",
+                                404: "Облачная модель или адрес озвучки не найдены", 429: "Лимит запросов озвучки исчерпан. Подождите и повторите"}
+                    raise ValueError(messages.get(response.status_code, "Сервис озвучки отклонил запрос. Проверьте модель, голос и формат") + f" (HTTP {response.status_code})")
+                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > MAX_AUDIO:
+                        raise ValueError("Аудио превысило допустимый размер; сократите фрагмент текста")
             data = bytes(data)
             if not data or "json" in content_type or content_type.startswith("text/"):
                 raise ValueError("Сервис вернул пустой ответ или сообщение вместо аудио")

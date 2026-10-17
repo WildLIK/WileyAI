@@ -145,6 +145,27 @@ test("cloud speech: compact service settings, female reference and persisted ind
     expect(samples[2].cloud.tts_use_reference).toBe(true);
     expect(samples[2].cloud.tts_cloud_voice).toBe("");
     expect(samples[2].cloud.tts_model).toBe("fish-audio/s2.1-pro-free:free");
+    await page
+      .getByRole("button", { name: "Мита Кепочка", exact: true })
+      .click();
+    await expect(
+      page.getByLabel("Использовать WAV-образец для Fish", { exact: true }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByText("Голос Fish: Мита Кепочка", { exact: true }),
+    ).toBeVisible();
+    const voiceLink = page.getByLabel("Ссылка или ID голоса Fish Audio", {
+      exact: true,
+    });
+    await voiceLink.fill(
+      "https://fish.audio/ru/m/ff1ae409865e4c7493db061913d77a79/?share=1",
+    );
+    await voiceLink.blur();
+    await listen();
+    expect(samples[3].cloud.tts_cloud_voice).toBe(
+      "ff1ae409865e4c7493db061913d77a79",
+    );
+    expect(samples[3].cloud.tts_use_reference).toBe(false);
     await group.screenshot({
       path: "local/screenshots/cloud-speech-fish-compact.png",
     });
@@ -182,6 +203,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "fish-audio/s2.1-pro-free:free",
       "fish-audio/s2.1-pro-free:free",
       "fish-audio/s2.1-pro-free:free",
+      "fish-audio/s2.1-pro-free:free",
       "google/gemini-3.8-flash-tts",
       "google/gemini-3.8-flash-lite-tts",
       "x-ai/grok-voice-tts-1.0",
@@ -190,6 +212,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
       "",
       "",
       "",
+      "ff1ae409865e4c7493db061913d77a79",
       "Sulafat",
       "Achernar",
       "eve",
@@ -199,7 +222,10 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await expect(model).toHaveValue("fish-audio/s2.1-pro-free:free");
     await expect(
       page.getByLabel("Использовать WAV-образец для Fish", { exact: true }),
-    ).toBeChecked();
+    ).not.toBeChecked();
+    expect((await settings()).tts_cloud_voice).toBe(
+      "ff1ae409865e4c7493db061913d77a79",
+    );
     await service.selectOption("routerai");
     await expect(model).toHaveValue("x-ai/grok-voice-tts-1.0");
     await expect(

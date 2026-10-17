@@ -27,6 +27,76 @@ test("bounds a long sentence and discards markup-only pieces", () => {
     chunks.every((chunk) => chunk.length <= 240 && /[а-я]/.test(chunk)),
   );
 });
+
+test("cloud joins a tiny acknowledgement to the reply and bounds the first audio and following batches", async () => {
+  const rendered: string[] = [];
+  const output = new SpeechOutput(
+    async (text) => {
+      rendered.push(text);
+      return text;
+    },
+    async () => {},
+    undefined,
+    {
+      batchCharacters: 300,
+      firstCharacters: 180,
+      firstMinimum: 24,
+      firstWaitMs: 200,
+    },
+  );
+  output.push("Поняла. ");
+  await tick();
+  assert.deepEqual(rendered, []);
+  const rest =
+    "Сейчас подробно расскажу о голосе персонажа и настройке программы, чтобы разговор звучал естественно. "
+      .repeat(20)
+      .trim();
+  output.push(rest + " ");
+  await tick();
+  assert.ok(rendered[0].startsWith("Поняла. Сейчас подробно"));
+  assert.ok(rendered[0].length <= 180);
+  output.finish();
+  await output.done;
+  assert.ok(rendered.every((text) => text.length <= 300));
+  assert.equal(rendered.join(" "), "Поняла. " + rest);
+});
+
+test("cloud acknowledgement wait is bounded and immediately cancellable", async () => {
+  let rendered = 0;
+  const output = new SpeechOutput(
+    async (text) => {
+      rendered++;
+      return text;
+    },
+    async () => {},
+    undefined,
+    {
+      batchCharacters: 300,
+      firstCharacters: 180,
+      firstMinimum: 24,
+      firstWaitMs: 200,
+    },
+  );
+  output.push("Поняла. ");
+  await tick();
+  output.cancel();
+  await assert.rejects(output.done, { name: "AbortError" });
+  assert.equal(rendered, 0);
+  const short = new SpeechOutput(
+    async (text) => {
+      rendered++;
+      return text;
+    },
+    async () => {},
+    undefined,
+    { batchCharacters: 300, firstMinimum: 24, firstWaitMs: 10 },
+  );
+  short.push("Поняла. ");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(rendered, 1);
+  short.finish();
+  await short.done;
+});
 test("plays before text completion, prefetches only one segment, preserves order", async () => {
   const rendered: string[] = [],
     played: string[] = [];

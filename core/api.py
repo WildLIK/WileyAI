@@ -183,6 +183,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             await asyncio.gather(scheduler, monitoring, return_exceptions=True)
             await jobs.close()
             await voice.stop()
+            await voice.cloud.close()
 
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
