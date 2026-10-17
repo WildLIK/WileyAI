@@ -235,6 +235,9 @@ declare global {
       avatarBytes(): Promise<Uint8Array | null>;
       clickThrough(enabled: boolean): Promise<void>;
       quit(): Promise<void>;
+      restart(): Promise<void>;
+      startOllama(): Promise<void>;
+      openUpdate(): Promise<void>;
       exportBackup(): Promise<{ path: string; bytes: number } | null>;
       previewBackup(): Promise<BackupPreview | null>;
       restoreBackup(options: {

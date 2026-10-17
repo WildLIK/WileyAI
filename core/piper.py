@@ -47,7 +47,7 @@ class Piper:
     def download(self, name):
         folder = self.folder(name)
         if not self.available():
-            raise ValueError("Установите движок: uv sync --extra dev --extra voice --extra tts --extra piper; перезапустите WileyAI")
+            raise ValueError("Установите компонент Piper в разделе «Модели → Компоненты» и перезапустите WileyAI")
         with self.download_lock:
             if self.installed(name):
                 return

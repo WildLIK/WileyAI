@@ -36,10 +36,18 @@ from .tools import OpenTools, ACCESS_FIELDS
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
 from .voice_resources import run_idle_resources
+from .components import Components
+from .updates import Updates
+from .version import VERSION
 
 
 class TextBody(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
+
+
+class UpdatePreferences(BaseModel):
+    automatic: bool
+    token: str | None = Field(default=None, max_length=4096, pattern=r"^[A-Za-z0-9_]*$")
 
 
 class MemoryBody(BaseModel):
@@ -171,6 +179,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         raise RuntimeError("WILEYAI_TOKEN must contain at least 24 characters")
     store = Store(root)
     jobs = ModelJobs(root)
+    components = Components(root)
+    updates = Updates(root)
     voice = Voice(root)
     monitor = Monitor(store, voice)
     voice.monitor = monitor
@@ -186,13 +196,18 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         scheduler = asyncio.create_task(run_scheduler(store))
         monitoring = asyncio.create_task(monitor.run())
         speech_resources = asyncio.create_task(run_idle_resources(store, voice))
+        updating = asyncio.create_task(updates.run()) if os.environ.get("WILEYAI_TEST") != "1" else None
         try:
             yield
         finally:
             scheduler.cancel()
             monitoring.cancel()
             speech_resources.cancel()
+            if updating:
+                updating.cancel()
+                await asyncio.gather(updating, return_exceptions=True)
             await asyncio.gather(scheduler, monitoring, speech_resources, return_exceptions=True)
+            await components.cancel()
             await jobs.close()
             await voice.stop()
             await voice.cloud.close()
@@ -229,7 +244,39 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.get("/health")
     def health():
         memory = psutil.virtual_memory()
-        return {"status": "ok", "version": "0.1.0", "data_dir": str(root.resolve()), "ram_total": memory.total, "ram_available": memory.available, "stt_available": voice.available()}
+        return {"status": "ok", "version": VERSION, "data_dir": str(root.resolve()), "ram_total": memory.total, "ram_available": memory.available, "stt_available": voice.available()}
+
+    @app.get("/components")
+    def component_status():
+        return components.status()
+
+    @app.post("/components/{key}/install")
+    async def install_component(key: str):
+        return components.start(key)
+
+    @app.post("/components/cancel")
+    async def cancel_component():
+        return await components.cancel()
+
+    @app.get("/updates")
+    def update_status():
+        return updates.state()
+
+    @app.post("/updates/check")
+    async def check_update():
+        return await updates.check()
+
+    @app.put("/updates")
+    def update_preferences(body: UpdatePreferences):
+        return updates.configure(body.automatic, body.token)
+
+    @app.post("/updates/dismiss")
+    def dismiss_update():
+        return updates.dismiss()
+
+    @app.post("/updates/claim")
+    def claim_update():
+        return updates.claim()
 
     @app.get("/monitor")
     async def resources(compact: bool = False):

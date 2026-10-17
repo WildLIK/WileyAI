@@ -11,6 +11,7 @@ const {
   globalShortcut,
   session,
   Notification,
+  shell,
 } = require("electron");
 const { spawn } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
@@ -23,10 +24,39 @@ const { installBackups } = require("./backups.cjs");
 const { createNotificationDelivery } = require("./notifications.cjs");
 
 const root = path.resolve(__dirname, "..");
+const backend = app.isPackaged
+  ? path.join(process.resourcesPath, "backend")
+  : root;
 const dev = process.env.WILEYAI_DEV === "1";
 const test = process.env.WILEYAI_TEST === "1";
 if (test && process.env.WILEYAI_DATA_DIR)
   app.setPath("userData", path.join(process.env.WILEYAI_DATA_DIR, "electron"));
+const dataRoot =
+  process.env.WILEYAI_DATA_DIR ||
+  (app.isPackaged
+    ? path.join(app.getPath("userData"), "data")
+    : path.join(root, "data"));
+const python =
+  process.env.WILEYAI_PYTHON ||
+  (app.isPackaged
+    ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
+    : path.join(root, ".venv", "Scripts", "python.exe"));
+const serviceEnv = {
+  ...process.env,
+  WILEYAI_DATA_DIR: dataRoot,
+  ...(app.isPackaged
+    ? {
+        WILEYAI_PACKAGED: "1",
+        WILEYAI_UV: path.join(
+          process.resourcesPath,
+          "runtime",
+          "tools",
+          "uv.exe",
+        ),
+        WILEYAI_OPENVOICE_CACHE: path.join(dataRoot, "runtimes", "openvoice"),
+      }
+    : {}),
+};
 const windows = new Map();
 let core;
 let connection;
@@ -34,12 +64,10 @@ let tray;
 let quitting = false;
 let ollamaProcess;
 let notificationTimer;
+let updateTimer;
 let backups;
 function spawnService(executable, args, options) {
   if (process.platform !== "win32") return spawn(executable, args, options);
-  const python =
-    process.env.WILEYAI_PYTHON ||
-    path.join(root, ".venv", "Scripts", "python.exe");
   return spawn(
     python,
     ["-m", "core.process_guard", String(process.pid), executable, ...args],
@@ -86,7 +114,25 @@ const deliverNotifications = createNotificationDelivery({
 
 async function startManagedOllama() {
   if (test) return;
-  const executable = path.join(root, "local", "ollama", "ollama.exe");
+  let executable = path.join(root, "local", "ollama", "ollama.exe");
+  try {
+    const marker = JSON.parse(
+      await fs.readFile(
+        path.join(dataRoot, "components", "ollama", "ready.json"),
+        "utf8",
+      ),
+    );
+    if (/^[a-f0-9]{16}$/.test(marker.directory))
+      executable = path.join(
+        dataRoot,
+        "components",
+        "ollama",
+        marker.directory,
+        "ollama.exe",
+      );
+  } catch {
+    /* Source checkout may have the legacy portable engine. */
+  }
   try {
     await fs.access(executable);
   } catch {
@@ -101,16 +147,12 @@ async function startManagedOllama() {
     /* Start the optional portable engine when no server is listening. */
   }
   ollamaProcess = spawnService(executable, ["serve"], {
-    cwd: root,
+    cwd: backend,
     windowsHide: true,
     env: {
-      ...process.env,
+      ...serviceEnv,
       OLLAMA_HOST: "127.0.0.1:11434",
-      OLLAMA_MODELS: path.join(
-        process.env.WILEYAI_DATA_DIR || path.join(root, "data"),
-        "models",
-        "ollama",
-      ),
+      OLLAMA_MODELS: path.join(dataRoot, "models", "ollama"),
       OLLAMA_NO_CLOUD: "1",
       OLLAMA_MAX_LOADED_MODELS: "1",
       OLLAMA_NUM_PARALLEL: "1",
@@ -172,14 +214,11 @@ function trusted(event) {
 
 async function startCore() {
   const token = randomBytes(32).toString("hex");
-  const python =
-    process.env.WILEYAI_PYTHON ||
-    path.join(root, ".venv", "Scripts", "python.exe");
   const child = spawnService(python, ["-m", "core"], {
-    cwd: root,
+    cwd: backend,
     windowsHide: true,
     env: {
-      ...process.env,
+      ...serviceEnv,
       WILEYAI_TOKEN: token,
       WILEYAI_DESKTOP_PID: String(process.pid),
       PYTHONIOENCODING: "utf-8",
@@ -335,6 +374,24 @@ app.whenReady().then(async () => {
     trusted(event);
     return connection;
   });
+  ipcMain.handle("restart", (event) => {
+    trusted(event);
+    if (backups?.restoring || conversation.lease)
+      throw new Error(
+        "Завершите разговор или восстановление перед перезапуском",
+      );
+    app.relaunch();
+    app.quit();
+  });
+  ipcMain.handle("start-ollama", async (event) => {
+    trusted(event);
+    await startManagedOllama();
+  });
+  ipcMain.handle("open-update", async (event) => {
+    trusted(event);
+    // Only a fixed repository page can be opened, never a renderer-supplied URL.
+    await shell.openExternal("https://github.com/WildLIK/WileyAI/releases");
+  });
   ipcMain.handle("conversation-state", (event) => {
     trusted(event);
     return conversation.state(event.sender.id);
@@ -423,6 +480,37 @@ app.whenReady().then(async () => {
     if (!test) {
       app.setAppUserModelId("WileyAI");
       notificationTimer = setInterval(deliverNotifications, 2500);
+      let updatePolling = false;
+      updateTimer = setInterval(async () => {
+        if (updatePolling || quitting || backups?.restoring) return;
+        updatePolling = true;
+        try {
+          const response = await fetch(connection.url + "/updates/claim", {
+            method: "POST",
+            headers: { Authorization: "Bearer " + connection.token },
+            signal: AbortSignal.timeout(3000),
+          });
+          const item = response.ok ? await response.json() : null;
+          if (item && Notification.isSupported()) {
+            const notification = new Notification({
+              title: "Новая версия WileyAI",
+              body:
+                "Доступна версия " +
+                item.version +
+                ". Откройте выпуск на GitHub.",
+              icon: path.join(__dirname, "icon.png"),
+            });
+            notification.on("click", () =>
+              shell.openExternal("https://github.com/WildLIK/WileyAI/releases"),
+            );
+            notification.show();
+          }
+        } catch {
+          /* Update errors are shown in settings; the assistant stays usable. */
+        } finally {
+          updatePolling = false;
+        }
+      }, 60000);
       tray = new Tray(
         nativeImage.createFromPath(path.join(__dirname, "icon.png")),
       );
@@ -456,7 +544,9 @@ app.whenReady().then(async () => {
     dialog.showErrorBox(
       "WileyAI не запустился",
       error.message +
-        "\nПодготовка: uv sync --extra dev, npm install, npm run build",
+        (app.isPackaged
+          ? "\nПереустановите WileyAI из готового установщика. Личные данные сохраняются отдельно."
+          : "\nПодготовка: uv sync --extra dev, npm install, npm run build"),
     );
     app.quit();
   }
@@ -471,6 +561,7 @@ app.on("before-quit", (event) => {
   conversation.stop();
   for (const window of windows.values()) sendToWindow(window, "stop-all");
   clearInterval(notificationTimer);
+  clearInterval(updateTimer);
   globalShortcut.unregisterAll();
   const stopSpeech = connection
     ? fetch(connection.url + "/voice/stop", {

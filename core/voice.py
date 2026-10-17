@@ -21,6 +21,8 @@ from .qwen import QwenSpeech
 from .cloud_speech import CloudSpeech
 from .openvoice import OpenVoice, LOCAL_ENGINES
 
+POWERSHELL = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe") if os.name == "nt" else "powershell.exe"
+
 
 class SpeechCancelled(ValueError):
     pass
@@ -69,7 +71,7 @@ class Voice:
 
     def _load_stt(self, model: str):
         if not self.available():
-            raise ValueError("Модуль речи не установлен. Выполните uv sync --extra dev --extra voice и перезапустите WileyAI.")
+            raise ValueError("Установите компонент Whisper в разделе «Модели → Компоненты» и перезапустите WileyAI.")
         from faster_whisper import WhisperModel
         folder = self.root / "models" / "whisper" / model
         if not folder.is_dir() or not (folder / "model.bin").is_file():
@@ -92,7 +94,7 @@ class Voice:
 
     def download(self, model: str):
         if not self.available():
-            raise ValueError("Для Whisper сначала установите модуль: uv sync --extra dev --extra voice")
+            raise ValueError("Для Whisper сначала установите компонент в разделе «Модели → Компоненты»")
         from faster_whisper.utils import download_model
         folder = self.root / "models" / "whisper" / model
         download_model(model, output_dir=str(folder))
@@ -142,7 +144,7 @@ class Voice:
         if version not in {"v5_ru", "v5_6_ru"}:
             raise ValueError("Неизвестная версия Silero")
         if not self.tts_available():
-            raise ValueError("Сначала установите модуль озвучки: uv sync --extra dev --extra voice --extra tts")
+            raise ValueError("Сначала установите компонент Silero / Torch CPU в разделе «Модели → Компоненты» и перезапустите WileyAI")
         with self.download_lock:
             self._download_tts(version)
 
@@ -217,7 +219,7 @@ class Voice:
     async def voices(self) -> list[dict]:
         if os.name != "nt":
             return []
-        process = await asyncio.create_subprocess_exec("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; @($s.GetInstalledVoices() | ForEach-Object { @{name=$_.VoiceInfo.Name; language=$_.VoiceInfo.Culture.Name} }) | ConvertTo-Json -Compress", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+        process = await asyncio.create_subprocess_exec(POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; @($s.GetInstalledVoices() | ForEach-Object { @{name=$_.VoiceInfo.Name; language=$_.VoiceInfo.Culture.Name} }) | ConvertTo-Json -Compress", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
         out, _ = await process.communicate()
         if process.returncode:
             return []
@@ -380,7 +382,7 @@ try {
     if ($ms) { $ms.Dispose() }
 }
 """
-            self.speech = await asyncio.create_subprocess_exec("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.speech = await asyncio.create_subprocess_exec(POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
             process = self.speech
             self.speech_id = request_id
         try:

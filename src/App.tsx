@@ -29,6 +29,8 @@ import {
 import { Productivity, Capabilities } from "./Productivity";
 import { MemoryPanel, MemorySuggestions } from "./Memory";
 import { BackupPanel } from "./Backups";
+import { ComponentPanel } from "./Components";
+import { UpdateNotice, UpdatesPanel } from "./Updates";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
@@ -1508,6 +1510,7 @@ export function App() {
             />
           </div>
         )}
+        <UpdateNotice />
         {error && (
           <div className="error global-message" role="alert">
             <span>{error}</span>
@@ -2037,6 +2040,7 @@ export function App() {
                 ↻ Обновить
               </button>
             </div>
+            <ComponentPanel onReady={() => void run(async () => { await refreshModels(); })} />
             <div
               className="model-categories"
               role="tablist"
@@ -3169,7 +3173,8 @@ export function App() {
                     }
                     onError={fail}
                     onNotice={setNotice}
-                  />{" "}
+                  />
+                  <UpdatesPanel />
                 </div>
               </div>
             </div>

@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +16,7 @@ import wave
 import zipfile
 
 PROJECT = Path(__file__).resolve().parents[1]
-CACHE = PROJECT / "local/openvoice-probe"
+CACHE = Path(os.environ.get("WILEYAI_OPENVOICE_CACHE", PROJECT / "local/openvoice-probe"))
 SOURCE_REV = "74a1d147b17a8c3092dd5430504bd83ef6c7eb23"
 MODEL_REV = "f36e7edfe1684461a8343844af60babc2efbb727"
 FILES = {
@@ -29,7 +30,7 @@ sys.path.insert(0, str(PROJECT))
 
 def prepare():
     import httpx
-    subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--target", str(CACHE / "deps"), *DEPENDENCIES], check=True)
+    subprocess.run([os.environ.get("WILEYAI_UV", "uv"), "pip", "install", "--python", sys.executable, "--target", str(CACHE / "deps"), *DEPENDENCIES], check=True)
     source = CACHE / "source"
     response = httpx.get(f"https://codeload.github.com/myshell-ai/OpenVoice/zip/{SOURCE_REV}", timeout=120)
     response.raise_for_status()

@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timezone
 from .speech_text import speech_chunks
 from .qwen_session import Session, WorkerExited
+from .components import component_directory
 
 import httpx
 
@@ -41,6 +42,8 @@ class QwenSpeech:
         self.error_log = root / "logs" / "qwen-error.json"
         self.project = Path(__file__).resolve().parents[1]
         environment = self.project / "local" / "qwen-tts" / ".venv"
+        self.data = root
+        self.environment = environment
         self.python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         self.package = environment / ("Lib/site-packages/qwen_tts" if os.name == "nt" else "lib/python3.12/site-packages/qwen_tts")
         self.download_lock = threading.Lock()
@@ -48,6 +51,11 @@ class QwenSpeech:
         self.sessions: dict[str, Session] = {}
 
     def available(self):
+        directory = component_directory(self.data, "qwen")
+        if directory:
+            environment = directory / "venv"
+            self.python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            self.package = environment / ("Lib/site-packages/qwen_tts" if os.name == "nt" else "lib/python3.12/site-packages/qwen_tts")
         return self.python.is_file() and (self.package / "__init__.py").is_file()
 
     def installed(self):
@@ -60,7 +68,7 @@ class QwenSpeech:
 
     def prepare(self, speaker=""):
         if not self.available():
-            raise ValueError("Подготовьте отдельный движок: npm run setup:qwen. Основное окружение WileyAI менять не нужно")
+            raise ValueError("Установите компонент Qwen3-TTS CPU в разделе «Модели → Компоненты». Для разработчиков: npm run setup:qwen")
         if not self.installed():
             raise ValueError("Скачайте Qwen3-TTS 0.6B в разделе «Модели → Озвучка»")
         if speaker and speaker not in {voice["name"] for voice in VOICES}:

@@ -14,7 +14,7 @@ import wave
 from .qwen_session import Session
 
 PROJECT = Path(__file__).resolve().parents[1]
-CACHE = PROJECT / "local/openvoice-probe"
+CACHE = Path(os.environ.get("WILEYAI_OPENVOICE_CACHE", PROJECT / "local/openvoice-probe"))
 FILES = {
     "config.json": "9dfff60350b8c63f2c664efd92a61b2516efb22671466960f0e5dfebd881fa47",
     "checkpoint.pth": "9652c27e92b6b2a91632590ac9962ef7ae2b712e5c5b7f4c34ec55ee2b37ab9e",
@@ -53,7 +53,7 @@ class OpenVoice:
 
     def validate(self, key):
         if not self.installed():
-            raise ValueError("Установите OpenVoice в настройках голоса. Нужен также локальный модуль Torch: uv sync --extra dev --extra voice --extra tts --extra piper")
+            raise ValueError("Установите OpenVoice в настройках голоса. Также нужен компонент Silero / Torch CPU из раздела «Модели → Компоненты»")
         path = self.reference(key)
         if not path.is_file():
             raise ValueError("Образец этого тембра OpenVoice отсутствует. Загрузите свой WAV-образец")

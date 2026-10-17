@@ -1,0 +1,41 @@
+appId: ru.wildlik.wileyai
+productName: WileyAI
+asar: true
+directories:
+  output: local/releases
+files:
+  - desktop/**
+  - dist/**
+  - package.json
+  - "!node_modules/**"
+extraResources:
+  - from: core
+    to: backend/core
+    filter: ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+  - from: scripts/probe-voice-conversion.py
+    to: backend/scripts/probe-voice-conversion.py
+  - from: local/packaging/requirements
+    to: backend/requirements
+  - from: local/packaging/python
+    to: runtime/python
+    filter: ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+  - from: local/packaging/tools
+    to: runtime/tools
+  - from: local/packaging/licenses
+    to: licenses
+  - from: local/packaging/build-info.json
+    to: build-info.json
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  executableName: WileyAI
+  signExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  artifactName: WileyAI-Setup-${version}-${arch}.${ext}
