@@ -35,6 +35,7 @@ import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
+import { DocumentContext } from "./DocumentContext";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
@@ -1501,6 +1502,7 @@ export function App() {
                         onError={fail}
                         onNotice={setNotice}
                       />
+                      <DocumentContext message={message} />
                       {Boolean(message.memory_context?.length) && (
                         <details className="memory-context">
                           <summary>Передано в контекст из памяти</summary>

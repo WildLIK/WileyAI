@@ -13,6 +13,7 @@ from .memory import CATEGORIES, fingerprint, infer_category, normalized, search_
 from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
 from . import notifications
 from .document_library import migrate as migrate_documents
+from .document_context import DocumentFragment
 
 
 def now() -> str:
@@ -56,6 +57,8 @@ class Store:
             migrate_chats(db)
             notifications.migrate(db)
             migrate_documents(db)
+            if "document_context" not in {row["name"] for row in db.execute("PRAGMA table_info(messages)")}:
+                db.execute("ALTER TABLE messages ADD COLUMN document_context TEXT NOT NULL DEFAULT '[]'")
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -99,8 +102,11 @@ class Store:
         # insertion order for ties, including when choosing the last dialogue turn.
         return [dict(row) for row in reversed(rows)]
 
-    def add_message(self, role: str, content: str, memory_context: list[dict] | None = None, web_search: dict | None = None) -> dict:
+    def add_message(self, role: str, content: str, memory_context: list[dict] | None = None, web_search: dict | None = None, document_context: list[dict] | None = None) -> dict:
         item = dict(id=uuid.uuid4().hex, role=role, content=content, created=now())
+        fragments = [DocumentFragment.model_validate(row).model_dump() for row in document_context or []]
+        if len(fragments) > 20 or (fragments and role != "assistant"):
+            raise ValueError("Фрагменты документов сохраняются только для ответа, не более 20")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             if not db.execute("SELECT 1 FROM conversations WHERE id=?", (self.conversation_id,)).fetchone():
@@ -108,6 +114,9 @@ class Store:
             item["conversation_id"] = self.conversation_id
             first = not db.execute("SELECT 1 FROM messages WHERE conversation_id=?", (self.conversation_id,)).fetchone()
             db.execute("INSERT INTO messages (id,role,content,created,conversation_id) VALUES (:id,:role,:content,:created,:conversation_id)", item)
+            if fragments:
+                db.execute("UPDATE messages SET document_context=? WHERE id=?", (json.dumps(fragments, ensure_ascii=False), item["id"]))
+                item["document_context"] = fragments
             db.execute("UPDATE conversations SET updated=?,title=CASE WHEN title='Новый чат' AND ? AND ?='user' THEN ? ELSE title END WHERE id=?", (now(), int(first), role, " ".join(content.split())[:70] or "Новый чат", self.conversation_id))
             for memory in memory_context or []:
                 db.execute("INSERT OR IGNORE INTO message_memories SELECT ?,id,revision FROM memories WHERE id=? AND revision=? AND scope_id=?", (item["id"], memory["id"], memory["revision"], self.scope_id))
@@ -119,6 +128,10 @@ class Store:
 
     def messages(self, limit: int = 250) -> list[dict]:
         items = self.list("messages", limit)
+        for item in items:
+            fragments = json.loads(item.pop("document_context", "[]"))
+            if fragments:
+                item["document_context"] = fragments
         if items:
             by_id = {item["id"]: item for item in items}
             for item in items:

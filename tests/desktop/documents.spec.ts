@@ -86,6 +86,49 @@ test("DOCX uploaded from chat stays attached across chat changes and restart and
     expect(prompts[0].messages.at(-1)!.content).toContain(
       "voice-document.docx",
     );
+    const sources = page.locator(".message.assistant .document-context");
+    await expect(sources).toHaveCount(1);
+    await expect(sources.locator("blockquote")).not.toBeVisible();
+    await sources.locator("summary").click();
+    await expect(sources.locator("strong")).toHaveText("voice-document.docx");
+    await expect(sources.locator("blockquote")).toContainText(
+      "код поставки 7351",
+    );
+    const excerpt = await sources.locator("blockquote").innerText();
+    expect(prompts[0].messages[0].content).toContain(excerpt);
+    await expect(sources.locator("small")).toHaveText(/Символы 1–\d+ из \d+/);
+    await sources.screenshot({
+      path: "local/screenshots/document-context-docx.png",
+    });
+    // Deleting the file cannot rewrite the historical excerpt used for this answer.
+    await page.evaluate(async () => {
+      const { url, token } = await window.wiley.connection();
+      const headers = { Authorization: "Bearer " + token };
+      const chats = await (
+        await fetch(url + "/conversations", { headers })
+      ).json();
+      for (const chat of chats) {
+        const docs = await (
+          await fetch(url + "/documents?conversation_id=" + chat.id, {
+            headers,
+          })
+        ).json();
+        for (const doc of docs)
+          await fetch(
+            url + "/documents/" + doc.id + "?conversation_id=" + chat.id,
+            { method: "DELETE", headers },
+          );
+      }
+    });
+    await app.close();
+    app = await launch();
+    page = await app.firstWindow();
+    const restoredSources = page.locator(
+      ".message.assistant .document-context",
+    );
+    await restoredSources.locator("summary").click();
+    await expect(restoredSources.locator("blockquote")).toHaveText(excerpt);
+    await expect(page.locator(".doc-chip")).toHaveCount(0);
     await expect(page.getByRole("alert")).toBeHidden();
   } finally {
     await app.close();
@@ -241,12 +284,16 @@ test("documents: local search, preview, explicit project copy, model selection, 
     await expect(page.locator(".doc-chip")).toHaveCount(1);
     await send(page, "Какой контрольный код ФЕНИКС в файле?");
     expect(prompts.at(-1)!.messages[0].content).toContain("7351");
+    await expect(page.locator(".document-context")).toHaveCount(1);
     await page
       .getByRole("button", { name: "Убрать из вопроса План.txt", exact: true })
       .click();
     await expect(page.locator(".doc-chip")).toHaveCount(0);
     await send(page, "Поговорим о погоде");
     expect(prompts.at(-1)!.messages[0].content).not.toContain("7351");
+    await expect(
+      page.locator(".message.assistant").last().locator(".document-context"),
+    ).toHaveCount(0);
     await docs(page);
     await expect(page.locator(".document-entry")).toHaveCount(1);
     await page

@@ -2325,3 +2325,51 @@ html:has(.pet-window) {
     display: none;
   }
 }
+
+.document-context {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.document-context summary {
+  color: #b2d8c8;
+  cursor: pointer;
+}
+.document-context .help {
+  margin: 9px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.document-context ol {
+  padding-left: 20px;
+  margin: 12px 0;
+}
+.document-context li {
+  padding-left: 3px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.document-context strong {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.document-context small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.document-context blockquote {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-left: 2px solid #476958;
+  background: #10171b;
+  color: #c8d4df;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 250px;
+  overflow-y: auto;
+  line-height: 1.7;
+}

@@ -51,7 +51,7 @@ def extract(name: str, data: bytes) -> str:
     return text
 
 
-def context_for(question: str, documents: list[dict], budget: int = 6000) -> str:
+def selected_context(question: str, documents: list[dict], budget: int = 6000) -> dict:
     def terms(value):
         return {word[:6] if re.fullmatch(r"[а-я]+", word) else word for word in re.findall(r"[^\W_]{2,}", normalized(value)) if word not in STOP_WORDS}
 
@@ -64,16 +64,16 @@ def context_for(question: str, documents: list[dict], budget: int = 6000) -> str
                 yield (len(words & terms(chunk)), -offset, offset, chunk)
         best = heapq.nlargest(2, chunks())
         for position, (score, _, offset, chunk) in enumerate(best):
-            row = (score, -index, document["name"][:80], offset, chunk)
+            row = (score, -index, document["name"], offset, chunk)
             if position == 0:
                 primary.append(row)
             elif score and abs(offset - best[0][2]) >= 1200:
                 secondary.append(row)
     primary.sort(key=lambda row: (row[0], row[1]), reverse=True)
     secondary.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    fragments, used = [], 0
-    for index, (_, _, name, offset, chunk) in enumerate(primary + secondary):
-        header = f"Источник: {name}, фрагмент с символа {offset + 1}\n"
+    fragments, sources, used = [], [], 0
+    for index, (_, source_index, name, offset, chunk) in enumerate(primary + secondary):
+        header = f"Источник: {name[:80]}, фрагмент с символа {offset + 1}\n"
         remaining = max(1, len(primary) - index)
         allowance = max(0, (budget - used) // remaining - len(header) - (2 if fragments else 0))
         if allowance < 30:
@@ -83,9 +83,18 @@ def context_for(question: str, documents: list[dict], budget: int = 6000) -> str
             match = next((match for match in re.finditer(r"[^\W_]{2,}", chunk) if terms(match[0]) & words), None)
             if match:
                 shift = max(0, min(len(chunk) - allowance, match.start() - allowance // 3))
-                header = f"Источник: {name}, фрагмент с символа {offset + shift + 1}\n"
+                header = f"Источник: {name[:80]}, фрагмент с символа {offset + shift + 1}\n"
                 allowance = max(0, (budget - used) // remaining - len(header) - (2 if fragments else 0))
-        fragment = header + chunk[shift:shift + allowance]
+        excerpt = chunk[shift:shift + allowance]
+        fragment = header + excerpt
         used += len(fragment) + (2 if fragments else 0)
         fragments.append(fragment)
-    return "\n\n".join(fragments)
+        document = documents[-source_index]
+        if document.get("id"):
+            sources.append({"document_id": document["id"], "name": name, "offset": offset + shift,
+                            "text": excerpt, "total": len(document["content"])})
+    return {"text": "\n\n".join(fragments), "sources": sources}
+
+
+def context_for(question: str, documents: list[dict], budget: int = 6000) -> str:
+    return selected_context(question, documents, budget)["text"]

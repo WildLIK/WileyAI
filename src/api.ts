@@ -95,6 +95,14 @@ export interface Message {
   memory_context?: { id: string; content: string; revision: number }[];
   web_search?: WebSearch;
   conversation_id?: string;
+  document_context?: DocumentFragment[];
+}
+export interface DocumentFragment {
+  document_id: string;
+  name: string;
+  offset: number;
+  text: string;
+  total: number;
 }
 export interface Chat {
   id: string;

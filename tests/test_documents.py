@@ -123,13 +123,13 @@ def test_old_documents_are_indexed_without_changing_content(tmp_path):
     assert Library(Store(tmp_path)).read("old")["text"] == "Полёт ЁЖИКА"
 
 
-def test_project_backups_v6_roundtrip_and_old_copy(tmp_path):
+def test_project_backups_roundtrip_and_old_copy(tmp_path):
     store, _, project, first, second = setup(tmp_path / "source")
     library = Library(store.for_chat(first["id"]))
     original = library.add("План.txt", "ПРОЕКТНАЯ-БИБЛИОТЕКА")
     shared = library.publish(original["id"])
     archive = Backups(store).export()
-    assert json.loads(archive)["version"] == 6
+    assert json.loads(archive)["version"] == 7
     target = Store(tmp_path / "target")
     manager = Backups(target)
     preview = manager.preview(archive)

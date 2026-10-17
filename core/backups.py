@@ -23,6 +23,7 @@ from .tools import ACCESS_FIELDS
 from .calendar import EventBody
 from .notifications import reminder_time
 from .document_library import rebuild_index as rebuild_document_index
+from .document_context import DocumentFragment
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200_000
@@ -55,6 +56,7 @@ class Message(Dated):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=1_000_000)
     conversation_id: Id = "legacy"
+    document_context: list[DocumentFragment] = Field(default_factory=list, max_length=20)
 
 
 class Memory(Dated):
@@ -218,7 +220,7 @@ class Data(Record):
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3, 4, 5, 6]
+    version: Literal[1, 2, 3, 4, 5, 6, 7]
     created: Timestamp
     settings: dict
     data: Data
@@ -249,6 +251,10 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 7 and any(row.document_context for row in bundle.data.messages):
+            raise ValueError("Контекст документов требует формат 7")
+        if any(row.document_context and row.role != "assistant" for row in bundle.data.messages):
+            raise ValueError("Фрагменты документов без ответа ассистента")
         if bundle.version < 6 and bundle.data.project_documents:
             raise ValueError("Документы проекта требуют формат 6")
         if bundle.version < 5 and (bundle.data.calendar_alerts or any(row.reminder_minutes is not None or row.reminder_at is not None or row.reminder_sent for row in bundle.data.calendar_events)):
@@ -368,10 +374,13 @@ def snapshot(db) -> dict:
         if name == "web_searches":
             for item in tables[name]:
                 item["results"] = json.loads(item["results"])
+        if name == "messages":
+            for item in tables[name]:
+                item["document_context"] = json.loads(item["document_context"])
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 6, "created": now(), "settings": settings.model_dump(), "data": tables}
+    return {"format": "wileyai.backup", "version": 7, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:
@@ -458,6 +467,8 @@ class Backups:
                     rows = [{**row, "fingerprint": fingerprint(row["content"])} for row in rows]
                 if name == "web_searches":
                     rows = [{**row, "results": json.dumps(row["results"], ensure_ascii=False)} for row in rows]
+                if name == "messages":
+                    rows = [{**row, "document_context": json.dumps(row["document_context"], ensure_ascii=False)} for row in rows]
                 if name == "routines":
                     rows = [{**row, "steps": json.dumps(row["steps"], ensure_ascii=False)} for row in rows]
                 if rows:
