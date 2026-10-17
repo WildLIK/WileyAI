@@ -26,6 +26,8 @@ test("live Qwen: synthesis through Electron and the real core uses the isolated 
       page.getByRole("heading", { name: "Привет, я Уайли." }),
     ).toBeVisible();
     await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByLabel("Движок озвучки", { exact: true })
       .selectOption("qwen3");

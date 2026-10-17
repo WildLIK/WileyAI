@@ -100,6 +100,9 @@ test("backups: native save/open, preview, stale guard, protective copy, all-wind
     ).toBeVisible();
     await change(page, "seed");
     await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await page
+      .getByRole("tab", { name: "Данные и копии", exact: true })
+      .click();
     await expect(page.getByLabel("Имя", { exact: true })).toHaveValue(
       "Уайли из копии",
     );
@@ -233,6 +236,9 @@ test("backups: native save/open, preview, stale guard, protective copy, all-wind
       page.getByRole("heading", { name: "После просмотра", exact: true }),
     ).toHaveCount(0);
     await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await page
+      .getByRole("tab", { name: "Данные и копии", exact: true })
+      .click();
     // Invalid and cancelled picker results must leave the restored data intact.
     const invalid = join(data, "invalid.json");
     await writeFile(invalid, "not a backup");

@@ -34,6 +34,7 @@ import { RoutinePanel, ToolAccess } from "./Routines";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
+import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
@@ -124,6 +125,8 @@ export function App() {
   const view = new URLSearchParams(location.search).get("view") || "chat";
   const [tab, setTab] = useState(view === "settings" ? "settings" : "chat");
   const [settings, setSettings] = useState<Settings>();
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("personality");
   const savedSettings = useRef<Settings | undefined>(undefined);
   const voiceSave = useRef<Promise<void>>(Promise.resolve());
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -1653,6 +1656,7 @@ export function App() {
                       disabled={busy || conversation.active || recording}
                       onClick={() => {
                         if (!settings.search_enabled) {
+                          setSettingsSection("search");
                           setTab("settings");
                           setNotice(
                             "Подключите поисковый сервис и разрешите веб-поиск в настройках.",
@@ -1786,7 +1790,10 @@ export function App() {
                 </div>
                 <button
                   className="outline full"
-                  onClick={() => setTab("settings")}
+                  onClick={() => {
+                    setSettingsSection("personality");
+                    setTab("settings");
+                  }}
                 >
                   Настроить персонажа
                 </button>
@@ -1927,6 +1934,7 @@ export function App() {
                                   tts_voice: item.voice || "",
                                   openvoice_enabled: false,
                                 });
+                                setSettingsSection("speech");
                                 setTab("settings");
                               })
                             }
@@ -2280,12 +2288,14 @@ export function App() {
         )}
 
         {tab === "settings" && (
-          <section className="page scroll-page">
-            <div className="page-heading">
+          <section className="page scroll-page settings-page">
+            <div className="page-heading settings-heading">
               <div>
-                <span className="eyebrow">ПОД ВАШ РИТМ</span>
                 <h1>Настройки ассистента</h1>
-                <p>Характер, подключение и голос — в одном месте.</p>
+                <p>
+                  Выберите раздел. Черновики сохраняются при переходе между
+                  разделами.
+                </p>
               </div>
               <button
                 className="primary"
@@ -2295,490 +2305,633 @@ export function App() {
                 Сохранить
               </button>
             </div>
-            <div className="settings-grid">
-              <div className="card">
-                <h2>Личность</h2>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={settings.memory_suggestions}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        memory_suggestions: event.target.checked,
-                      })
-                    }
-                  />
-                  Предлагать память из разговоров
-                </label>
-                <p className="help">
-                  Локальные предложения из новых реплик. Они сохраняются в
-                  память только после принятия.
-                </p>
-                <label>
-                  Имя
-                  <input
-                    value={settings.name}
-                    onChange={(event) =>
-                      setSettings({ ...settings, name: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Характер и манера общения
-                  <textarea
-                    rows={5}
-                    value={settings.personality}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        personality: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Род речи персонажа
-                  <select
-                    aria-label="Род речи персонажа"
-                    value={settings.grammatical_gender}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        grammatical_gender: event.target
-                          .value as Settings["grammatical_gender"],
-                      })
-                    }
-                  >
-                    <option value="feminine">Женский · готова, поняла</option>
-                    <option value="masculine">Мужской · готов, понял</option>
-                    <option value="neutral">Без указания рода</option>
-                  </select>
-                </label>
-                <p className="help">
-                  Определяет, как Уайли говорит о себе. Эта настройка не зависит
-                  от выбранного голоса.
-                </p>
-                <label>
-                  Профиль производительности
-                  <select
-                    value={settings.profile}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        profile: event.target.value as Settings["profile"],
-                      })
-                    }
-                  >
-                    <option value="eco">
-                      Экономичный · выгрузка через 1 минуту
-                    </option>
-                    <option value="balanced">Сбалансированный · 5 минут</option>
-                    <option value="quality">Качество · 15 минут</option>
-                  </select>
-                </label>
-              </div>
-              <div className="card">
-                <h2>Подключение модели</h2>
-                <label>
-                  Движок
-                  <select
-                    aria-label="Движок"
-                    value={settings.provider}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        provider: event.target.value as Settings["provider"],
-                        base_url:
-                          event.target.value === "ollama"
-                            ? "http://127.0.0.1:11434"
-                            : "https://example.com/v1",
-                      })
-                    }
-                  >
-                    <option value="ollama">Ollama</option>
-                    <option value="compatible">Совместимый API</option>
-                  </select>
-                </label>
-                <label>
-                  Адрес сервера
-                  <input
-                    value={settings.base_url}
-                    onChange={(event) =>
-                      setSettings({ ...settings, base_url: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Идентификатор модели
-                  <input
-                    value={settings.model}
-                    onChange={(event) =>
-                      setSettings({ ...settings, model: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Ключ API
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    placeholder={
-                      settings.has_api_key
-                        ? "Ключ сохранён в Windows"
-                        : "Если требуется провайдером"
-                    }
-                    value={apiKey}
-                    onChange={(event) => {
-                      setApiKey(event.target.value);
-                      setKeyTouched(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Контекст, токенов
-                  <input
-                    type="number"
-                    min={1024}
-                    max={32768}
-                    step={1024}
-                    value={settings.context_tokens}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        context_tokens: Number(event.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Максимальная длина ответа, токенов
-                  <input
-                    type="number"
-                    min={256}
-                    max={8192}
-                    step={256}
-                    value={settings.response_tokens}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        response_tokens: Number(event.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <p className="help">
-                  На ответ выделяется до половины выбранного контекста. Если
-                  лимит достигнут, появится пояснение и кнопка продолжения.
-                  Увеличение контекста требует больше памяти.
-                </p>
-                <p className="help">
-                  Сохраните настройки, затем обновите список в разделе «Модели».
-                  Облако подключается только по вашему выбору.
-                </p>
-              </div>
-              <AudioDevices
-                settings={settings}
-                onChange={setSettings}
-                disabled={
-                  busy ||
-                  recording ||
-                  uploading ||
-                  speaking ||
-                  conversation.active
-                }
+            <div className="settings-shell">
+              <SettingsNavigation
+                active={settingsSection}
+                onChange={setSettingsSection}
               />
-              <SearchSettings
-                settings={settings}
-                onChange={setSettings}
-                secret={searchKey}
-                onSecret={(value) => {
-                  setSearchKey(value);
-                  setSearchKeyTouched(true);
-                }}
-              />
-              <div className="card">
-                <h2>Речь и озвучка</h2>
-                <p className="help">
-                  Движок, голос и автоматическая озвучка сохраняются сразу.{" "}
-                  {voiceSaving
-                    ? "Сохраняю…"
-                    : "Ответы читаются по мере готовности фраз."}
-                </p>
-                <label>
-                  Модель распознавания
-                  <select
-                    value={settings.stt_model}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        stt_model: event.target.value as Settings["stt_model"],
-                      })
-                    }
-                  >
-                    {["tiny", "base", "small"].map((value) => (
-                      <option key={value} value={value}>
-                        Whisper {value}
-                        {voice.installed_stt.includes(value)
-                          ? " · установлена"
-                          : " · нужно скачать"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Движок озвучки
-                  <select
-                    aria-label="Движок озвучки"
-                    value={
-                      usesOpenVoice(settings)
-                        ? "openvoice"
-                        : settings.tts_engine
-                    }
-                    onChange={(event) =>
-                      saveVoice(
-                        selectSpeechEngine(event.target.value, settings),
-                      )
-                    }
-                  >
-                    <option value="silero">Silero · русский язык</option>
-                    <option value="silero_v5_6">
-                      Silero 5.6 · выразительная интонация
-                    </option>
-                    <option value="piper">Piper · дополнительные голоса</option>
-                    <option value="openvoice">
-                      OpenVoice · тембр Миты поверх Piper / Silero
-                    </option>
-                    <option value="qwen3">Qwen3-TTS · экспериментальный</option>
-                    <option value="sapi">Системные голоса Windows</option>
-                    <option value="cloud">Облачная озвучка · API</option>
-                  </select>
-                </label>
-                {settings.tts_engine !== "cloud" && (
-                  <label>
-                    Голос ассистента
-                    <select
-                      aria-label="Голос ассистента"
-                      value={settings.tts_voice}
-                      onChange={(event) =>
-                        saveVoice({
-                          tts_voice: event.target.value,
-                        })
-                      }
-                    >
-                      <option value="">
-                        {settings.tts_engine.startsWith("silero")
-                          ? "Ксения · по умолчанию"
-                          : settings.tts_engine === "piper"
-                            ? "Ирина · по умолчанию"
-                            : settings.tts_engine === "qwen3"
-                              ? "Serena · по умолчанию"
-                              : "Голос Windows по умолчанию"}
-                      </option>
-                      {(settings.tts_engine.startsWith("silero")
-                        ? [
-                            { name: "xenia", language: "Ксения · русский" },
-                            { name: "baya", language: "Бая · русский" },
-                            { name: "aidar", language: "Айдар · русский" },
-                            { name: "eugene", language: "Евгений · русский" },
-                            {
-                              name: "kseniya",
-                              language: "Ксения, вариант · русский",
-                            },
-                          ]
-                        : settings.tts_engine === "piper"
-                          ? (voice.piper_voices || []).map((v) => ({
-                              name: v.name,
-                              language:
-                                v.label +
-                                (v.installed
-                                  ? " · установлен"
-                                  : " · нужно скачать"),
-                            }))
-                          : settings.tts_engine === "qwen3"
-                            ? voice.qwen3_voices || []
-                            : voice.voices
-                      ).map((item) => (
-                        <option key={item.name} value={item.name}>
-                          {item.name} · {item.language}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {usesOpenVoice(settings) && (
-                  <OpenVoiceSettings
-                    settings={settings}
-                    onChange={saveVoice}
-                    disabled={speaking || conversation.active || voiceSaving}
-                    onError={fail}
-                    onNotice={setNotice}
-                  />
-                )}
-                {settings.tts_engine === "cloud" && (
-                  <CloudSpeechSettings
-                    settings={settings}
-                    onChange={saveVoice}
-                    flush={() => voiceSave.current}
-                    disabled={speaking || conversation.active || voiceSaving}
-                    onError={fail}
-                    onNotice={setNotice}
-                  />
-                )}
-                {settings.tts_engine === "qwen3" && (
-                  <>
-                    <label>
-                      Устройство Qwen3-TTS
-                      <select
-                        aria-label="Устройство Qwen3-TTS"
-                        value={settings.tts_device}
+              <div className="settings-content">
+                <div
+                  id="settings-panel-personality"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-personality"
+                  hidden={settingsSection !== "personality"}
+                  className="settings-panel"
+                >
+                  <div className="card">
+                    <h2>Личность</h2>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.memory_suggestions}
                         onChange={(event) =>
-                          saveVoice({
-                            tts_device: event.target
-                              .value as Settings["tts_device"],
+                          setSettings({
+                            ...settings,
+                            memory_suggestions: event.target.checked,
+                          })
+                        }
+                      />
+                      Предлагать память из разговоров
+                    </label>
+                    <p className="help">
+                      Локальные предложения из новых реплик. Они сохраняются в
+                      память только после принятия.
+                    </p>
+                    <label>
+                      Имя
+                      <input
+                        value={settings.name}
+                        onChange={(event) =>
+                          setSettings({ ...settings, name: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Характер и манера общения
+                      <textarea
+                        rows={5}
+                        value={settings.personality}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            personality: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Род речи персонажа
+                      <select
+                        aria-label="Род речи персонажа"
+                        value={settings.grammatical_gender}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            grammatical_gender: event.target
+                              .value as Settings["grammatical_gender"],
                           })
                         }
                       >
-                        <option value="auto">
-                          Автоматически · CUDA при свободной памяти, иначе CPU
+                        <option value="feminine">
+                          Женский · готова, поняла
                         </option>
-                        <option value="cuda">Видеокарта NVIDIA · CUDA</option>
-                        <option value="cpu">Процессор · CPU, медленнее</option>
+                        <option value="masculine">
+                          Мужской · готов, понял
+                        </option>
+                        <option value="neutral">Без указания рода</option>
                       </select>
                     </label>
                     <p className="help">
-                      {voice.qwen3_available
-                        ? "Отдельный движок установлен."
-                        : "Подготовьте движок командой npm run setup:qwen."}{" "}
-                      {voice.qwen3_installed
-                        ? "Веса установлены."
-                        : "Скачайте веса в «Модели → Озвучка»."}{" "}
-                      Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти.
-                      Длинные ответы читаются частями. Паузы зависят от скорости
-                      подготовки следующей фразы; дополнительная ОЗУ сама по
-                      себе не ускоряет синтез. В автоматическом режиме занятая
-                      или недоступная видеокарта заменяется CPU. Модель
-                      загружается один раз на ответ и читает готовые фразы; при
-                      остановке память освобождается. На CPU возможна долгая
-                      подготовка. Русская речь у готовых тембров может иметь
-                      акцент. Для мягкого женского голоса попробуйте Serena.
+                      Определяет, как Уайли говорит о себе. Эта настройка не
+                      зависит от выбранного голоса.
                     </p>
-                  </>
-                )}
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={settings.speak_answers}
-                    onChange={(event) =>
-                      saveVoice({
-                        speak_answers: event.target.checked,
-                      })
-                    }
-                  />
-                  Озвучивать ответы автоматически
-                </label>
-                <button
-                  className="outline"
-                  disabled={speaking || conversation.active || voiceSaving}
-                  onClick={() =>
-                    run(() =>
-                      speak(
-                        "Привет! Я Уайли. Давай начнём.",
-                        settings,
-                        undefined,
-                        true,
-                      ),
-                    )
-                  }
+                  </div>
+                </div>
+                <div
+                  id="settings-panel-brain"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-brain"
+                  hidden={settingsSection !== "brain"}
+                  className="settings-panel"
                 >
-                  ♪ Прослушать голос
-                </button>
-                <p className="help">
-                  Escape останавливает озвучку. Ctrl+Shift+Esc работает и в
-                  других приложениях. Локальные голоса скачиваются в «Модели →
-                  Озвучка», облачные настраиваются выше.
-                </p>
-                <p className="help">
-                  После записи распознанный текст появится в поле сообщения: его
-                  можно исправить перед отправкой.
-                </p>
-                <label>
-                  Пауза до конца реплики, мс
-                  <input
-                    type="number"
-                    min={500}
-                    max={2500}
-                    step={100}
-                    value={settings.conversation_silence_ms}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        conversation_silence_ms: Number(event.target.value),
-                      })
+                  <div className="card">
+                    <h2>Подключение модели</h2>
+                    <label>
+                      Движок
+                      <select
+                        aria-label="Движок"
+                        value={settings.provider}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            provider: event.target
+                              .value as Settings["provider"],
+                            base_url:
+                              event.target.value === "ollama"
+                                ? "http://127.0.0.1:11434"
+                                : "https://example.com/v1",
+                          })
+                        }
+                      >
+                        <option value="ollama">Ollama</option>
+                        <option value="compatible">Совместимый API</option>
+                      </select>
+                    </label>
+                    <label>
+                      Адрес сервера
+                      <input
+                        value={settings.base_url}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            base_url: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Идентификатор модели
+                      <input
+                        value={settings.model}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            model: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Ключ API
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        placeholder={
+                          settings.has_api_key
+                            ? "Ключ сохранён в Windows"
+                            : "Если требуется провайдером"
+                        }
+                        value={apiKey}
+                        onChange={(event) => {
+                          setApiKey(event.target.value);
+                          setKeyTouched(true);
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Контекст, токенов
+                      <input
+                        type="number"
+                        min={1024}
+                        max={32768}
+                        step={1024}
+                        value={settings.context_tokens}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            context_tokens: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Максимальная длина ответа, токенов
+                      <input
+                        type="number"
+                        min={256}
+                        max={8192}
+                        step={256}
+                        value={settings.response_tokens}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            response_tokens: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Профиль производительности
+                      <select
+                        value={settings.profile}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            profile: event.target.value as Settings["profile"],
+                          })
+                        }
+                      >
+                        <option value="eco">
+                          Экономичный · выгрузка через 1 минуту
+                        </option>
+                        <option value="balanced">
+                          Сбалансированный · 5 минут
+                        </option>
+                        <option value="quality">Качество · 15 минут</option>
+                      </select>
+                    </label>
+                    <details className="settings-help">
+                      <summary>Контекст и подключение</summary>
+                      <p className="help">
+                        На ответ выделяется до половины выбранного контекста.
+                        Если лимит достигнут, появится пояснение и кнопка
+                        продолжения. Увеличение контекста требует больше памяти.
+                      </p>
+                      <p className="help">
+                        Сохраните настройки, затем обновите список в разделе
+                        «Модели». Облако подключается только по вашему выбору.
+                      </p>
+                    </details>
+                  </div>
+                </div>
+                <div
+                  id="settings-panel-speech"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-speech"
+                  hidden={settingsSection !== "speech"}
+                  className="settings-panel"
+                >
+                  <div className="card">
+                    <h2>Речь и озвучка</h2>
+                    <p className="help">
+                      Движок, голос и автоматическая озвучка сохраняются сразу.{" "}
+                      {voiceSaving
+                        ? "Сохраняю…"
+                        : "Ответы читаются по мере готовности фраз."}
+                    </p>
+                    <label>
+                      Движок озвучки
+                      <select
+                        aria-label="Движок озвучки"
+                        value={
+                          usesOpenVoice(settings)
+                            ? "openvoice"
+                            : settings.tts_engine
+                        }
+                        onChange={(event) =>
+                          saveVoice(
+                            selectSpeechEngine(event.target.value, settings),
+                          )
+                        }
+                      >
+                        <option value="silero">Silero · русский язык</option>
+                        <option value="silero_v5_6">
+                          Silero 5.6 · выразительная интонация
+                        </option>
+                        <option value="piper">
+                          Piper · дополнительные голоса
+                        </option>
+                        <option value="openvoice">
+                          OpenVoice · тембр Миты поверх Piper / Silero
+                        </option>
+                        <option value="qwen3">
+                          Qwen3-TTS · экспериментальный
+                        </option>
+                        <option value="sapi">Системные голоса Windows</option>
+                        <option value="cloud">Облачная озвучка · API</option>
+                      </select>
+                    </label>
+                    {settings.tts_engine !== "cloud" && (
+                      <label>
+                        Голос ассистента
+                        <select
+                          aria-label="Голос ассистента"
+                          value={settings.tts_voice}
+                          onChange={(event) =>
+                            saveVoice({
+                              tts_voice: event.target.value,
+                            })
+                          }
+                        >
+                          <option value="">
+                            {settings.tts_engine.startsWith("silero")
+                              ? "Ксения · по умолчанию"
+                              : settings.tts_engine === "piper"
+                                ? "Ирина · по умолчанию"
+                                : settings.tts_engine === "qwen3"
+                                  ? "Serena · по умолчанию"
+                                  : "Голос Windows по умолчанию"}
+                          </option>
+                          {(settings.tts_engine.startsWith("silero")
+                            ? [
+                                { name: "xenia", language: "Ксения · русский" },
+                                { name: "baya", language: "Бая · русский" },
+                                { name: "aidar", language: "Айдар · русский" },
+                                {
+                                  name: "eugene",
+                                  language: "Евгений · русский",
+                                },
+                                {
+                                  name: "kseniya",
+                                  language: "Ксения, вариант · русский",
+                                },
+                              ]
+                            : settings.tts_engine === "piper"
+                              ? (voice.piper_voices || []).map((v) => ({
+                                  name: v.name,
+                                  language:
+                                    v.label +
+                                    (v.installed
+                                      ? " · установлен"
+                                      : " · нужно скачать"),
+                                }))
+                              : settings.tts_engine === "qwen3"
+                                ? voice.qwen3_voices || []
+                                : voice.voices
+                          ).map((item) => (
+                            <option key={item.name} value={item.name}>
+                              {item.name} · {item.language}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {usesOpenVoice(settings) && (
+                      <OpenVoiceSettings
+                        settings={settings}
+                        onChange={saveVoice}
+                        disabled={
+                          speaking || conversation.active || voiceSaving
+                        }
+                        onError={fail}
+                        onNotice={setNotice}
+                      />
+                    )}
+                    {settings.tts_engine === "cloud" && (
+                      <CloudSpeechSettings
+                        settings={settings}
+                        onChange={saveVoice}
+                        flush={() => voiceSave.current}
+                        disabled={
+                          speaking || conversation.active || voiceSaving
+                        }
+                        onError={fail}
+                        onNotice={setNotice}
+                      />
+                    )}
+                    {settings.tts_engine === "qwen3" && (
+                      <>
+                        <label>
+                          Устройство Qwen3-TTS
+                          <select
+                            aria-label="Устройство Qwen3-TTS"
+                            value={settings.tts_device}
+                            onChange={(event) =>
+                              saveVoice({
+                                tts_device: event.target
+                                  .value as Settings["tts_device"],
+                              })
+                            }
+                          >
+                            <option value="auto">
+                              Автоматически · CUDA при свободной памяти, иначе
+                              CPU
+                            </option>
+                            <option value="cuda">
+                              Видеокарта NVIDIA · CUDA
+                            </option>
+                            <option value="cpu">
+                              Процессор · CPU, медленнее
+                            </option>
+                          </select>
+                        </label>
+                        <details className="settings-help">
+                          <summary>
+                            Установка и производительность Qwen3-TTS
+                          </summary>
+                          <p className="help">
+                            {voice.qwen3_available
+                              ? "Отдельный движок установлен."
+                              : "Подготовьте движок командой npm run setup:qwen."}{" "}
+                            {voice.qwen3_installed
+                              ? "Веса установлены."
+                              : "Скачайте веса в «Модели → Озвучка»."}{" "}
+                            Для CUDA нужно минимум 3,5 ГБ свободной видеопамяти.
+                            Длинные ответы читаются частями. Паузы зависят от
+                            скорости подготовки следующей фразы; дополнительная
+                            ОЗУ сама по себе не ускоряет синтез. В
+                            автоматическом режиме занятая или недоступная
+                            видеокарта заменяется CPU. Модель загружается один
+                            раз на ответ и читает готовые фразы; при остановке
+                            память освобождается. На CPU возможна долгая
+                            подготовка. Русская речь у готовых тембров может
+                            иметь акцент. Для мягкого женского голоса попробуйте
+                            Serena.
+                          </p>
+                        </details>
+                      </>
+                    )}
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.speak_answers}
+                        onChange={(event) =>
+                          saveVoice({
+                            speak_answers: event.target.checked,
+                          })
+                        }
+                      />
+                      Озвучивать ответы автоматически
+                    </label>
+                    <button
+                      className="outline"
+                      disabled={speaking || conversation.active || voiceSaving}
+                      onClick={() =>
+                        run(() =>
+                          speak(
+                            "Привет! Я Уайли. Давай начнём.",
+                            settings,
+                            undefined,
+                            true,
+                          ),
+                        )
+                      }
+                    >
+                      ♪ Прослушать голос
+                    </button>
+                    <p className="help">
+                      Escape останавливает озвучку. Ctrl+Shift+Esc работает и в
+                      других приложениях. Локальные голоса скачиваются в «Модели
+                      → Озвучка», облачные настраиваются выше.
+                    </p>
+                  </div>
+                </div>
+                <div
+                  id="settings-panel-microphone"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-microphone"
+                  hidden={settingsSection !== "microphone"}
+                  className="settings-panel"
+                >
+                  <AudioDevices
+                    settings={settings}
+                    onChange={setSettings}
+                    disabled={
+                      settingsSection !== "microphone" ||
+                      busy ||
+                      recording ||
+                      uploading ||
+                      speaking ||
+                      conversation.active
                     }
                   />
-                </label>
-                <label>
-                  Порог голоса в режиме разговора
-                  <input
-                    type="number"
-                    min={0.003}
-                    max={0.1}
-                    step={0.003}
-                    value={settings.conversation_threshold}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        conversation_threshold: Number(event.target.value),
-                      })
-                    }
+                  <div className="card">
+                    <h2>Распознавание и разговор</h2>
+                    <label>
+                      Модель распознавания
+                      <select
+                        value={settings.stt_model}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            stt_model: event.target
+                              .value as Settings["stt_model"],
+                          })
+                        }
+                      >
+                        {["tiny", "base", "small"].map((value) => (
+                          <option key={value} value={value}>
+                            Whisper {value}
+                            {voice.installed_stt.includes(value)
+                              ? " · установлена"
+                              : " · нужно скачать"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="help">
+                      После записи распознанный текст появится в поле сообщения:
+                      его можно исправить перед отправкой.
+                    </p>
+                    <label>
+                      Пауза до конца реплики, мс
+                      <input
+                        type="number"
+                        min={500}
+                        max={2500}
+                        step={100}
+                        value={settings.conversation_silence_ms}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_silence_ms: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Порог голоса в режиме разговора
+                      <input
+                        type="number"
+                        min={0.003}
+                        max={0.1}
+                        step={0.003}
+                        value={settings.conversation_threshold}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_threshold: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <p className="help">
+                      В режиме разговора отправка и озвучка автоматические. Если
+                      фразы обрываются, увеличьте паузу. При срабатывании на
+                      фоновый шум увеличьте порог. Перебить ответ пока можно
+                      кнопкой; голосовое перебивание ещё не включено.
+                    </p>
+                  </div>
+                  <div className="card voice-resources">
+                    <h2>Память моделей речи</h2>
+                    <p className="help">
+                      Выгрузите распознавание и локальную озвучку из ОЗУ. При
+                      следующем обращении модели загрузятся снова; файлы и
+                      выбранные голоса сохранятся.
+                    </p>
+                    <button
+                      className="outline"
+                      disabled={
+                        busy ||
+                        recording ||
+                        speaking ||
+                        conversation.active ||
+                        voiceSaving
+                      }
+                      onClick={() =>
+                        run(async () => {
+                          const result = await request<{ unloaded: string[] }>(
+                            "/voice/unload",
+                            "POST",
+                          );
+                          setNotice(
+                            result.unloaded.length
+                              ? "Модели речи выгружены: " +
+                                  result.unloaded.join(", ")
+                              : "Модели речи уже выгружены",
+                          );
+                        })
+                      }
+                    >
+                      Освободить память речи
+                    </button>
+                  </div>
+                </div>
+                <div
+                  id="settings-panel-search"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-search"
+                  hidden={settingsSection !== "search"}
+                  className="settings-panel"
+                >
+                  <SearchSettings
+                    settings={settings}
+                    onChange={setSettings}
+                    secret={searchKey}
+                    onSecret={(value) => {
+                      setSearchKey(value);
+                      setSearchKeyTouched(true);
+                    }}
                   />
-                </label>
-                <p className="help">
-                  В режиме разговора отправка и озвучка автоматические. Если
-                  фразы обрываются, увеличьте паузу. При срабатывании на фоновый
-                  шум увеличьте порог. Перебить ответ пока можно кнопкой;
-                  голосовое перебивание ещё не включено.
-                </p>
-              </div>
-              <div className="card">
-                <h2>Персонаж на рабочем столе</h2>
-                <p>
-                  VRM 0.x / 1.0 со встроенными текстурами, до 64 МБ. Модель
-                  хранится на вашем диске.
-                </p>
-                <div className="file-path">
-                  {settings.avatar_path || "Аватар пока не выбран"}
                 </div>
-                <div className="button-row">
-                  <button className="outline" onClick={() => run(chooseAvatar)}>
-                    Загрузить VRM
-                  </button>
-                  <button
-                    className="outline"
-                    onClick={() => window.wiley.showWindow("avatar")}
-                  >
-                    Показать
-                  </button>
+                <div
+                  id="settings-panel-avatar"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-avatar"
+                  hidden={settingsSection !== "avatar"}
+                  className="settings-panel"
+                >
+                  <div className="card">
+                    <h2>Персонаж на рабочем столе</h2>
+                    <p>
+                      VRM 0.x / 1.0 со встроенными текстурами, до 64 МБ. Модель
+                      хранится на вашем диске.
+                    </p>
+                    <div className="file-path">
+                      {settings.avatar_path || "Аватар пока не выбран"}
+                    </div>
+                    <div className="button-row">
+                      <button
+                        className="outline"
+                        onClick={() => run(chooseAvatar)}
+                      >
+                        Загрузить VRM
+                      </button>
+                      <button
+                        className="outline"
+                        onClick={() => window.wiley.showWindow("avatar")}
+                      >
+                        Показать
+                      </button>
+                    </div>
+                    <p className="help">
+                      Ctrl + Shift + Space — открыть чат.
+                      <br />
+                      Ctrl + Shift + Esc — остановить ответ и озвучку, вернуть
+                      клики аватару.
+                    </p>
+                  </div>
                 </div>
-                <p className="help">
-                  Ctrl + Shift + Space — открыть чат.
-                  <br />
-                  Ctrl + Shift + Esc — остановить ответ и озвучку, вернуть клики
-                  аватару.
-                </p>
+                <div
+                  id="settings-panel-data"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-data"
+                  hidden={settingsSection !== "data"}
+                  className="settings-panel"
+                >
+                  <BackupPanel
+                    disabled={
+                      busy ||
+                      conversation.active ||
+                      recording ||
+                      uploading ||
+                      speaking
+                    }
+                    onError={fail}
+                    onNotice={setNotice}
+                  />{" "}
+                </div>
               </div>
-              <BackupPanel
-                disabled={
-                  busy ||
-                  conversation.active ||
-                  recording ||
-                  uploading ||
-                  speaking
-                }
-                onError={fail}
-                onNotice={setNotice}
-              />
             </div>
           </section>
         )}

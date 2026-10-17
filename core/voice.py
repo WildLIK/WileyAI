@@ -11,6 +11,7 @@ import wave
 import time
 import uuid
 import hashlib
+import gc
 
 import httpx
 from .piper import Piper
@@ -225,6 +226,48 @@ class Voice:
             except ProcessLookupError:
                 pass
             await process.wait()
+
+    def _release_local_models(self):
+        # Never wait behind native ASR/TTS or clear a model while it is in use.
+        if not self.lock.acquire(blocking=False):
+            return None
+        try:
+            if not self.tts_lock.acquire(blocking=False):
+                return None
+            try:
+                released = ["Whisper " + name for name in self.models]
+                self.models.clear()
+                if self.tts_model is not None:
+                    released.append("Silero 5.6" if self.tts_version == "v5_6_ru" else "Silero 5")
+                    self.tts_model = None
+                    self.tts_version = ""
+                if self.piper.model is not None:
+                    released.append("Piper")
+                    self.piper.model = None
+                    self.piper.selected = ""
+                return released
+            finally:
+                self.tts_lock.release()
+        finally:
+            self.lock.release()
+
+    async def unload(self):
+        async with self.render_lock:
+            if self.synthesis_jobs or (self.speech and self.speech.returncode is None):
+                return None
+            if self.qwen.processes or any(session.active_id for session in [*self.qwen.sessions.values(), *self.openvoice.sessions.values()]):
+                return None
+            released = await asyncio.to_thread(self._release_local_models)
+            if released is None:
+                return None
+            if self.qwen.sessions:
+                released.append("Qwen3-TTS")
+            if self.openvoice.sessions:
+                released.append("OpenVoice")
+            await self.qwen.stop()
+            await self.openvoice.stop()
+            await asyncio.to_thread(gc.collect)
+            return released
 
     async def render(self, text: str, voice: str, engine: str, request_id: str | None = None, device: str = "auto", session_id: str | None = None, cloud_config=None, openvoice_voice=None) -> bytes:
         request_id = request_id or uuid.uuid4().hex

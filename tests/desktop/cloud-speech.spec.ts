@@ -103,6 +103,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByLabel("Движок озвучки", { exact: true })
       .selectOption("cloud");
@@ -195,6 +196,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await expect(voiceSelect).toHaveValue("a".repeat(32));
     expect((await settings()).tts_saved_voices[0].name).toBe("Мой персонаж");
     await voiceSelect.selectOption("303b89e345f04bf4b3755e0ddf1b41c4");
@@ -273,6 +275,7 @@ test("cloud speech: compact service settings, female reference and persisted ind
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await expect(model).toHaveValue("x-ai/grok-voice-tts-1.0");
     await expect(
       page.getByLabel("Облачный голос", { exact: true }),

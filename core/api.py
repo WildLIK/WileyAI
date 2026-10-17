@@ -812,6 +812,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         await voice.stop(body.request_id if body else None)
         return {"ok": True}
 
+    @app.post("/voice/unload")
+    async def unload_voice():
+        released = await voice.unload()
+        if released is None:
+            raise HTTPException(409, "Сейчас выполняется распознавание или озвучка. Дождитесь завершения и повторите")
+        return {"unloaded": released}
+
     @app.delete("/voice/session/{session_id}")
     async def close_speech_session(session_id: str):
         await voice.qwen.close_session(session_id)

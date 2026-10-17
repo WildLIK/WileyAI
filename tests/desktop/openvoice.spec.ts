@@ -28,6 +28,7 @@ test("OpenVoice is discoverable, saves its base and target, forwards selection a
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     const engine = page.getByLabel("Движок озвучки", { exact: true });
     const base = page.getByLabel("Основа OpenVoice", { exact: true });
     const target = page.getByLabel("Тембр OpenVoice", { exact: true });
@@ -67,6 +68,7 @@ test("OpenVoice is discoverable, saves its base and target, forwards selection a
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await expect(engine).toHaveValue("openvoice");
     await expect(base).toHaveValue("silero_v5_6");
     await expect(target).toHaveValue("custom");

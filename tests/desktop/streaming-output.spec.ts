@@ -34,6 +34,7 @@ test("voice choice saves immediately, streams before done, and stop discards the
     await page
       .getByLabel("Имя", { exact: true })
       .fill("Несохранённый характер");
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByLabel("Движок озвучки", { exact: true })
       .selectOption("qwen3");
@@ -75,6 +76,7 @@ test("voice choice saves immediately, streams before done, and stop discards the
     const opened = app.waitForEvent("window");
     await page.evaluate(() => window.wiley.showWindow("settings"));
     const second = await opened;
+    await second.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await expect(
       second.getByLabel("Движок озвучки", { exact: true }),
     ).toHaveValue("qwen3");

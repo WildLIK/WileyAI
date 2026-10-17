@@ -60,6 +60,7 @@ test("answer length, visible truncation, explicit continuation and independent p
     await expect(
       page.getByLabel("Максимальная длина ответа, токенов", { exact: true }),
     ).toHaveValue("2048");
+    await page.getByRole("tab", { name: "Мозг", exact: true }).click();
     await page.getByLabel("Движок", { exact: true }).selectOption("compatible");
     await page
       .getByLabel("Адрес сервера", { exact: true })
@@ -98,9 +99,11 @@ test("answer length, visible truncation, explicit continuation and independent p
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Личность", exact: true }).click();
     await page
       .getByLabel("Род речи персонажа", { exact: true })
       .selectOption("masculine");
+    await page.getByRole("tab", { name: "Мозг", exact: true }).click();
     await page
       .getByLabel("Максимальная длина ответа, токенов", { exact: true })
       .fill("1024");

@@ -323,6 +323,9 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
     );
     await page.reload();
     await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await page
+      .getByRole("tab", { name: "Микрофон и разговор", exact: true })
+      .click();
     const mic = page.getByLabel("Микрофон", { exact: true });
     const speaker = page.getByLabel("Динамик / наушники", { exact: true });
     await expect(mic).toBeVisible();
@@ -407,6 +410,7 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
         body: Buffer.from(wav(new Float32Array(4000), 16000)),
       });
     });
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByRole("button", { name: "♪ Прослушать голос", exact: true })
       .click();
@@ -425,6 +429,7 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
       .toBe(2);
     // Wait until the first playback has ended before testing the second engine.
     await page.waitForTimeout(350);
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByRole("button", { name: "♪ Прослушать голос", exact: true })
       .click();
@@ -487,6 +492,7 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
     await page
       .getByLabel("Устройство Qwen3-TTS", { exact: true })
       .selectOption("cpu");
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     await page
       .getByRole("button", { name: "♪ Прослушать голос", exact: true })
       .click();
@@ -609,6 +615,7 @@ test("speech can be stopped during synthesis and playback, with Escape and from 
       };
     });
     await page.getByRole("button", { name: "⚙ Настройки" }).click();
+    await page.getByRole("tab", { name: "Озвучка", exact: true }).click();
     const preview = page.getByRole("button", {
       name: "♪ Прослушать голос",
       exact: true,

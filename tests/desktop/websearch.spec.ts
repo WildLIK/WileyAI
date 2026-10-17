@@ -200,6 +200,7 @@ test("web search: explicit opt-in, real provider HTTP, citations, one-shot butto
     await send(page, "Давай поговорим о звёздах");
     expect(searches).toHaveLength(2);
     await second.getByRole("button", { name: "⚙ Настройки" }).click();
+    await second.getByRole("tab", { name: "Поиск", exact: true }).click();
     await second.getByLabel("Разрешить веб-поиск по моей команде").uncheck();
     await second
       .getByRole("button", { name: "Сохранить", exact: true })
