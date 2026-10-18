@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from core.commands import Command, execute, normalize, resolve, validate
+from core.commands import Command, execute, normalize, resolve, validate, opening_target
 
 
 @pytest.mark.parametrize("text", [
@@ -49,3 +49,34 @@ def test_missing_target_does_not_claim_success(tmp_path):
 def test_url_and_known_site():
     assert resolve("Открой гитхаб", []).target == "https://github.com"
     assert resolve("Открой https://example.com/MyPage?q=1", []).target == "https://example.com/MyPage?q=1"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Открой мне сайт YouTube.", "https://www.youtube.com"),
+    ("Открой мне сайт GitHub.", "https://github.com"),
+    ("Открой кит-хаб.", "https://github.com"),
+    ("Открой мне гит хаб", "https://github.com"),
+    ("Можешь открыть мне GitHub?", "https://github.com"),
+    ("Ты можешь, пожалуйста, открыть мне GitHub?", "https://github.com"),
+    ("Пожалуйста, открой мне сайт YouTube.", "https://www.youtube.com"),
+    ("Открой мне сайт https://example.com/MyPage?q=One", "https://example.com/MyPage?q=One"),
+    ("Открой мне example.com/MyPage", "https://example.com/MyPage"),
+])
+def test_natural_opening_variants(text, expected):
+    command = resolve(text, [])
+    assert command is not None and command.kind == "url" and command.target == expected
+
+
+@pytest.mark.parametrize("text", ["Открой.", "Открой, открой, открой, открой.", "открой открой"])
+def test_repeated_or_empty_opening_needs_a_target(text):
+    assert opening_target(text) == ""
+    assert resolve(text, []) is None
+
+
+def test_natural_opening_preserves_path_case_and_alias_priority(tmp_path):
+    path = tmp_path / "Мой Отчёт.DOCX"
+    path.touch()
+    command = resolve("Открой мне файл " + str(path), [])
+    assert command.target == str(path)
+    alias = {"name": "кит-хаб", "kind": "url", "target": "https://example.com/Custom"}
+    assert resolve("Открой мне кит-хаб", [alias]).target == alias["target"]

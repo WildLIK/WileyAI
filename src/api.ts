@@ -2,7 +2,7 @@ import type { ConversationState, Phase } from "./voice/conversation";
 import { validateConnection, type Connection } from "./connection";
 
 export interface Settings {
-  ui_theme: "aurora" | "ice" | "ember";
+  ui_theme: "aurora" | "ice" | "ember" | "nebula";
   ui_motion: "full" | "reduced";
   ui_glass: boolean;
   name: string;
@@ -235,6 +235,10 @@ export interface BackupPreview {
 declare global {
   interface Window {
     wiley: {
+      windowActivity(): Promise<{ visible: boolean; focused: boolean }>;
+      onWindowActivity(
+        callback: (state: { visible: boolean; focused: boolean }) => void,
+      ): () => void;
       connection(): Promise<{ url: string; token: string }>;
       showWindow(view: string): Promise<void>;
       pickFile(kind: string): Promise<string | null>;

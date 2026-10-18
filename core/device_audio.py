@@ -58,6 +58,7 @@ def request_text(text, name="Уайли"):
     value = normalize(text)
     value = re.sub(r"^" + re.escape(normalize(name)) + r"[,!]?(?:\s+)", "", value)
     value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста$", "", value)
+    value = re.sub(r"^(прибавь|убавь|добавь|увеличь|уменьши|включи|выключи|отключи) мне ", r"\1 ", value)
     # A direct, polite request remains executable; ordinary questions about how
     # audio works do not match. Keep the allowed imperative vocabulary bounded.
     polite = re.fullmatch(r"(?:ты )?можешь (?:пожалуйста )?((?:сделать (?:громче|тише|потише)|(?:увеличить|уменьшить|прибавить|убавить|установить) громкость|(?:включить|выключить) звук)(?: [\w %]+)?)\??", value)
@@ -83,16 +84,24 @@ def resolve(text, name="Уайли"):
     }
     if value in fixed:
         return AudioAction(action=fixed[value])
-    if value in {"сделай громче", "громче", "увеличь громкость", "прибавь громкость", "прибавь звук"}:
+    if value in {"сделай громче", "громче", "увеличь громкость", "прибавь громкость", "прибавь громкости", "добавь громкости", "добавь громкость", "прибавь звук"}:
         return AudioAction(action="change_volume", value=10)
-    if value in {"сделай тише", "тише", "сделай потише", "потише", "уменьши громкость", "убавь громкость", "убавь звук"}:
+    if value in {"сделай тише", "тише", "сделай потише", "потише", "уменьши громкость", "убавь громкость", "убавь громкости", "убавь звук"}:
         return AudioAction(action="change_volume", value=-10)
     match = re.fullmatch(r"(?:установи |выстави |поставь |сделай )?громкость(?: на)? ([\w %]+)", value)
     if match:
         return AudioAction(action="set_volume", value=percentage(match[1]))
-    match = re.fullmatch(r"(?:(увеличь|уменьши|прибавь|убавь) (?:громкость|звук)|(сделай громче|сделай тише|сделай потише|громче|тише|потише)) на ([\w %]+)", value)
+    match = re.fullmatch(r"(?:(увеличь|уменьши|прибавь|убавь|добавь) (?:громкость|громкости|звук)|(сделай громче|сделай тише|сделай потише|громче|тише|потише)) на ([\w %]+)", value)
     if match:
         return AudioAction(action="change_volume", value=percentage(match[3]) * (-1 if match[1] in {"уменьши", "убавь"} or "тише" in (match[2] or "") else 1))
+    return None
+
+
+def music_help(text, name="Уайли"):
+    """A request to start unspecified music cannot prove a player is running."""
+    value = request_text(text, name)
+    if value and re.fullmatch(r"(?:(?:включи|поставь|запусти|воспроизведи)|(?:ты )?можешь (?:включить|поставить|запустить)) (?:мне )?(?:музыку|какую-нибудь музыку)\??", value):
+        return "Для запуска музыки нужен источник. Можно сказать «открой мне YouTube». Если проигрыватель уже открыт, доступна команда «переключи воспроизведение». Сейчас команда воспроизведения не отправлялась."
     return None
 
 

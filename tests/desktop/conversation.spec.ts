@@ -91,6 +91,71 @@ async function micStopped(page: Page, count = 1) {
     .toEqual(Array(count).fill("ended"));
 }
 
+async function startLayoutProbe(page: Page) {
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    const read = () =>
+      [
+        ".chat-toolbar",
+        ".message-scroll-area",
+        ".composer-area",
+        ".companion-panel",
+      ].map((selector) => {
+        const box = document.querySelector(selector)!.getBoundingClientRect();
+        return { selector, top: box.top, height: box.height };
+      });
+    const baseline = read();
+    const samples: { phase: string; boxes: ReturnType<typeof read> }[] = [];
+    const observer = new MutationObserver(() => {
+      samples.push({
+        phase:
+          document.querySelector(".conversation-phase")?.textContent || "idle",
+        boxes: read(),
+      });
+    });
+    observer.observe(document.querySelector(".workspace")!, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    Object.assign(window, {
+      layoutProbe: { baseline, samples, stop: () => observer.disconnect() },
+    });
+  });
+}
+
+async function expectStableLayout(page: Page) {
+  const result = await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        layoutProbe: {
+          baseline: { selector: string; top: number; height: number }[];
+          samples: {
+            phase: string;
+            boxes: { selector: string; top: number; height: number }[];
+          }[];
+          stop(): void;
+        };
+      }
+    ).layoutProbe;
+    probe.stop();
+    return { baseline: probe.baseline, samples: probe.samples };
+  });
+  expect(result.samples.length).toBeGreaterThan(0);
+  for (const sample of result.samples)
+    for (const [index, box] of sample.boxes.entries()) {
+      const reference = result.baseline[index];
+      expect(
+        Math.abs(box.top - reference.top),
+        `${sample.phase}: ${box.selector} moved`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(box.height - reference.height),
+        `${sample.phase}: ${box.selector} resized`,
+      ).toBeLessThanOrEqual(1);
+    }
+}
+
 test("conversation: real AudioWorklet, automatic turns, playback, cross-window stop", async () => {
   const { app, page } = await launch();
   try {
@@ -150,6 +215,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
         ),
       });
     });
+    await startLayoutProbe(page);
     await page
       .getByRole("button", { name: "Начать разговор", exact: true })
       .click();
@@ -161,6 +227,12 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
       .poll(() => syntheses, { timeout: 20000 })
       .toBeGreaterThanOrEqual(1);
     await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
+    await expectStableLayout(page);
+    await page.screenshot({
+      path: "local/screenshots/conversation-fixed-header.png",
+    });
+    await page.setViewportSize({ width: 820, height: 900 });
+    await startLayoutProbe(page);
     await page.evaluate(async () => {
       const { url, token } = await window.wiley.connection();
       const response = await fetch(url + "/settings/speech", {
@@ -203,6 +275,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
       page.getByRole("button", { name: "Начать разговор", exact: true }),
     ).toBeVisible();
     await micStopped(page);
+    await expectStableLayout(page);
     await expect
       .poll(async () => (await audioStats(page)).context)
       .toBe("closed");

@@ -1,5 +1,5 @@
 export type Appearance = {
-  ui_theme: "aurora" | "ice" | "ember";
+  ui_theme: "aurora" | "ice" | "ember" | "nebula";
   ui_motion: "full" | "reduced";
   ui_glass: boolean;
 };
@@ -21,6 +21,12 @@ export const themes = [
     name: "Красный контур",
     description: "Графит, чёрное стекло и красная подсветка",
     tag: "Тёмная",
+  },
+  {
+    id: "nebula",
+    name: "Туманность",
+    description: "Текучий фиолетовый свет, синие нити и золото",
+    tag: "Живая",
   },
 ] as const;
 const defaults: Appearance = {

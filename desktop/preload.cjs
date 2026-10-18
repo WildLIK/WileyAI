@@ -2,6 +2,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("wiley", {
   connection: () => ipcRenderer.invoke("connection"),
+  windowActivity: () => ipcRenderer.invoke("window-activity"),
+  onWindowActivity: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("window-activity", listener);
+    return () => ipcRenderer.removeListener("window-activity", listener);
+  },
   showWindow: (view) => ipcRenderer.invoke("show-window", view),
   pickFile: (kind) => ipcRenderer.invoke("pick-file", kind),
   avatarBytes: () => ipcRenderer.invoke("avatar-bytes"),

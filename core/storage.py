@@ -4,6 +4,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
 import sqlite3
 import uuid
 from copy import copy
@@ -330,9 +331,17 @@ class Store:
         with self.db() as db:
             db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, kind, target, status, now()))
 
-    def add_alias(self, name: str, kind: str, target: str) -> dict:
+    def add_alias(self, name: str, kind: str, target: str, *, replace: bool = True) -> dict:
         item = dict(id=uuid.uuid4().hex, name=name.casefold().strip(), kind=kind, target=target)
         with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not replace:
+                key = " ".join(item["name"].replace("ё", "е").split())
+                for row in db.execute("SELECT * FROM aliases"):
+                    if " ".join(row["name"].casefold().replace("ё", "е").split()) == key:
+                        if row["kind"] == kind and os.path.normcase(row["target"]) == os.path.normcase(target):
+                            return dict(row)
+                        raise ValueError("Название уже используется другой командой. Добавьте приложение под другим именем.")
             db.execute("INSERT INTO aliases VALUES (:id,:name,:kind,:target) ON CONFLICT(name) DO UPDATE SET kind=excluded.kind,target=excluded.target", item)
         return item
 

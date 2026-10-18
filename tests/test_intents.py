@@ -75,6 +75,62 @@ def test_opt_in_exact_commands_and_addressing_remain_fast(context):
     assert len(opened) == 2 and captured == []
 
 
+def test_screenshot_requests_execute_or_clarify_without_model_claims(context):
+    api, store, opened, captured = context
+    for phrase, url in [("Открой мне сайт YouTube.", "https://www.youtube.com"),
+                        ("Открой мне сайт GitHub.", "https://github.com"),
+                        ("Открой кит-хаб.", "https://github.com")]:
+        answer = send(api, phrase, mode="conversation")
+        assert opened[-1].target == url
+        assert "Передала Windows" in answer["content"]
+    enable(api)
+    answer = send(api, "Открой, открой, открой, открой.")
+    assert "Что открыть?" in answer["content"] and "ничего не открыто" in answer["content"]
+    assert captured == [] and len(opened) == 3
+
+
+def test_natural_site_command_still_checks_access(context):
+    api, store, opened, captured = context
+    store.save_settings(store.settings().model_copy(update={"allow_web_open": False}))
+    answer = send(api, "Открой мне сайт GitHub.")
+    assert "отключено" in answer["content"]
+    assert opened == [] and captured == []
+
+
+def test_known_music_app_runs_with_one_choice_and_asks_with_multiple(context):
+    api, store, opened, captured = context
+    aimp = store.root / "AIMP.exe"
+    yandex = store.root / "YandexMusic.exe"
+    aimp.touch(); yandex.touch()
+    store.add_alias("AIMP", "app", str(aimp))
+    answer = send(api, "Включи мне музыку.")
+    assert opened[-1].target == str(aimp)
+    assert "не проверялось" in answer["content"]
+    store.add_alias("Яндекс Музыка", "app", str(yandex))
+    question = send(api, "Включи музыку")
+    assert "Выберите музыкальное приложение" in question["content"]
+    assert len(opened) == 1 and captured == []
+    assert store.settings().command_understanding is False
+    assert store.dialogue()["pending_open"]["model_assisted"] is False
+    send(api, "да")  # More than one local source still needs a choice.
+    assert store.dialogue()["pending_open"]["model_assisted"] is False
+    send(api, "второй")
+    assert len(opened) == 2 and captured == []
+    assert opened[-1].target in {str(aimp), str(yandex)}
+
+
+def test_music_choice_rechecks_permissions_before_launch(context):
+    api, store, opened, captured = context
+    for name in ("AIMP", "Spotify"):
+        target = store.root / (name + ".exe")
+        target.touch()
+        store.add_alias(name, "app", str(target))
+    send(api, "Включи мне музыку")
+    store.save_settings(store.settings().model_copy(update={"allow_app_open": False}))
+    answer = send(api, "первый")
+    assert "доступ изменились" in answer["content"] and opened == []
+
+
 def test_model_only_proposes_id_then_voice_yes_executes_once(context):
     api, store, opened, captured = context
     enable(api)

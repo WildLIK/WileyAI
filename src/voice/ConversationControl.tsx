@@ -7,6 +7,7 @@ export function ConversationControl({
   compact = false,
   disabled = false,
   speaking = false,
+  stable = false,
 }: {
   state: ConversationState;
   onToggle: () => void;
@@ -14,13 +15,15 @@ export function ConversationControl({
   compact?: boolean;
   disabled?: boolean;
   speaking?: boolean;
+  stable?: boolean;
 }) {
   return (
     <div
       className={
         "conversation-control " +
         (state.active ? "enabled " : "") +
-        (compact ? "compact" : "")
+        (compact ? "compact " : "") +
+        (stable ? "stable" : "")
       }
     >
       <button

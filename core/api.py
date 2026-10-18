@@ -34,8 +34,10 @@ from .document_library import Library
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
-from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio
+from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio, music_help
 from . import audio_intents
+from .app_discovery import ApplicationScanner
+from .app_catalog import CATALOG as APP_CATALOG, canonical_name as app_name
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
 from .voice_resources import run_idle_resources
@@ -95,6 +97,7 @@ class AliasBody(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     kind: Literal["app", "file", "folder", "url"]
     target: str = Field(min_length=1, max_length=4096)
+    replace: bool = True
 
 
 class ModelBody(BaseModel):
@@ -225,6 +228,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
     app.state.monitor = monitor
+    app.state.applications = ApplicationScanner()
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
@@ -619,7 +623,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.post("/aliases")
     def add_alias(body: AliasBody):
         commands.validate(commands.Command(body.kind, body.target, body.name))
-        return store.add_alias(body.name, body.kind, body.target)
+        return store.add_alias(body.name, body.kind, body.target, replace=body.replace)
+
+    @app.post("/applications/scan")
+    def scan_applications():
+        return app.state.applications.scan()
 
     @app.delete("/aliases/{item_id}")
     def delete_alias(item_id: str):
@@ -1001,6 +1009,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             open_progress = []
             audio_progress = []
             pending_choices = []
+            pending_model_assisted = True
             pending_audio = None
             try:
                 yield event("user", message=user)
@@ -1041,12 +1050,29 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     pending_audio = suggestion if suggestion.action else None
                     answer = suggestion.text
                     yield event("delta", text=answer)
+                elif (music := music_help(text, current.name)) is not None:
+                    answer = music
+                    music_names = {item.name for item in APP_CATALOG if item.category == "music"}
+                    targets = {item["target"] for item in store.list("aliases", 1000) if item["kind"] == "app" and app_name(item["name"]) in music_names}
+                    choices = [item for item in open_tools.choices() if item["kind"] == "app" and item["target"] in targets]
+                    if not current.allow_app_open:
+                        answer = "Запуск музыкальных приложений отключён в разделе «Команды». Команда не выполнялась."
+                    elif len(choices) == 1:
+                        await run_step(open_tools, choices[0], open_progress)
+                        answer = persona.local_result(open_progress[-1].removeprefix("1. "), current.grammatical_gender)
+                        answer += " Воспроизведение конкретного трека не проверялось."
+                    elif choices:
+                        pending_choices, pending_model_assisted = choices[:3], False
+                        answer = intents.question(pending_choices, voice=body.mode == "conversation")
+                        answer += "\nВыберите музыкальное приложение. Запуск приложения сам по себе не подтверждает воспроизведение."
+                    yield event("delta", text=answer)
                 elif followup is not None:
                     if followup.command:
                         await run_step(open_tools, {"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}, open_progress)
                         answer = open_progress[-1].removeprefix("1. ")
                     else:
                         pending_choices = followup.choices
+                        pending_model_assisted = followup.model_assisted
                         answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else followup.text
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
@@ -1100,7 +1126,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     yield event("delta", text=answer)
                 elif opening_text is not None:
                     answer = "Не нашёл точное соответствие. Добавьте название и путь в разделе «Команды» или укажите полный путь/адрес сайта."
-                    if current.command_understanding:
+                    if not commands.opening_target(opening_text):
+                        answer = "Что открыть? Назовите сайт, папку, файл или приложение. Пока ничего не открыто."
+                    elif current.command_understanding:
                         yield event("stage", text="Подбираю команду из каталога…")
                         try:
                             with monitor.activity("brain:" + current.model):
@@ -1197,7 +1225,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 if answer:
                     assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
                     if pending_choices:
-                        intents.remember(chat_store, assistant["id"], pending_choices)
+                        intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted)
                     if pending_audio:
                         audio_intents.remember(chat_store, assistant["id"], pending_audio)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)

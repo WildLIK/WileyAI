@@ -42,7 +42,7 @@ class SavedSpeechVoice(BaseModel):
 
 
 class Settings(BaseModel):
-    ui_theme: Literal["aurora", "ice", "ember"] = "aurora"
+    ui_theme: Literal["aurora", "ice", "ember", "nebula"] = "aurora"
     ui_motion: Literal["full", "reduced"] = "full"
     ui_glass: bool = True
     name: str = Field(default="Уайли", min_length=1, max_length=60)
@@ -122,7 +122,7 @@ class SettingsUpdate(Settings):
 
 class AppearanceSettings(BaseModel):
     model_config = {"extra": "forbid"}
-    ui_theme: Literal["aurora", "ice", "ember"] | None = None
+    ui_theme: Literal["aurora", "ice", "ember", "nebula"] | None = None
     ui_motion: Literal["full", "reduced"] | None = None
     ui_glass: bool | None = None
 

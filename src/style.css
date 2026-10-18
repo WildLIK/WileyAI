@@ -2466,6 +2466,91 @@ html:has(.pet-window) {
 .chat-toolbar-actions > .outline {
   padding: 8px 12px;
 }
+.application-discovery-heading,
+.found-application-heading,
+.application-discovery-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.application-discovery-heading h2 {
+  margin-bottom: 6px;
+}
+.application-discovery-heading .help {
+  margin: 0;
+}
+.application-discovery-heading > .outline,
+.found-application-heading > button {
+  flex-shrink: 0;
+}
+.application-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 18px 0 14px;
+}
+.application-categories button {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-low);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.application-categories button[aria-pressed="true"] {
+  border-color: var(--accent-border);
+  background: var(--accent-low);
+  color: var(--accent-text);
+}
+.application-categories small {
+  margin-left: 5px;
+}
+.application-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 10px;
+}
+.found-application {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+  background: color-mix(in srgb, var(--surface-low) 60%, transparent);
+}
+.found-application strong {
+  font-size: 13px;
+}
+.found-application small,
+.application-example {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.application-path {
+  font:
+    11px/1.5 "Consolas",
+    monospace;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.application-discovery-footer {
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.application-import-result {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--accent-text);
+}
+@media (max-width: 900px) {
+  .application-discovery-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .history-search-dialog {
   width: min(740px, calc(100vw - 36px));
   max-height: calc(100vh - 48px);

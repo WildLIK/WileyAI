@@ -19,6 +19,10 @@ from core.storage import Store
 
 
 @pytest.mark.parametrize("text, action, value", [
+    ("Прибавь громкости.", "change_volume", 10),
+    ("Прибавь мне громкости на десять", "change_volume", 10),
+    ("Убавь громкости на пять", "change_volume", -5),
+    ("Добавь мне громкости", "change_volume", 10),
     ("Прибавь громкость на 10", "change_volume", 10),
     ("Убавь громкость на десять процентов", "change_volume", -10),
     ("Можешь прибавить громкость на десять?", "change_volume", 10),
@@ -231,6 +235,14 @@ def test_preview_does_not_touch_hardware(audio):
     assert result.status_code == 200 and "не выполнялось" in result.json()["text"]
     assert device.volume == 40 and not device.calls
     assert store.list("actions")[0]["status"] == "preview"
+
+
+@pytest.mark.parametrize("text", ["Включи мне музыку.", "Включи музыку", "Можешь включить мне музыку?", "Уайли, поставь какую-нибудь музыку"])
+def test_starting_unspecified_music_never_fabricates_playback(audio, text):
+    api, store, device = audio
+    answer = audio_chat(api, text)
+    assert "нужен источник" in answer and "не отправлялась" in answer
+    assert device.calls == [] and store.list("actions") == []
 
 
 def test_media_acknowledges_delivery_without_claiming_playback(audio):

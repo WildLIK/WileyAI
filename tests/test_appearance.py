@@ -10,15 +10,16 @@ from core.storage import Store
 TOKEN = "appearance-tests-token-0123456789"
 
 
-def test_visual_patch_preserves_model_voice_and_other_settings(tmp_path):
+@pytest.mark.parametrize("theme", ["aurora", "ice", "ember", "nebula"])
+def test_visual_patch_preserves_model_voice_and_other_settings(tmp_path, theme):
     store = Store(tmp_path)
     store.save_settings(Settings(name="Моя Уайли", model="my-model", tts_voice="my-voice"))
     with TestClient(create_app(tmp_path, TOKEN), headers={"Authorization":"Bearer " + TOKEN}) as api:
-        assert api.patch("/settings/appearance",json={"ui_theme":"ice","ui_glass":False}).status_code == 200
+        assert api.patch("/settings/appearance",json={"ui_theme":theme,"ui_glass":False}).status_code == 200
         config = api.get("/settings").json()
         assert config["model"] == "my-model" and config["tts_voice"] == "my-voice"
         assert config["name"] == "Моя Уайли" and config["ui_glass"] is False
-    assert Store(tmp_path).settings().ui_theme == "ice"
+    assert Store(tmp_path).settings().ui_theme == theme
 
 
 @pytest.mark.parametrize("body", [{"ui_theme":"unknown"},{"ui_motion":"blink"},{"model":"other"},{"ui_theme":"ice","api_key":"never-store-this"}])
@@ -30,16 +31,16 @@ def test_invalid_visual_patch_does_not_change_settings(tmp_path, body):
 
 def test_visual_preferences_export_and_device_local_restore_policy(tmp_path):
     source = Store(tmp_path / "source")
-    source.patch_settings({"ui_theme":"ember","ui_motion":"reduced","ui_glass":False})
+    source.patch_settings({"ui_theme":"nebula","ui_motion":"reduced","ui_glass":False})
     archive = Backups(source).export()
-    assert json.loads(archive)["settings"]["ui_theme"] == "ember"
+    assert json.loads(archive)["settings"]["ui_theme"] == "nebula"
     target = Store(tmp_path / "target")
     target.patch_settings({"ui_theme":"ice"})
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])
     assert target.settings().ui_theme == "ice"
     manager.restore(manager.preview(archive)["ticket"], connections=True)
-    assert target.settings().ui_theme == "ember" and target.settings().ui_motion == "reduced"
+    assert target.settings().ui_theme == "nebula" and target.settings().ui_motion == "reduced"
 
 
 def test_concurrent_small_patches_do_not_replace_each_other(tmp_path):

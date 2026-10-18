@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import webbrowser
+from .app_catalog import canonical_name
 
 
 @dataclass
@@ -15,6 +16,7 @@ class Command:
 
 
 SITES = {"ютуб": "https://www.youtube.com", "youtube": "https://www.youtube.com", "гитхаб": "https://github.com", "github": "https://github.com", "яндекс": "https://ya.ru", "гугл": "https://www.google.com"}
+SPOKEN_SITES = {"кит-хаб": "гитхаб", "гит-хаб": "гитхаб", "гит хаб": "гитхаб", "ю туб": "ютуб", "ютюб": "ютуб"}
 APP_NAMES = {"блокнот": "notepad.exe", "калькулятор": "calc.exe", "проводник": "explorer.exe"}
 
 
@@ -40,28 +42,59 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().casefold().replace("ё", "е")).rstrip(".! ")
 
 
-def resolve(text: str, aliases: list[dict]) -> Command | None:
-    value = normalize(text)
-    match = re.fullmatch(r"(?:пожалуйста,? )?(?:открой|запусти|покажи|открыть|запустить)(?:,? пожалуйста)?\s+(.+?)(?:,? пожалуйста)?", value)
-    if not match or ("?" in text and not re.search(r"https?://", text)) or any(mark in text for mark in ('"', '«', '»', '“', '”', '\n')):
+def opening_target(text: str) -> str | None:
+    """Parse a whole direct request, preserving case in paths and URL queries.
+
+    Empty string means an opening request with no target; None is ordinary prose.
+    Polite wrappers belong here so chat, previews and direct commands agree.
+    """
+    if len(text) > 1000 or any(ord(char) < 32 for char in text) or any(mark in text for mark in '"«»“”'):
         return None
-    target = match[1].strip()
+    value = re.sub(r"^пожалуйста[, ]+", "", text.strip(), flags=re.I)
+    value = re.sub(r",? пожалуйста[.! ]*$", "", value, flags=re.I)
+    # A repeated bare imperative still needs a target; it must not reach the LLM.
+    if re.fullmatch(r"(?:открой|запусти|покажи|открыть|запустить)(?:[,! ]+(?:открой|запусти|покажи|открыть|запустить))*[.! ]*", value, re.I):
+        return ""
+    match = re.fullmatch(r"(?P<polite>(?:ты )?можешь(?:,?\s+пожалуйста,?)?\s+)?(?:открой|запусти|покажи|открыть|запустить)(?:,? пожалуйста)?\s+(?:мне\s+)?(?P<target>.+)", value, re.I)
+    if not match:
+        return None
+    target = match["target"].strip()
+    url_target = re.sub(r"^сайт\s+", "", target, flags=re.I)
+    if not re.match(r"https?://", url_target, re.I) and "?" in target:
+        if not match["polite"] or not target.endswith("?") or "?" in target[:-1]:
+            return None
+        target = target[:-1].rstrip()
+    return target
+
+
+def resolve(text: str, aliases: list[dict]) -> Command | None:
+    raw_target = opening_target(text)
+    if not raw_target:
+        return None
+    target = normalize(raw_target)
     short = re.sub(r"^(?:папку|приложение|программу|сайт|файл)\s+", "", target)
     short = {"загрузок": "загрузки", "документов": "документы", "рабочего стола": "рабочий стол"}.get(short, short)
     for alias in aliases:
         if normalize(alias["name"]) in {target, short}:
             return Command(alias["kind"], alias["target"], alias["name"])
+    app_name = canonical_name(short) or canonical_name(target)
+    if app_name:
+        for alias in aliases:
+            if alias["kind"] == "app" and canonical_name(alias["name"]) == app_name:
+                return Command("app", alias["target"], alias["name"])
     if short in folders():
         return Command("folder", folders()[short], short)
-    if short in SITES:
-        return Command("url", SITES[short], short)
+    site = SPOKEN_SITES.get(short, short)
+    if site in SITES:
+        return Command("url", SITES[site], site)
     if short in APP_NAMES:
         system32 = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32"
+        if APP_NAMES[short] == "explorer.exe":
+            system32 = system32.parent
         return Command("app", str(system32 / APP_NAMES[short]), short)
     if short in {"браузер", "браузер по умолчанию"}:
         return Command("url", "about:blank", "браузер")
-    raw = re.sub(r"^(?:пожалуйста,? )?(?:открой|запусти|покажи|открыть|запустить)\s+(?:(?:папку|файл|сайт)\s+)?", "", text.strip(), flags=re.I).strip()
-    raw = re.sub(r",? пожалуйста[.! ]*$", "", raw, flags=re.I)
+    raw = re.sub(r"^(?:папку|файл|сайт)\s+", "", raw_target, flags=re.I)
     if re.fullmatch(r"https?://[^\s]+", raw):
         return Command("url", raw, raw)
     # A bare domain is useful for voice/text commands; never treat shell fragments as URLs.

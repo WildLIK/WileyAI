@@ -27,7 +27,9 @@ def opening_request(text, name="Уайли"):
         return None
     if re.search(r"\b(?:не|никогда|если|например)\b", value, re.I):
         return None
-    if re.match(r"^(?:(?:ты )?можешь (?:пожалуйста )?(?:открыть|запустить)|открой|запусти|открыть|запустить|покажи (?:папку|файл|сайт|приложение))\s+\S", value, re.I):
+    if re.match(r"^покажи\s+", value, re.I) and not re.match(r"^покажи (?:папку|файл|сайт|приложение)\s+", value, re.I):
+        return None
+    if commands.opening_target(value) is not None:
         return value
     return None
 
@@ -52,6 +54,7 @@ class Pending(BaseModel):
     assistant_id: str = Field(min_length=1, max_length=64)
     created: float
     choices: list[Step] = Field(min_length=1, max_length=3)
+    model_assisted: bool = True
 
 
 def unique_keys(pairs):
@@ -129,10 +132,10 @@ def validate_choices(tools, choices):
     return result
 
 
-def remember(store, assistant_id, choices):
+def remember(store, assistant_id, choices, *, model_assisted=True):
     state = store.dialogue()
     state.pop("pending", None)  # One active clarification, not two competing actions.
-    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time(), choices=[Step.model_validate(item) for item in choices]).model_dump()
+    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time(), choices=[Step.model_validate(item) for item in choices], model_assisted=model_assisted).model_dump()
     store.save_dialogue(state)
 
 
@@ -141,6 +144,7 @@ class Followup:
     text: str = ""
     command: commands.Command | None = None
     choices: list[dict] = field(default_factory=list)
+    model_assisted: bool = True
 
 
 def consume(store, text, tools, name="Уайли"):
@@ -170,12 +174,12 @@ def consume(store, text, tools, name="Уайли"):
             raise ValueError("Предложение устарело")
     except (ValueError, TypeError):
         return Followup("Предложение устарело. Повторите команду открытия.")
-    if not store.settings().command_understanding:
+    if pending.model_assisted and not store.settings().command_understanding:
         return Followup("Свободные команды отключены в разделе «Команды». Ничего не открыто.")
     choices = [item.model_dump() for item in pending.choices]
     index = (int(match[1]) if match and match[1].isdigit() else numbers.get(match[1]) if match else 1) - 1
     if (positive and len(choices) != 1) or not 0 <= index < len(choices):
-        return Followup(question(choices), choices=choices)
+        return Followup(question(choices), choices=choices, model_assisted=pending.model_assisted)
     chosen = choices[index]
     current = catalog(tools)
     if choice_id(chosen) not in current:

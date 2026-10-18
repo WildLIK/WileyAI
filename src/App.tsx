@@ -36,6 +36,8 @@ import { SearchSettings, SearchSources } from "./WebSearch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
+import { Applications } from "./Applications";
+import { NebulaBackground } from "./NebulaBackground";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
@@ -1541,6 +1543,9 @@ export function App() {
     <div
       className={"app-shell " + (sidebarCollapsed ? "sidebar-collapsed" : "")}
     >
+      {settings.ui_theme === "nebula" && (
+        <NebulaBackground motion={settings.ui_motion} />
+      )}
       <aside className="sidebar">
         <div className="brand">
           <div className="logo-mark">W</div>
@@ -1621,6 +1626,18 @@ export function App() {
             {tab === "chat" ? currentProject?.name || "Общие чаты" : "WileyAI"}{" "}
             <span>/</span> {tabs.find((item) => item.id === tab)?.label}
           </div>
+          {activity.length > 0 && (
+            <div
+              className="activity-dock"
+              aria-label="Текущие процессы"
+              title={activity.map((item) => item.label).join(" · ")}
+            >
+              <ProcessStatus {...activity[0]} compact />
+              {activity.length > 1 && (
+                <small className="activity-count">+{activity.length - 1}</small>
+              )}
+            </div>
+          )}
           {tab === "chat" && (
             <button
               className="panel-toggle"
@@ -1675,13 +1692,6 @@ export function App() {
           </div>
         )}
         <UpdateNotice />
-        {activity.length > 0 && (
-          <div className="activity-dock" aria-label="Текущие процессы">
-            {activity.map((item) => (
-              <ProcessStatus key={item.id} {...item} compact />
-            ))}
-          </div>
-        )}
         {error && (
           <div className="error global-message" role="alert">
             <span>{error}</span>
@@ -1722,6 +1732,7 @@ export function App() {
                   </button>
                   <ConversationControl
                     compact
+                    stable
                     state={conversation}
                     speaking={speaking}
                     onToggle={() => run(toggleConversation)}
@@ -2549,6 +2560,16 @@ export function App() {
                 «Открой https://example.com»
               </p>
             </div>
+            <Applications
+              aliases={aliasList}
+              disabled={busy || conversation.active || recording || uploading}
+              onError={fail}
+              onChanged={async () =>
+                setAliasList(
+                  (await request<{ custom: Alias[] }>("/aliases")).custom,
+                )
+              }
+            />
             <ToolAccess
               onError={fail}
               onSaved={async () => {

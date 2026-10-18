@@ -51,6 +51,7 @@ test("themes: live previews, preserved drafts, multiple windows, restart, light 
       ["ice", "Ледяной свет"],
       ["ember", "Красный контур"],
       ["aurora", "Аврора"],
+      ["nebula", "Туманность"],
     ]) {
       await page.getByRole("button", { name: new RegExp("^" + name) }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -106,6 +107,7 @@ test("themes: live previews, preserved drafts, multiple windows, restart, light 
       ["aurora", "Аврора"],
       ["ice", "Ледяной свет"],
       ["ember", "Красный контур"],
+      ["nebula", "Туманность"],
     ]) {
       await page.getByLabel("Выбрать тему оформления", { exact: true }).click();
       await page
@@ -133,12 +135,137 @@ test("themes: live previews, preserved drafts, multiple windows, restart, light 
     await expect(
       page.getByRole("heading", { name: "Привет, я Уайли." }),
     ).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "ember");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "nebula");
+    await expect(page.locator(".nebula-canvas")).toHaveAttribute(
+      "data-state",
+      /still|paused/,
+    );
     await expect(page.locator("html")).toHaveAttribute(
       "data-motion",
       "reduced",
     );
     await expect(page.locator("html")).toHaveAttribute("data-glass", "off");
+  } finally {
+    await app.close();
+  }
+});
+
+test("nebula: real animated shader, bounded resolution, pause, reduced motion, context recovery and theme cleanup", async () => {
+  const data = await mkdtemp(join(tmpdir(), "wiley-nebula-"));
+  const app = await electron.launch({
+    args: ["--mute-audio", "."],
+    env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+  });
+  try {
+    const page = await app.firstWindow();
+    await expect(
+      page.getByRole("heading", { name: "Привет, я Уайли." }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      const native = WebGLRenderingContext.prototype.drawArrays;
+      Object.assign(window, { nebulaFrames: 0 });
+      WebGLRenderingContext.prototype.drawArrays = function (...args) {
+        const state = window as unknown as { nebulaFrames: number };
+        state.nebulaFrames++;
+        return native.apply(this, args);
+      };
+    });
+    await page.getByLabel("Выбрать тему оформления", { exact: true }).click();
+    await page
+      .getByRole("group", { name: "Быстрый выбор темы" })
+      .getByRole("button", { name: /^Туманность/ })
+      .click();
+    await page.bringToFront();
+    const canvas = page.locator(".nebula-canvas");
+    await expect(canvas).toHaveAttribute("data-state", "running");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { nebulaFrames: number }).nebulaFrames,
+        ),
+      )
+      .toBeGreaterThan(4);
+    const first = await canvas.screenshot();
+    const measurement = await page.evaluate(async () => {
+      const node = document.querySelector<HTMLCanvasElement>(".nebula-canvas")!;
+      const state = window as unknown as { nebulaFrames: number };
+      const start = state.nebulaFrames;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return {
+        frames: state.nebulaFrames - start,
+        width: node.width,
+        height: node.height,
+      };
+    });
+    expect(measurement.frames).toBeGreaterThan(2);
+    expect(measurement.frames).toBeLessThanOrEqual(16);
+    expect(measurement.width).toBeLessThanOrEqual(960);
+    expect(measurement.height).toBeLessThanOrEqual(540);
+    expect((await canvas.screenshot()).equals(first)).toBe(false);
+    await page.screenshot({
+      path: "local/screenshots/theme-nebula-animated.png",
+    });
+    const assertStopped = async () =>
+      expect(
+        await page.evaluate(async () => {
+          const state = window as unknown as { nebulaFrames: number };
+          const start = state.nebulaFrames;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          return state.nebulaFrames - start;
+        }),
+      ).toBe(0);
+    const nativeWindow = await app.browserWindow(page);
+    await nativeWindow.evaluate((window) => window.hide());
+    await expect(canvas).toHaveAttribute("data-state", "paused");
+    await assertStopped();
+    await nativeWindow.evaluate((window) => {
+      window.show();
+      window.focus();
+    });
+    await expect(canvas).toHaveAttribute("data-state", "running");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(canvas).toHaveAttribute("data-state", "still");
+    await assertStopped();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(canvas).toHaveAttribute("data-state", "running");
+    await canvas.evaluate((node) => {
+      const ext = (node as HTMLCanvasElement)
+        .getContext("webgl")!
+        .getExtension("WEBGL_lose_context")!;
+      Object.assign(window, { restoreNebula: () => ext.restoreContext() });
+      ext.loseContext();
+    });
+    await expect(canvas).toHaveAttribute("data-state", "fallback");
+    await assertStopped();
+    await page.evaluate(() =>
+      (window as unknown as { restoreNebula(): void }).restoreNebula(),
+    );
+    await expect(canvas).toHaveAttribute("data-state", "running");
+    await page.getByLabel("Выбрать тему оформления", { exact: true }).click();
+    await page
+      .getByRole("group", { name: "Быстрый выбор темы" })
+      .getByRole("button", { name: /^Аврора/ })
+      .click();
+    await expect(canvas).toHaveCount(0);
+    await assertStopped();
+    // A driver without WebGL keeps the palette and a static gradient, with no loop.
+    await page.evaluate(() => {
+      const native = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (...args) {
+        if (String(args[0]) === "webgl") return null;
+        return Reflect.apply(native, this, args);
+      } as typeof native;
+    });
+    await page.getByLabel("Выбрать тему оформления", { exact: true }).click();
+    await page
+      .getByRole("group", { name: "Быстрый выбор темы" })
+      .getByRole("button", { name: /^Туманность/ })
+      .click();
+    await expect(canvas).toHaveAttribute("data-state", "fallback");
+    await page
+      .getByLabel("Сообщение", { exact: true })
+      .fill("Фон не мешает вводу");
+    await assertStopped();
   } finally {
     await app.close();
   }

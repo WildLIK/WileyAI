@@ -15,6 +15,7 @@ export function ProcessStatus({
     <div
       className={"process-status process-" + kind + (compact ? " compact" : "")}
       role="status"
+      aria-label={label}
       aria-live="polite"
       data-process={kind}
     >

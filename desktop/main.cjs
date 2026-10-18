@@ -324,6 +324,10 @@ function showWindow(view = "chat") {
     },
   });
   windows.set(view, window);
+  const reportActivity = () =>
+    sendToWindow(window, "window-activity", windowActivity(window));
+  for (const event of ["show", "hide", "minimize", "restore", "focus", "blur"])
+    window.on(event, reportActivity);
   const contentsId = window.webContents.id;
   window.webContents.on("render-process-gone", () =>
     conversation.releaseSender(contentsId),
@@ -350,6 +354,17 @@ function showWindow(view = "chat") {
 }
 
 app.on("second-instance", () => showWindow("chat"));
+function windowActivity(window) {
+  return {
+    visible: Boolean(
+      window &&
+      !window.isDestroyed() &&
+      window.isVisible() &&
+      !window.isMinimized(),
+    ),
+    focused: Boolean(window && !window.isDestroyed() && window.isFocused()),
+  };
+}
 app.whenReady().then(async () => {
   if (!primary) return;
   protocol.handle("app", (request) => {
@@ -388,6 +403,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("connection", (event) => {
     trusted(event);
     return coreConnection.wait();
+  });
+  ipcMain.handle("window-activity", (event) => {
+    trusted(event);
+    return windowActivity(BrowserWindow.fromWebContents(event.sender));
   });
   ipcMain.handle("restart", (event) => {
     trusted(event);

@@ -68,9 +68,22 @@ async function verifyPackaged(data) {
     const health = await api("/health");
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
+    const appsBefore = (await api("/aliases")).custom.length;
+    const discovered = await api("/applications/scan", "POST");
+    if (
+      !discovered.supported ||
+      Object.keys(discovered.categories).length !== 6 ||
+      !Array.isArray(discovered.items)
+    )
+      throw new Error("Standalone application scan failed");
+    if ((await api("/aliases")).custom.length !== appsBefore)
+      throw new Error("Read-only application scan changed saved commands");
+    console.log(
+      `Standalone application scan OK: ${discovered.items.length} known apps; no commands changed.`,
+    );
     await api("/memories", "POST", { text: "Standalone restart check" });
     await api("/settings/appearance", "PATCH", {
-      ui_theme: "ice",
+      ui_theme: "nebula",
       ui_motion: "reduced",
     });
     await api("/tasks", "POST", {
@@ -171,7 +184,7 @@ async function verifyPackaged(data) {
     await page.getByRole("heading", { name: "Привет, я Уайли." }).waitFor();
     await page.waitForFunction(
       () =>
-        document.documentElement.dataset.theme === "ice" &&
+        document.documentElement.dataset.theme === "nebula" &&
         document.documentElement.dataset.motion === "reduced",
     );
     const connection = await page.evaluate(() => window.wiley.connection());
