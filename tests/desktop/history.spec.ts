@@ -168,7 +168,7 @@ print(json.dumps({"chat":a["id"],"target":target["id"]}))
     );
     await expect(target).toHaveCount(0);
     await page
-      .getByRole("button", { name: "Поиск в текущем чате", exact: true })
+      .getByRole("button", { name: "Открыть поиск", exact: true })
       .click();
     await query.fill("СОКОЛ-7351");
     await expect(dialog.locator(".history-result")).toHaveCount(1);
@@ -180,7 +180,7 @@ print(json.dumps({"chat":a["id"],"target":target["id"]}))
     await expect(dialog).toHaveCount(0);
     await page.reload();
     await page
-      .getByRole("button", { name: "Поиск в текущем чате", exact: true })
+      .getByRole("button", { name: "Открыть поиск", exact: true })
       .click();
     await query.fill("СОКОЛ-7351");
     await expect(dialog.locator(".history-result")).toHaveCount(1);

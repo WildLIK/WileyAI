@@ -37,6 +37,7 @@ import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
 import { Applications } from "./Applications";
+import { ActionLog } from "./ActionLog";
 import { NebulaBackground } from "./NebulaBackground";
 import { CalendarPanel } from "./Calendar";
 import { DocumentPanel } from "./Documents";
@@ -222,7 +223,6 @@ export function App() {
   useEffect(() => {
     const find = (event: KeyboardEvent) => {
       if (
-        tab !== "chat" ||
         historySearch ||
         busyRef.current ||
         conversationEnabled.current ||
@@ -236,7 +236,7 @@ export function App() {
         event.key.toLowerCase() === "f"
       ) {
         event.preventDefault();
-        setHistorySearch({ scope: "chat" });
+        setHistorySearch({ scope: tab === "chat" ? "chat" : "space" });
       }
     };
     window.addEventListener("keydown", find);
@@ -1009,6 +1009,7 @@ export function App() {
       speechConfig?: Settings;
       onSpeaking?: () => void;
       fullDocument?: boolean;
+      webSearch?: boolean;
     } = {},
   ) {
     try {
@@ -1034,7 +1035,9 @@ export function App() {
     setStage("Отвечает…");
     setReadingProgress(null);
     const useSearch =
-      !options.conversation && !options.fullDocument && searchNext;
+      !options.conversation &&
+      !options.fullDocument &&
+      (options.webSearch ?? searchNext);
     if (!options.conversation) setSearchNext(false);
     busyRef.current = true;
     const controller = new AbortController();
@@ -1626,13 +1629,24 @@ export function App() {
             {tab === "chat" ? currentProject?.name || "Общие чаты" : "WileyAI"}{" "}
             <span>/</span> {tabs.find((item) => item.id === tab)?.label}
           </div>
-          {activity.length > 0 && (
+          {activity.filter(
+            (item) =>
+              item.id !== "listen" &&
+              (!conversation.active || item.id !== "voice"),
+          ).length > 0 && (
             <div
               className="activity-dock"
               aria-label="Текущие процессы"
               title={activity.map((item) => item.label).join(" · ")}
             >
-              <ProcessStatus {...activity[0]} compact />
+              <ProcessStatus
+                {...activity.find(
+                  (item) =>
+                    item.id !== "listen" &&
+                    (!conversation.active || item.id !== "voice"),
+                )!}
+                compact
+              />
               {activity.length > 1 && (
                 <small className="activity-count">+{activity.length - 1}</small>
               )}
@@ -1662,6 +1676,47 @@ export function App() {
               ◈
             </button>
           )}
+          <div className="global-controls" aria-label="Общие инструменты">
+            <button
+              className="outline global-search"
+              aria-label="Открыть поиск"
+              title="Поиск по истории и в интернете · Ctrl+F"
+              disabled={
+                busy ||
+                conversation.active ||
+                chatLoading ||
+                recording ||
+                uploading
+              }
+              onClick={() =>
+                setHistorySearch({ scope: tab === "chat" ? "chat" : "space" })
+              }
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 5 5" />
+              </svg>
+              <span>Поиск</span>
+            </button>
+            <ConversationControl
+              toolbar
+              state={conversation}
+              speaking={speaking}
+              onToggle={() => run(toggleConversation)}
+              onInterrupt={interruptConversation}
+              disabled={
+                busy || recording || uploading || speaking || chatLoading
+              }
+            />
+          </div>
           <ThemeSwitch value={settings} onChange={saveAppearance} />
           {tab !== "monitor" && (
             <ResourceBadge onOpen={() => setTab("monitor")} />
@@ -1670,27 +1725,7 @@ export function App() {
             <i />
             {connected ? settings.model : "Модель не подключена"}
           </div>
-          {tab !== "chat" && !conversation.active && speaking && (
-            <button
-              className="outline speech-stop"
-              onClick={interruptConversation}
-              title="Escape — остановить озвучку"
-            >
-              ■ Остановить озвучку
-            </button>
-          )}
         </header>
-        {tab !== "chat" && conversation.active && (
-          <div className="voice-toolbar">
-            <ConversationControl
-              state={conversation}
-              speaking={speaking}
-              onToggle={() => run(toggleConversation)}
-              onInterrupt={interruptConversation}
-              disabled={busy || recording || uploading || speaking}
-            />
-          </div>
-        )}
         <UpdateNotice />
         {error && (
           <div className="error global-message" role="alert">
@@ -1713,34 +1748,6 @@ export function App() {
                 <div>
                   <h1>{currentChat?.title || "Новый чат"}</h1>
                   <small>{scopeName}</small>
-                </div>
-                <div className="chat-toolbar-actions">
-                  <button
-                    className="outline"
-                    aria-label="Поиск в текущем чате"
-                    title="Поиск в чате · Ctrl+F"
-                    disabled={
-                      busy ||
-                      conversation.active ||
-                      chatLoading ||
-                      recording ||
-                      uploading
-                    }
-                    onClick={() => setHistorySearch({ scope: "chat" })}
-                  >
-                    ⌕
-                  </button>
-                  <ConversationControl
-                    compact
-                    stable
-                    state={conversation}
-                    speaking={speaking}
-                    onToggle={() => run(toggleConversation)}
-                    onInterrupt={interruptConversation}
-                    disabled={
-                      busy || recording || uploading || speaking || chatLoading
-                    }
-                  />
                 </div>
               </div>
               {historyWindowVisible && (
@@ -2578,6 +2585,7 @@ export function App() {
               }}
             />
             <DeviceAudio />
+            <ActionLog />
             <RoutinePanel
               key={activeChatId + ":" + restoredVersion}
               conversationId={activeChatId}
@@ -3495,6 +3503,19 @@ export function App() {
           }
           initialScope={historySearch.scope}
           onClose={() => setHistorySearch(null)}
+          onWebSearch={(query) => {
+            setHistorySearch(null);
+            if (!settings.search_enabled) {
+              setSettingsSection("search");
+              setTab("settings");
+              setNotice(
+                "Подключите поисковый сервис и разрешите веб-поиск в настройках.",
+              );
+            } else {
+              setTab("chat");
+              void send(query, { webSearch: true });
+            }
+          }}
           onSelect={(hit, terms) =>
             void run(() => openHistoryResult(hit, terms))
           }

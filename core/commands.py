@@ -133,5 +133,8 @@ def execute(command: Command, dry_run: bool = False) -> str:
         if not webbrowser.open(command.target):
             raise ValueError("Windows не подтвердила запуск браузера")
         return f"Передал браузеру: {command.label}."
+    if command.kind == "app":
+        from .launch_verification import application
+        return application(command.target, command.label)
     os.startfile(command.target)
     return f"Передал Windows команду открыть: {command.label}."

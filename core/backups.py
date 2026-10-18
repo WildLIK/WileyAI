@@ -511,5 +511,5 @@ class Backups:
             settings = {**bundle.settings, "search_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions")}}
             settings.update({field: previous["settings"][field] for field in (*ACCESS_FIELDS, "command_understanding")})
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
-            db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
+            db.execute("INSERT INTO actions (id,kind,target,status,created) VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
         return {"recovery_path": str(path.resolve()), "counts": {name: len(rows) for name, rows in tables.items()}, "connections": connections, "aliases": aliases}

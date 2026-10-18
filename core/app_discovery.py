@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+from datetime import datetime, timezone
 
 from .app_catalog import CATALOG, CATEGORIES, shortcut_spec
 
@@ -156,13 +157,41 @@ def discover():
 
 
 class ApplicationScanner:
-    def __init__(self):
+    def __init__(self, root=None):
         self.lock = threading.Lock()
+        self.cache = Path(root) / "applications.json" if root is not None else None
+
+    def saved(self):
+        empty = {"supported": os.name == "nt", "items": [], "categories": CATEGORIES, "warnings": [], "scanned_at": None}
+        if not self.cache or not self.cache.is_file():
+            return empty
+        try:
+            if self.cache.stat().st_size > 500_000:
+                return empty
+            data = json.loads(self.cache.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("items"), list) or len(data["items"]) > len(CATALOG):
+                return empty
+            if any(not isinstance(item, dict) or not all(isinstance(item.get(key), str) for key in ("id", "name", "category", "target", "source")) or item["category"] not in CATEGORIES or not isinstance(item.get("aliases"), list) or not all(isinstance(alias, str) for alias in item["aliases"]) for item in data["items"]):
+                return empty
+            warnings = data.get("warnings", [])
+            warnings = [item[:500] for item in warnings[:10] if isinstance(item, str)] if isinstance(warnings, list) else []
+            return {**empty, "items": data["items"], "warnings": warnings, "scanned_at": data.get("scanned_at") if isinstance(data.get("scanned_at"), str) else None}
+        except (ValueError, OSError):
+            return empty
 
     def scan(self):
         if not self.lock.acquire(blocking=False):
             raise ValueError("Сканирование уже выполняется. Дождитесь завершения.")
         try:
-            return discover()
+            result = discover()
+            result["scanned_at"] = datetime.now(timezone.utc).isoformat()
+            if self.cache and result["supported"]:
+                try:
+                    temporary = self.cache.with_suffix(".tmp")
+                    temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+                    temporary.replace(self.cache)
+                except OSError:
+                    result["warnings"].append("Приложения найдены, но список не удалось сохранить на диск.")
+            return result
         finally:
             self.lock.release()

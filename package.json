@@ -1,6 +1,6 @@
 {
   "name": "wileyai",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Локальный персональный ассистент для Windows",
   "type": "module",

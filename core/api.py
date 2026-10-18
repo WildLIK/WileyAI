@@ -7,6 +7,7 @@ import json
 import os
 import time
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -36,6 +37,7 @@ from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
 from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio, music_help
 from . import audio_intents
+from . import windows_media
 from .app_discovery import ApplicationScanner
 from .app_catalog import CATALOG as APP_CATALOG, canonical_name as app_name
 from .routines import Routines, RoutineBody, requested_name, run_step
@@ -228,7 +230,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app = FastAPI(title="WileyAI", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
     app.state.monitor = monitor
-    app.state.applications = ApplicationScanner()
+    app.state.applications = ApplicationScanner(root)
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
@@ -629,6 +631,16 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def scan_applications():
         return app.state.applications.scan()
 
+    @app.get("/applications")
+    def saved_applications():
+        saved = app.state.applications.saved()
+        if not saved["scanned_at"]:
+            for alias in store.list("aliases", 1000):
+                if alias["kind"] != "app": continue
+                spec = next((item for item in APP_CATALOG if item.name == app_name(alias["name"])), None)
+                saved["items"].append({"id": alias["id"], "name": alias["name"], "target": alias["target"], "category": spec.category if spec else "work", "source": "Сохранённая команда", "aliases": list(spec.aliases) if spec else []})
+        return saved
+
     @app.delete("/aliases/{item_id}")
     def delete_alias(item_id: str):
         store.remove("aliases", item_id)
@@ -636,7 +648,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.get("/actions")
     def actions():
-        return store.list("actions", 100)
+        return [{**item, "details": json.loads(item["details"])} for item in store.list("actions", 100)]
 
     run_command = open_tools.execute
 
@@ -651,6 +663,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.post("/device/audio")
     def audio_action(body: AudioAction):
         return audio_tools.execute(body)
+
+    @app.get("/device/media")
+    def media_status():
+        try:
+            media = windows_media.perform()
+            return {**media, "text": windows_media.describe(media)}
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            return {"available": False, "text": str(error)}
 
     @app.put("/tools/access")
     async def opening_access(body: OpenAccessBody):
@@ -1052,12 +1072,20 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     yield event("delta", text=answer)
                 elif (music := music_help(text, current.name)) is not None:
                     answer = music
+                    try:
+                        playing = await asyncio.to_thread(windows_media.perform)
+                    except (ValueError, OSError, subprocess.TimeoutExpired):
+                        playing = {"available": False}
                     music_names = {item.name for item in APP_CATALOG if item.category == "music"}
                     targets = {item["target"] for item in store.list("aliases", 1000) if item["kind"] == "app" and app_name(item["name"]) in music_names}
                     choices = [item for item in open_tools.choices() if item["kind"] == "app" and item["target"] in targets]
-                    if not current.allow_app_open:
+                    if playing.get("available"):
+                        yield event("stage", text="Передаю команду плееру и проверяю состояние…")
+                        answer = await run_audio(audio_tools, AudioAction(action="play"), audio_progress)
+                    elif not current.allow_app_open:
                         answer = "Запуск музыкальных приложений отключён в разделе «Команды». Команда не выполнялась."
                     elif len(choices) == 1:
+                        yield event("stage", text="Открываю проигрыватель и проверяю процесс…")
                         await run_step(open_tools, choices[0], open_progress)
                         answer = persona.local_result(open_progress[-1].removeprefix("1. "), current.grammatical_gender)
                         answer += " Воспроизведение конкретного трека не проверялось."
@@ -1068,6 +1096,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     yield event("delta", text=answer)
                 elif followup is not None:
                     if followup.command:
+                        yield event("stage", text="Передаю команду Windows и проверяю запуск…")
                         await run_step(open_tools, {"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}, open_progress)
                         answer = open_progress[-1].removeprefix("1. ")
                     else:
@@ -1120,6 +1149,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
                 elif command:
+                    yield event("stage", text="Передаю команду Windows и проверяю запуск…")
                     await run_step(open_tools, {"kind": command.kind, "target": command.target, "label": command.label}, open_progress)
                     answer = open_progress[-1].removeprefix("1. ")
                     answer = persona.local_result(answer, current.grammatical_gender)
@@ -1190,6 +1220,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         used += len(content)
                     if not full_document:
                         payload = [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]
+                    guard_actions = not selected and not full_document and web_result is None and persona.action_context(text, history)
                     try:
                         with monitor.activity("brain:" + current.model):
                             async with aclosing(document_summary.respond(current, payload, selected, text, body.mode, full=full_document, allow_read=web_result is None, sources=document_context)) as output:
@@ -1202,7 +1233,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                         document_context = update["sources"]
                                     elif update["type"] == "delta":
                                         answer += update["text"]
-                                        yield event("delta", text=update["text"])
+                                        if not guard_actions:
+                                            yield event("delta", text=update["text"])
                                     else:
                                         yield event(update["type"], **{key: value for key, value in update.items() if key != "type"})
                         if web_result and not answer:
@@ -1222,6 +1254,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             fallback = "\nНе удалось завершить ответ нейросети. Результаты поиска доступны в карточке источников ниже."
                             answer += fallback
                             yield event("delta", text=fallback)
+                    if guard_actions and answer:
+                        answer = persona.without_unexecuted_claims(answer)
+                        yield event("delta", text=answer)
                 if answer:
                     assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
                     if pending_choices:

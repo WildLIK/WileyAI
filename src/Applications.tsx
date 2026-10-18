@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { request, type Alias } from "./api";
 import { ProcessStatus } from "./ProcessStatus";
 
@@ -15,6 +15,7 @@ interface ScanResult {
   items: FoundApplication[];
   categories: Record<string, string>;
   warnings: string[];
+  scanned_at?: string | null;
 }
 const key = (name: string) =>
   name.toLocaleLowerCase("ru").replaceAll("ё", "е").trim().replace(/\s+/g, " ");
@@ -37,6 +38,26 @@ export function Applications({
   const [scanning, setScanning] = useState(false);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    void request<ScanResult>(
+      "/applications",
+      "GET",
+      undefined,
+      controller.signal,
+    )
+      .then((saved) => {
+        if (
+          !controller.signal.aborted &&
+          (saved.scanned_at || saved.items.length)
+        )
+          setResult(saved);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) onError(error);
+      });
+    return () => controller.abort();
+  }, []);
   const status = (item: FoundApplication) => {
     const existing = aliases.find(
       (alias) => key(alias.name) === key(item.name),
@@ -116,7 +137,7 @@ export function Applications({
         >
           {scanning
             ? "Сканирую…"
-            : result
+            : result?.scanned_at
               ? "Сканировать повторно"
               : "Сканировать приложения"}
         </button>
@@ -201,6 +222,14 @@ export function Applications({
             <span className="help">
               Найдено: {result.items.length}. Ваши существующие команды
               сохраняются.
+              {result.scanned_at && (
+                <>
+                  {" "}
+                  Последний поиск:{" "}
+                  {new Date(result.scanned_at).toLocaleString("ru-RU")}. Список
+                  сохранён.
+                </>
+              )}
             </span>
             <button
               className="outline"

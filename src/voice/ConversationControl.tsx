@@ -8,6 +8,7 @@ export function ConversationControl({
   disabled = false,
   speaking = false,
   stable = false,
+  toolbar = false,
 }: {
   state: ConversationState;
   onToggle: () => void;
@@ -16,6 +17,7 @@ export function ConversationControl({
   disabled?: boolean;
   speaking?: boolean;
   stable?: boolean;
+  toolbar?: boolean;
 }) {
   return (
     <div
@@ -23,7 +25,8 @@ export function ConversationControl({
         "conversation-control " +
         (state.active ? "enabled " : "") +
         (compact ? "compact " : "") +
-        (stable ? "stable" : "")
+        (stable ? "stable " : "") +
+        (toolbar ? "toolbar" : "")
       }
     >
       <button
@@ -32,9 +35,24 @@ export function ConversationControl({
         onClick={onToggle}
         aria-label={state.active ? "Завершить разговор" : "Начать разговор"}
       >
-        {state.active ? "■ Завершить разговор" : "◉ Начать разговор"}
+        {toolbar ? (
+          <>
+            <span aria-hidden="true">{state.active ? "■" : "◉"}</span>
+            {state.active ? (
+              <span className="conversation-phase" role="status">
+                {state.owner ? phaseLabels[state.phase] : "В другом окне"}
+              </span>
+            ) : (
+              "Начать разговор"
+            )}
+          </>
+        ) : state.active ? (
+          "■ Завершить разговор"
+        ) : (
+          "◉ Начать разговор"
+        )}
       </button>
-      {state.active && (
+      {state.active && !toolbar && (
         <>
           <span className="conversation-phase" role="status">
             <i />
@@ -49,8 +67,9 @@ export function ConversationControl({
           className="outline speech-stop"
           onClick={onInterrupt}
           title="Escape — остановить; Ctrl+Shift+Esc — из любого приложения"
+          aria-label={speaking ? "■ Остановить озвучку" : "Перебить"}
         >
-          {speaking ? "■ Остановить озвучку" : "Перебить"}
+          {toolbar ? "■" : speaking ? "■ Остановить озвучку" : "Перебить"}
         </button>
       )}
     </div>

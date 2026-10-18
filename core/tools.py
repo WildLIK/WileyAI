@@ -57,8 +57,9 @@ class OpenTools:
         try:
             self.validate(command)
             result = commands.execute(command, dry_run=dry_run)
-        except Exception:
-            self.store.audit(command.kind, command.target, "error")
+        except Exception as error:
+            self.store.audit(command.kind, command.target, "error", {"text": str(error), "label": command.label})
             raise
-        self.store.audit(command.kind, command.target, "preview" if dry_run else "launched")
+        evidence = getattr(result, "evidence", None)
+        self.store.audit(command.kind, command.target, "preview" if dry_run else evidence["status"] if evidence else "launched", evidence or {"text": str(result), "label": command.label})
         return result

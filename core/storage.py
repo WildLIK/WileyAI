@@ -73,6 +73,8 @@ class Store:
             if "document_context" not in {row["name"] for row in db.execute("PRAGMA table_info(messages)")}:
                 db.execute("ALTER TABLE messages ADD COLUMN document_context TEXT NOT NULL DEFAULT '[]'")
             migrate_history(db)
+            if "details" not in {row["name"] for row in db.execute("PRAGMA table_info(actions)")}:
+                db.execute("ALTER TABLE actions ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -327,9 +329,9 @@ class Store:
         if not row or any(row[key] != value for key, value in expected.items()):
             raise ValueError("Запись изменилась или удалена после выбора. Повторите поиск: ничего не изменено.")
 
-    def audit(self, kind: str, target: str, status: str):
+    def audit(self, kind: str, target: str, status: str, details=None):
         with self.db() as db:
-            db.execute("INSERT INTO actions VALUES (?,?,?,?,?)", (uuid.uuid4().hex, kind, target, status, now()))
+            db.execute("INSERT INTO actions (id,kind,target,status,created,details) VALUES (?,?,?,?,?,?)", (uuid.uuid4().hex, kind, target, status, now(), json.dumps(details or {}, ensure_ascii=False)))
 
     def add_alias(self, name: str, kind: str, target: str, *, replace: bool = True) -> dict:
         item = dict(id=uuid.uuid4().hex, name=name.casefold().strip(), kind=kind, target=target)

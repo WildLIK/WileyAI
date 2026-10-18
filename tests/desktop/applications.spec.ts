@@ -54,10 +54,12 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
   );
   const original = join(data, "existing-file.txt");
   await writeFile(original, "existing alias");
-  const app = await electron.launch({
-    args: ["--mute-audio", "."],
-    env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
-  });
+  const launch = () =>
+    electron.launch({
+      args: ["--mute-audio", "."],
+      env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+    });
+  let app = await launch();
   let release = () => {};
   const ready = new Promise<void>((resolve) => {
     release = resolve;
@@ -76,6 +78,14 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
     await page.route("**/applications/scan", async (route) => {
       scans++;
       await ready;
+      await writeFile(
+        join(data, "applications.json"),
+        JSON.stringify({
+          supported: true,
+          items,
+          scanned_at: new Date().toISOString(),
+        }),
+      );
       await route.fulfill({
         json: {
           supported: true,
@@ -166,6 +176,40 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
     expect(
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth),
     ).toBe(true);
+    await page
+      .getByRole("button", { name: "⚙ Настройки", exact: true })
+      .click();
+    await expect(
+      page
+        .locator(".topbar")
+        .getByRole("button", { name: "Начать разговор", exact: true }),
+    ).toBeVisible();
+    await page
+      .locator(".topbar")
+      .getByRole("button", { name: "Открыть поиск", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "⌘ Команды", exact: true }).click();
+    await expect(
+      panel.getByRole("article", { name: "AIMP", exact: true }),
+    ).toBeVisible();
+    expect(scans).toBe(1);
+    await app.close();
+    app = await launch();
+    const restarted = await app.firstWindow();
+    await restarted
+      .getByRole("button", { name: "⌘ Команды", exact: true })
+      .click();
+    await expect(
+      restarted.getByRole("article", { name: "AIMP", exact: true }),
+    ).toBeVisible();
+    await expect(
+      restarted.getByRole("button", {
+        name: "Сканировать повторно",
+        exact: true,
+      }),
+    ).toBeVisible();
   } finally {
     release();
     await app.close();

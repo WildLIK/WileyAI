@@ -9,6 +9,9 @@ type AudioState = {
   error?: string;
 };
 type Action =
+  | "play"
+  | "pause"
+  | "media_status"
   | "set_volume"
   | "change_volume"
   | "mute"
@@ -179,6 +182,9 @@ export function DeviceAudio() {
       <div className="button-row">
         {(
           [
+            ["play", "Продолжить музыку"],
+            ["pause", "Поставить музыку на паузу"],
+            ["media_status", "Проверить проигрыватель"],
             ["previous", "Предыдущий трек"],
             ["play_pause", "Воспроизведение / пауза"],
             ["next", "Следующий трек"],
@@ -197,8 +203,10 @@ export function DeviceAudio() {
       </div>
       <p className="help">
         «Громкость тридцать пять процентов» · «Сделай тише» · «Выключи звук» ·
-        «Следующий трек». Медиаклавиши получает активный проигрыватель Windows.
-        Воспроизведение / пауза переключает его состояние.
+        «Следующий трек». Для AIMP используется его API, для других плееров —
+        медиасессия Windows. Пауза и продолжение проверяют прочитанное
+        состояние. При отсутствии API для переключателя и треков доступны
+        медиаклавиши Windows без подтверждения состояния.
       </p>
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}

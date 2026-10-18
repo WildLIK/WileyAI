@@ -2,18 +2,19 @@
 import asyncio
 import re
 import threading
+import subprocess
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from anyio import CancelScope
 
-from . import windows_audio
+from . import windows_audio, windows_media
 from .commands import normalize
 
 
 class AudioAction(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    action: Literal["status", "set_volume", "change_volume", "mute", "unmute", "play_pause", "next", "previous", "stop"]
+    action: Literal["status", "set_volume", "change_volume", "mute", "unmute", "play", "pause", "media_status", "play_pause", "next", "previous", "stop"]
     value: int | None = Field(default=None, ge=-100, le=100)
 
     @model_validator(mode="after")
@@ -27,6 +28,7 @@ class AudioAction(BaseModel):
 
 
 LABELS = {"status": "Текущая громкость", "set_volume": "Установить громкость", "change_volume": "Изменить громкость", "mute": "Выключить звук", "unmute": "Включить звук", "play_pause": "Воспроизведение / пауза", "next": "Следующий трек", "previous": "Предыдущий трек", "stop": "Остановить проигрыватель"}
+LABELS.update(play="Продолжить воспроизведение", pause="Поставить на паузу", media_status="Проверить проигрыватель")
 UNITS = ["ноль", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать", "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать"]
 TENS = {"двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50, "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80, "девяносто": 90, "сто": 100}
 
@@ -81,6 +83,9 @@ def resolve(text, name="Уайли"):
         "следующий трек": "next", "переключи трек": "next", "включи следующий трек": "next", "предыдущий трек": "previous", "включи предыдущий трек": "previous",
         "переключи воспроизведение": "play_pause", "музыка пауза": "play_pause", "музыка продолжить": "play_pause",
         "останови музыку": "stop", "останови проигрыватель": "stop",
+        "поставь музыку на паузу": "pause", "поставь на паузу": "pause", "поставь плеер на паузу": "pause", "приостанови музыку": "pause", "пауза": "pause",
+        "продолжи музыку": "play", "продолжи воспроизведение": "play", "возобнови музыку": "play", "возобнови воспроизведение": "play", "сними с паузы": "play", "воспроизведи музыку": "play",
+        "где музыка": "media_status", "где музыка?": "media_status", "проверь проигрыватель": "media_status", "проверь музыку": "media_status", "музыка играет?": "media_status",
     }
     if value in fixed:
         return AudioAction(action=fixed[value])
@@ -100,7 +105,7 @@ def resolve(text, name="Уайли"):
 def music_help(text, name="Уайли"):
     """A request to start unspecified music cannot prove a player is running."""
     value = request_text(text, name)
-    if value and re.fullmatch(r"(?:(?:включи|поставь|запусти|воспроизведи)|(?:ты )?можешь (?:включить|поставить|запустить)) (?:мне )?(?:музыку|какую-нибудь музыку)\??", value):
+    if value and re.fullmatch(r"(?:давай )?(?:(?:включи|включим|поставь|поставим|запусти|запустим|воспроизведи)|(?:ты )?можешь (?:включить|поставить|запустить)) (?:мне )?(?:музыку|какую-нибудь музыку)\??", value):
         return "Для запуска музыки нужен источник. Можно сказать «открой мне YouTube». Если проигрыватель уже открыт, доступна команда «переключи воспроизведение». Сейчас команда воспроизведения не отправлялась."
     return None
 
@@ -129,9 +134,22 @@ class AudioTools:
                 if dry_run:
                     text = f"Проверено: {LABELS[command.action]}" + (f" ({command.value})" if command.value is not None else "") + ". Действие не выполнялось."
                     result = {"text": text}
+                elif command.action in {"play", "pause", "media_status"}:
+                    media = windows_media.perform("read" if command.action == "media_status" else command.action)
+                    if command.action != "media_status": media["action"] = command.action
+                    result = {"text": windows_media.describe(media), "media": media}
                 elif command.action in windows_audio.MEDIA_KEYS:
-                    windows_audio.send_media(command.action)
-                    result = {"text": f"Windows получила медиаклавишу «{LABELS[command.action]}». Результат зависит от активного проигрывателя."}
+                    try:
+                        media = windows_media.perform()
+                    except (ValueError, OSError, subprocess.TimeoutExpired):
+                        media = {"available": False}
+                    if media.get("available"):
+                        media = windows_media.perform(command.action)
+                        media["action"] = command.action
+                        result = {"text": windows_media.describe(media), "media": media}
+                    else:
+                        windows_audio.send_media(command.action)
+                        result = {"text": f"Windows получила медиаклавишу «{LABELS[command.action]}». Результат зависит от активного проигрывателя; состояние не подтверждено."}
                 else:
                     with windows_audio.endpoint() as device:
                         if command.action == "set_volume":
@@ -143,10 +161,10 @@ class AudioTools:
                         state = device.read()
                     suffix = " Звук выключен." if state["muted"] else " Звук включён."
                     result = {"text": f"Громкость Windows: {state['volume']}%." + suffix, **state}
-        except Exception:
-            self.store.audit("device.audio", target, "error")
+        except Exception as error:
+            self.store.audit("device.audio", target, "error", {"text": str(error)})
             raise
-        self.store.audit("device.audio", target, "preview" if dry_run else "ok")
+        self.store.audit("device.audio", target, "preview" if dry_run else "confirmed" if result.get("media", {}).get("confirmed") else "unconfirmed" if command.action in {"play", "pause"} else "ok", result)
         return result
 
 

@@ -33,7 +33,7 @@ float fbm(vec2 p) {
 void main() {
   vec2 p = (gl_FragCoord.xy*2.0-u_resolution)/u_resolution.y;
   p *= 1.25;
-  float t = u_time*.055;
+  float t = u_time*.28;
   vec2 q = p;
   q += .8*vec2(fbm(p*1.5+vec2(t*.4, -t*.25)),
                 fbm(p*1.5+vec2(4.5-t*.3, 1.5+t*.15))) - .4;
@@ -169,7 +169,7 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
         return;
       }
       draw();
-      if (!nativeActive || document.hidden || !document.hasFocus()) {
+      if (!nativeActive || document.hidden) {
         node.dataset.state = "paused";
         return;
       }
@@ -211,7 +211,7 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
       return;
     }
     const activity = (state: { visible: boolean; focused: boolean }) => {
-      nativeActive = state.visible && state.focused;
+      nativeActive = state.visible;
       refresh();
     };
     const unsubscribe = window.wiley.onWindowActivity((state) => {

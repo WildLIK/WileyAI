@@ -110,6 +110,7 @@ def test_invalid_levels_are_rejected(text):
 
 @pytest.fixture
 def audio(tmp_path, monkeypatch):
+    monkeypatch.setattr("core.windows_media.perform", lambda action="read": {"available": False})
     class FakeEndpoint:
         volume = 40
         muted = False

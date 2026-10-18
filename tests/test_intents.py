@@ -27,6 +27,7 @@ def context(tmp_path, monkeypatch):
     opened, captured = [], []
     monkeypatch.setattr(commands, "execute", lambda command, dry_run=False: opened.append(command) or "Передал Windows: " + command.label)
     monkeypatch.setattr(providers, "get_key", lambda config: "")
+    monkeypatch.setattr("core.windows_media.perform", lambda action="read": {"available": False})
     async def chat(config, messages):
         captured.append(messages)
         if "Каталог:\n" not in messages[0]["content"]:

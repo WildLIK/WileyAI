@@ -2,6 +2,7 @@ import { _electron as electron } from "@playwright/test";
 import { mkdir, writeFile, cp, readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import testTemp from "./test-temp.cjs";
+import { spawnSync } from "node:child_process";
 
 await testTemp.cleanupAbandonedRuns();
 const run = await testTemp.createTestRun();
@@ -80,6 +81,54 @@ async function verifyPackaged(data) {
       throw new Error("Read-only application scan changed saved commands");
     console.log(
       `Standalone application scan OK: ${discovered.items.length} known apps; no commands changed.`,
+    );
+    const cachedApps = await api("/applications");
+    if (
+      !cachedApps.scanned_at ||
+      cachedApps.items.length !== discovered.items.length
+    )
+      throw new Error("Application scan cache was not saved");
+    const helper = join(data, "VerifiedHelper.exe");
+    const compiler = join(
+      process.env.SystemRoot,
+      "System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const built = spawnSync(
+      compiler,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$p=[Console]::In.ReadToEnd(); Add-Type -TypeDefinition 'class VerifiedHelper { static void Main() { System.Threading.Thread.Sleep(3000); } }' -OutputAssembly $p -OutputType WindowsApplication",
+      ],
+      {
+        input: helper,
+        encoding: "utf8",
+        windowsHide: true,
+        env,
+        timeout: 15000,
+      },
+    );
+    if (built.status !== 0)
+      throw new Error("Isolated test helper compilation failed");
+    await api("/aliases", "POST", {
+      name: "проверка процесса",
+      kind: "app",
+      target: helper,
+    });
+    const launched = await api("/commands", "POST", {
+      text: "Открой проверка процесса",
+      dry_run: false,
+    });
+    const action = (await api("/actions"))[0];
+    if (
+      !launched.text.includes("PID") ||
+      action.status !== "process_started" ||
+      !action.details.pid
+    )
+      throw new Error("Packaged core did not verify the actual helper process");
+    console.log(
+      "Standalone native process verification OK: exact EXE and PID recorded.",
     );
     await api("/memories", "POST", { text: "Standalone restart check" });
     await api("/settings/appearance", "PATCH", {
@@ -189,6 +238,14 @@ async function verifyPackaged(data) {
     );
     const connection = await page.evaluate(() => window.wiley.connection());
     const headers = { Authorization: "Bearer " + connection.token };
+    const savedApps = await (
+      await fetch(connection.url + "/applications", { headers })
+    ).json();
+    if (!savedApps.scanned_at || !savedApps.items.length)
+      throw new Error("Application scan cache lost on full restart");
+    console.log(
+      "Standalone application scan cache restored without rescanning.",
+    );
     const memories = await (
       await fetch(connection.url + "/memories", { headers })
     ).json();

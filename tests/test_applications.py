@@ -95,6 +95,9 @@ def test_authenticated_scan_is_read_only_and_import_revalidates_existence(tmp_pa
         path.unlink()
         assert api.post("/aliases", json={**body, "name": "Another"}).status_code == 400
         assert len(api.get("/aliases").json()["custom"]) == 1
+        saved = api.get("/applications").json()
+        assert saved["items"][0]["source"] == "Сохранённая команда"
+        assert saved["items"][0]["target"] == str(path)
 
 
 def test_scan_lock_rejects_overlap_and_recovers(monkeypatch):
@@ -104,4 +107,15 @@ def test_scan_lock_rejects_overlap_and_recovers(monkeypatch):
         scanner.scan()
     scanner.lock.release()
     monkeypatch.setattr(discovery, "discover", lambda: {"items": []})
-    assert scanner.scan() == {"items": []}
+    assert scanner.scan()["items"] == []
+
+
+def test_scan_cache_survives_reopening_without_rescanning(tmp_path, monkeypatch):
+    item = {"id": "one", "name": "AIMP", "category": "music", "target": str(tmp_path / "AIMP.exe"), "source": "test", "aliases": ["аимп"]}
+    monkeypatch.setattr(discovery, "discover", lambda: {"supported": True, "items": [item], "warnings": [], "categories": discovery.CATEGORIES})
+    scanned = discovery.ApplicationScanner(tmp_path).scan()
+    monkeypatch.setattr(discovery, "discover", lambda: pytest.fail("An existing cache must not trigger a scan"))
+    saved = discovery.ApplicationScanner(tmp_path).saved()
+    assert saved["items"] == [item] and saved["scanned_at"] == scanned["scanned_at"]
+    (tmp_path / "applications.json").write_text('{"items":[{"target":"broken"}]}')
+    assert discovery.ApplicationScanner(tmp_path).saved()["items"] == []

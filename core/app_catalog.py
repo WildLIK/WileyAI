@@ -70,7 +70,7 @@ CATALOG = (
 
 
 def name_key(value):
-    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip(" .!")
+    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е").replace("яндекс.", "яндекс ")).strip(" .!")
 
 
 APP_NAMES = {name_key(label): spec.name for spec in CATALOG for label in (spec.name, *spec.aliases)}

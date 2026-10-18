@@ -657,10 +657,10 @@ progress:indeterminate::-webkit-progress-bar {
   display: flex;
   align-items: center;
   gap: 5px;
-  width: 230px;
+  width: 180px;
   min-width: 34px;
   max-width: 23vw;
-  height: 46px;
+  height: 40px;
   flex-shrink: 1;
   overflow: hidden;
 }
@@ -670,7 +670,86 @@ progress:indeterminate::-webkit-progress-bar {
 .activity-dock .process-status {
   min-width: 0;
   width: 100%;
-  height: 44px;
+  height: 40px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+}
+.activity-dock .process-copy small,
+.activity-dock .process-track {
+  display: none;
+}
+.activity-dock .process-glyph {
+  width: 24px;
+  height: 24px;
+}
+.global-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.global-controls > button,
+.conversation-control.toolbar > button {
+  height: 40px;
+  margin: 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.global-search {
+  font-size: 16px;
+}
+.global-search span {
+  font-size: 11px;
+}
+.conversation-control.toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.conversation-control.toolbar > button:first-child {
+  width: 174px;
+}
+.conversation-control.toolbar .conversation-phase {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-control.toolbar .speech-stop {
+  width: 36px;
+  padding: 0;
+}
+.topbar .connection {
+  max-width: 155px;
+}
+@media (max-width: 1300px) {
+  .topbar .connection {
+    display: none;
+  }
+  .global-search span {
+    display: none;
+  }
+}
+@media (max-width: 1050px) {
+  .topbar .resource-badge {
+    display: none;
+  }
+  .global-controls {
+    gap: 5px;
+  }
+  .activity-dock {
+    width: 28px;
+    max-width: 28px;
+  }
+  .activity-dock .process-copy,
+  .activity-count {
+    display: none;
+  }
 }
 .activity-dock .process-copy strong,
 .activity-dock .process-copy small {
@@ -685,8 +764,8 @@ progress:indeterminate::-webkit-progress-bar {
 .chat-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  height: 82px;
-  min-height: 82px;
+  height: 64px;
+  min-height: 64px;
 }
 .chat-toolbar-actions {
   flex-wrap: nowrap;

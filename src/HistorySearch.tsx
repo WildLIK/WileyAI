@@ -21,6 +21,7 @@ export function HistorySearch({
   onClose,
   onSelect,
   disabled,
+  onWebSearch,
 }: {
   chat: string;
   project?: string;
@@ -28,6 +29,7 @@ export function HistorySearch({
   onClose: () => void;
   onSelect: (hit: HistoryHit, terms: string[]) => void;
   disabled: boolean;
+  onWebSearch?: (query: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -158,6 +160,16 @@ export function HistorySearch({
           >
             Найти
           </button>
+          {onWebSearch && (
+            <button
+              type="button"
+              className="outline"
+              disabled={disabled || query.trim().length < 2}
+              onClick={() => onWebSearch(query.trim())}
+            >
+              В интернете
+            </button>
+          )}
         </div>
         <div className="history-filters">
           <label>

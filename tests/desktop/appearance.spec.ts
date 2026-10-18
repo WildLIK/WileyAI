@@ -215,6 +215,8 @@ test("nebula: real animated shader, bounded resolution, pause, reduced motion, c
         }),
       ).toBe(0);
     const nativeWindow = await app.browserWindow(page);
+    await nativeWindow.evaluate((window) => window.blur());
+    await expect(canvas).toHaveAttribute("data-state", "running");
     await nativeWindow.evaluate((window) => window.hide());
     await expect(canvas).toHaveAttribute("data-state", "paused");
     await assertStopped();

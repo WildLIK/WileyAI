@@ -2545,6 +2545,43 @@ html:has(.pet-window) {
   line-height: 1.6;
   color: var(--accent-text);
 }
+.action-log-entries {
+  max-height: 360px;
+  overflow: auto;
+}
+.action-log details {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.action-log summary {
+  display: grid;
+  grid-template-columns: 135px 190px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.action-log summary span {
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+.action-log time {
+  color: var(--text-muted);
+}
+.action-log p {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.action-log .action-error strong {
+  color: var(--danger-text);
+}
+@media (max-width: 1000px) {
+  .action-log summary {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}
 @media (max-width: 900px) {
   .application-discovery-heading {
     align-items: flex-start;

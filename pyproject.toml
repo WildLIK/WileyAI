@@ -1,6 +1,6 @@
 [project]
 name = "wileyai-core"
-version = "0.8.0"
+version = "0.8.1"
 description = "Local-first WileyAI runtime"
 requires-python = ">=3.12,<3.13"
 dependencies = [
