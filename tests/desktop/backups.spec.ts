@@ -120,7 +120,7 @@ test("backups: native save/open, preview, stale guard, protective copy, all-wind
     await page
       .getByRole("button", { name: "Сохранить резервную копию", exact: true })
       .click();
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.locator(".notice[role=status]")).toHaveText(
       "Резервная копия сохранена",
     );
     const saved = JSON.parse(await readFile(archive, "utf8"));
@@ -183,7 +183,7 @@ test("backups: native save/open, preview, stale guard, protective copy, all-wind
     await page
       .getByRole("button", { name: "Восстановить данные", exact: true })
       .click();
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.locator(".notice[role=status]")).toHaveText(
       "Данные восстановлены. Защитная копия сохранена",
     );
     await expect(page.getByLabel("Имя", { exact: true })).toHaveValue(

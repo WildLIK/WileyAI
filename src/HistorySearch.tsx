@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { request, scoped } from "./api";
+import { ProcessStatus } from "./ProcessStatus";
 
 export interface HistoryHit {
   id: string;
@@ -200,7 +201,7 @@ export function HistorySearch({
           </p>
         )}
         {pending ? (
-          <p className="help">Ищу сообщения…</p>
+          <ProcessStatus kind="search" label="Ищу сообщения…" compact />
         ) : submitted.length < 2 ? (
           <p className="help">
             Введите хотя бы два символа. Можно искать по нескольким словам, до

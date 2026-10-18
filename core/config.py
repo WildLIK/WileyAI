@@ -42,6 +42,9 @@ class SavedSpeechVoice(BaseModel):
 
 
 class Settings(BaseModel):
+    ui_theme: Literal["aurora", "ice", "ember"] = "aurora"
+    ui_motion: Literal["full", "reduced"] = "full"
+    ui_glass: bool = True
     name: str = Field(default="Уайли", min_length=1, max_length=60)
     grammatical_gender: Literal["feminine", "masculine", "neutral"] = "feminine"
     personality: str = Field(default="Ты Уайли, личный ассистент. Общайся на русском, тепло и по существу. Учитывай предпочтения владельца. Не выдумывай выполненные действия и воспоминания.", max_length=8000)
@@ -114,6 +117,13 @@ class Settings(BaseModel):
 class SettingsUpdate(Settings):
     api_key: str | None = Field(default=None, max_length=4096)
     search_api_key: str | None = Field(default=None, max_length=4096)
+
+
+class AppearanceSettings(BaseModel):
+    model_config = {"extra": "forbid"}
+    ui_theme: Literal["aurora", "ice", "ember"] | None = None
+    ui_motion: Literal["full", "reduced"] | None = None
+    ui_glass: bool | None = None
 
 
 class CloudSettings(BaseModel):

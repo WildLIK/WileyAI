@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scopedRequest, type Doc } from "./api";
+import { ProcessStatus } from "./ProcessStatus";
 
 type Page = { items: Doc[]; total: number };
 type Preview = { document: Doc; text: string; offset: number; total: number };
@@ -120,6 +121,9 @@ export function DocumentPanel({
   }
   return (
     <section className="page scroll-page document-page">
+      {working && (
+        <ProcessStatus kind="document" label="Обрабатываю документ…" compact />
+      )}
       <div className="page-heading compact">
         <div>
           <h1>Документы</h1>
@@ -285,7 +289,7 @@ export function DocumentPanel({
         </article>
       )}
       {loading ? (
-        <p role="status">Ищу документы…</p>
+        <ProcessStatus kind="search" label="Ищу документы…" compact />
       ) : (
         <>
           <p className="help">

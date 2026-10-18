@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BackupPreview } from "./api";
+import { ProcessStatus } from "./ProcessStatus";
 
 const labels: [string, string][] = [
   ["projects", "Проекты"],
@@ -83,6 +84,13 @@ export function BackupPanel({
   return (
     <div className="card backup-card" aria-label="Резервные копии">
       <h2>Резервные копии и перенос</h2>
+      {working && (
+        <ProcessStatus
+          kind="document"
+          label="Работа с резервной копией…"
+          compact
+        />
+      )}
       <p>
         Сохраните переписку, память, личность, заметки, задачи и текст
         документов в один файл.

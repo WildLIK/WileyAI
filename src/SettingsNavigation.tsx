@@ -1,5 +1,6 @@
 export const SETTINGS_SECTIONS = [
   { id: "personality", label: "Личность", icon: "◉" },
+  { id: "appearance", label: "Оформление", icon: "◐" },
   { id: "brain", label: "Мозг", icon: "⬡" },
   { id: "speech", label: "Озвучка", icon: "♪" },
   { id: "microphone", label: "Микрофон и разговор", icon: "◌" },

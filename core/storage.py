@@ -104,6 +104,15 @@ class Store:
         with self.db() as db:
             db.execute("INSERT OR REPLACE INTO config VALUES (1, ?)", (settings.model_dump_json(),))
 
+    def patch_settings(self, changes: dict) -> Settings:
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM config WHERE id=1").fetchone()
+            current = Settings.model_validate_json(row[0]) if row else Settings()
+            updated = Settings.model_validate({**current.model_dump(), **changes})
+            db.execute("INSERT OR REPLACE INTO config VALUES (1, ?)", (updated.model_dump_json(),))
+            return updated
+
     def list(self, table: str, limit: int = 100) -> list[dict]:
         if table not in {"messages", "memories", "aliases", "documents", "actions", "tasks", "notes", "notifications"}:
             raise ValueError("Unknown table")

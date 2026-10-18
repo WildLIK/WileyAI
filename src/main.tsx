@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { init } from "./api";
 import "./style.css";
+import "./themes.css";
+import { restoreAppearance } from "./appearance";
+import { ProcessStatus } from "./ProcessStatus";
+restoreAppearance();
 
 const root = createRoot(document.getElementById("root")!);
 function start() {
@@ -10,6 +14,7 @@ function start() {
     <div className="loading">
       <div className="logo-mark">W</div>
       <p>Запускаю локальное ядро…</p>
+      <ProcessStatus kind="brain" label="Подключаю локальное ядро…" compact />
       <div
         className="startup-progress"
         role="progressbar"

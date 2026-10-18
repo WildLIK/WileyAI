@@ -2,6 +2,9 @@ import type { ConversationState, Phase } from "./voice/conversation";
 import { validateConnection, type Connection } from "./connection";
 
 export interface Settings {
+  ui_theme: "aurora" | "ice" | "ember";
+  ui_motion: "full" | "reduced";
+  ui_glass: boolean;
   name: string;
   grammatical_gender: "feminine" | "masculine" | "neutral";
   personality: string;

@@ -42,6 +42,9 @@ import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
 import { DocumentContext } from "./DocumentContext";
 import { DocumentReadingProgress } from "./DocumentReadingProgress";
+import { AppearancePanel, ThemeSwitch } from "./AppearancePanel";
+import { applyAppearance, type Appearance } from "./appearance";
+import { ProcessStatus, type ProcessKind } from "./ProcessStatus";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
@@ -134,6 +137,12 @@ export function App() {
   const view = new URLSearchParams(location.search).get("view") || "chat";
   const [tab, setTab] = useState(view === "settings" ? "settings" : "chat");
   const [settings, setSettings] = useState<Settings>();
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+  const appearanceSave = useRef<Promise<void>>(Promise.resolve());
+  const appearanceVersion = useRef(0);
+  useEffect(() => {
+    if (settings) applyAppearance(settings);
+  }, [settings?.ui_theme, settings?.ui_motion, settings?.ui_glass]);
   const [setup, setSetup] = useState<SetupProgress | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   useEffect(() => {
@@ -252,6 +261,9 @@ export function App() {
   const [readingProgress, setReadingProgress] =
     useState<ReadingProgress | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const [speechPhase, setSpeechPhase] = useState<
+    "preparing" | "playing" | null
+  >(null);
   const [conversation, setConversation] = useState<ConversationState>({
     active: false,
     owner: false,
@@ -317,6 +329,7 @@ export function App() {
   });
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadKind, setUploadKind] = useState<"speech" | "document">("speech");
   const [voiceDownloading, setVoiceDownloading] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [searchKey, setSearchKey] = useState("");
@@ -609,6 +622,7 @@ export function App() {
   );
   const stopAudio = useCallback(() => {
     speechAbort.current?.abort();
+    setSpeechPhase(null);
     if (localSpeechId.current) reportSpeech(localSpeechId.current, false);
   }, [reportSpeech]);
   const interruptLocal = useCallback(() => {
@@ -834,8 +848,46 @@ export function App() {
     });
     return pending;
   }
+  function saveAppearance(patch: Partial<Appearance>) {
+    setSettings((current) => (current ? { ...current, ...patch } : current));
+    const version = ++appearanceVersion.current;
+    setAppearanceSaving(true);
+    const pending = appearanceSave.current
+      .catch(() => {})
+      .then(async () => {
+        const config = await request<Settings>(
+          "/settings/appearance",
+          "PATCH",
+          patch,
+        );
+        acceptSettings(config);
+        channel.current?.postMessage({ type: "settings" });
+      });
+    appearanceSave.current = pending;
+    void pending
+      .catch((error) => {
+        fail(error);
+        if (version === appearanceVersion.current && savedSettings.current) {
+          const saved = savedSettings.current;
+          setSettings((current) =>
+            current
+              ? {
+                  ...current,
+                  ui_theme: saved.ui_theme,
+                  ui_motion: saved.ui_motion,
+                  ui_glass: saved.ui_glass,
+                }
+              : current,
+          );
+        }
+      })
+      .finally(() => {
+        if (version === appearanceVersion.current) setAppearanceSaving(false);
+      });
+  }
   async function save(next = settings) {
     await voiceSave.current;
+    await appearanceSave.current;
     if (!next) return;
     if (conversation.active)
       throw new Error("Завершите разговор перед сменой моделей и настроек.");
@@ -891,7 +943,13 @@ export function App() {
         ),
       async (blob, signal) => {
         onSpeaking?.();
-        await playAudio(blob, config.audio_output_device_id || "", signal);
+        if (generation === speechGeneration.current) setSpeechPhase("playing");
+        try {
+          await playAudio(blob, config.audio_output_device_id || "", signal);
+        } finally {
+          if (generation === speechGeneration.current && !signal.aborted)
+            setSpeechPhase("preparing");
+        }
       },
       signal,
       {
@@ -912,10 +970,12 @@ export function App() {
     );
     localSpeechId.current = speechId;
     speechAbort.current = output.controller;
+    setSpeechPhase("preparing");
     reportSpeech(speechId, true);
     void output.done.catch(fail).finally(() => {
       reportSpeech(speechId, false);
       if (generation === speechGeneration.current) {
+        setSpeechPhase(null);
         speechAbort.current = null;
         localSpeechId.current = "";
       }
@@ -1250,6 +1310,7 @@ export function App() {
       if (manualDiscard.current || generation !== manualGeneration.current)
         return;
       setUploading(true);
+      setUploadKind("speech");
       const data = new FormData();
       data.append(
         "file",
@@ -1314,11 +1375,75 @@ export function App() {
     if (file) await save({ ...settings!, avatar_path: file });
   }
 
+  const activity: {
+    id: string;
+    kind: ProcessKind;
+    label: string;
+    detail?: string;
+  }[] = [];
+  if (busy && (tab !== "chat" || view === "avatar"))
+    activity.push({
+      id: "brain",
+      kind: readingProgress
+        ? "document"
+        : /ищу|поиск/i.test(stage)
+          ? "search"
+          : "brain",
+      label: stage || "Готовлю ответ…",
+    });
+  if (speaking)
+    activity.push({
+      id: "voice",
+      kind: speechPhase === "playing" ? "voice" : "brain",
+      label:
+        speechPhase === "playing"
+          ? "Озвучиваю ответ"
+          : speechPhase === "preparing"
+            ? "Готовлю озвучку…"
+            : "Озвучка в другом окне",
+      detail:
+        speechPhase === "preparing"
+          ? "Ожидаю готовую фразу и звук"
+          : "Escape — остановить",
+    });
+  if (
+    recording ||
+    (conversation.active &&
+      conversation.owner &&
+      ["listening", "hearing"].includes(conversation.phase))
+  )
+    activity.push({
+      id: "listen",
+      kind: "listen",
+      label: "Слушаю вас",
+      detail: "Микрофон включён",
+    });
+  if (uploading)
+    activity.push({
+      id: "upload",
+      kind: uploadKind === "speech" ? "voice" : "upload",
+      label: uploadKind === "speech" ? "Распознаю речь…" : "Добавляю документ…",
+    });
+  if (voiceDownloading)
+    activity.push({
+      id: "voice-download",
+      kind: "download",
+      label: "Загружаю голосовую модель…",
+    });
+  if (jobs.some((job) => ["queued", "running"].includes(job.status)))
+    activity.push({
+      id: "model-download",
+      kind: "download",
+      label: "Загрузка модели",
+      detail: "Ход загрузки — в разделе «Модели»",
+    });
+
   if (!settings)
     return (
       <div className="loading">
         <div className="logo-mark">W</div>
         <p>Запускаю локальное ядро…</p>
+        <ProcessStatus kind="brain" label="Подключаю компоненты…" compact />
         {error && <p role="alert">{error}</p>}
       </div>
     );
@@ -1350,6 +1475,9 @@ export function App() {
           </button>
         </div>
         <Avatar path={settings.avatar_path} speaking={speaking} />
+        {activity.slice(0, 2).map((item) => (
+          <ProcessStatus key={item.id} {...item} compact />
+        ))}
         {error && (
           <div className="error" role="alert">
             {error}
@@ -1517,6 +1645,7 @@ export function App() {
               ◈
             </button>
           )}
+          <ThemeSwitch value={settings} onChange={saveAppearance} />
           {tab !== "monitor" && (
             <ResourceBadge onOpen={() => setTab("monitor")} />
           )}
@@ -1546,6 +1675,13 @@ export function App() {
           </div>
         )}
         <UpdateNotice />
+        {activity.length > 0 && (
+          <div className="activity-dock" aria-label="Текущие процессы">
+            {activity.map((item) => (
+              <ProcessStatus key={item.id} {...item} compact />
+            ))}
+          </div>
+        )}
         {error && (
           <div className="error global-message" role="alert">
             <span>{error}</span>
@@ -1620,7 +1756,13 @@ export function App() {
                     : undefined
                 }
               >
-                {chatLoading && <p className="help">Загружаю чат…</p>}
+                {chatLoading && (
+                  <ProcessStatus
+                    kind="document"
+                    label="Загружаю чат…"
+                    compact
+                  />
+                )}
                 {!chatLoading && !messages.length && (
                   <div className="welcome">
                     <h2>Привет, я {settings.name}.</h2>
@@ -1736,16 +1878,29 @@ export function App() {
                         <span className="thinking">{stage}</span>
                       </div>
                       <div className="message-text">
+                        <ProcessStatus
+                          kind={
+                            readingProgress
+                              ? "document"
+                              : /ищу|поиск/i.test(stage)
+                                ? "search"
+                                : "brain"
+                          }
+                          label={stage || "Готовлю ответ…"}
+                          detail={
+                            answer
+                              ? "Ответ появляется по мере готовности"
+                              : "Обрабатываю запрос"
+                          }
+                          compact={Boolean(answer)}
+                        />
                         {readingProgress && (
                           <DocumentReadingProgress
                             value={readingProgress}
                             onStop={stop}
                           />
                         )}
-                        {answer ||
-                          (!readingProgress && (
-                            <span className="dots">•••</span>
-                          ))}
+                        {answer}
                       </div>
                     </div>
                   </article>
@@ -1955,6 +2110,7 @@ export function App() {
                   const file = event.target.files?.[0];
                   if (!file) return;
                   setUploading(true);
+                  setUploadKind("document");
                   void run(async () => {
                     const data = new FormData();
                     data.append("file", file);
@@ -2550,7 +2706,9 @@ export function App() {
               </div>
               <button
                 className="primary"
-                disabled={busy || conversation.active || voiceSaving}
+                disabled={
+                  busy || conversation.active || voiceSaving || appearanceSaving
+                }
                 onClick={() => run(() => save())}
               >
                 Сохранить
@@ -2562,6 +2720,19 @@ export function App() {
                 onChange={setSettingsSection}
               />
               <div className="settings-content">
+                <div
+                  id="settings-panel-appearance"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-appearance"
+                  hidden={settingsSection !== "appearance"}
+                  className="settings-panel"
+                >
+                  <AppearancePanel
+                    value={settings}
+                    onChange={saveAppearance}
+                    saving={appearanceSaving}
+                  />
+                </div>
                 <div
                   id="settings-panel-personality"
                   role="tabpanel"

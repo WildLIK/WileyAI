@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { request } from "./api";
+import { ProcessStatus } from "./ProcessStatus";
 
 type State = {
   items: {
@@ -151,6 +152,14 @@ export function ComponentPanel({
       </div>
       {state?.job && (
         <div className="component-job" role="status" aria-live="polite">
+          {installing && (
+            <ProcessStatus
+              kind="download"
+              label="Устанавливаю компонент…"
+              detail={state.job.stage}
+              compact
+            />
+          )}
           <span>
             {state.items.find((item) => item.id === state.job!.component)?.name}
             : {state.job.stage}

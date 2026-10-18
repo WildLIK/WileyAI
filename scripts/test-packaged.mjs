@@ -69,6 +69,10 @@ async function verifyPackaged(data) {
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
     await api("/memories", "POST", { text: "Standalone restart check" });
+    await api("/settings/appearance", "PATCH", {
+      ui_theme: "ice",
+      ui_motion: "reduced",
+    });
     await api("/tasks", "POST", {
       title: "Standalone recurring reminder",
       kind: "reminder",
@@ -165,6 +169,11 @@ async function verifyPackaged(data) {
   try {
     const page = await next.firstWindow();
     await page.getByRole("heading", { name: "Привет, я Уайли." }).waitFor();
+    await page.waitForFunction(
+      () =>
+        document.documentElement.dataset.theme === "ice" &&
+        document.documentElement.dataset.motion === "reduced",
+    );
     const connection = await page.evaluate(() => window.wiley.connection());
     const headers = { Authorization: "Bearer " + connection.token };
     const memories = await (

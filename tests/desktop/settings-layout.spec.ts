@@ -100,6 +100,16 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await expect(
       page.getByRole("meter", { name: "Уровень микрофона", exact: true }),
     ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Array.isArray(
+            (window as unknown as { settingsTestTracks?: MediaStreamTrack[] })
+              .settingsTestTracks,
+          ),
+        ),
+      )
+      .toBe(true);
     await choose("Личность");
     await expect
       .poll(() =>

@@ -18,7 +18,7 @@ import psutil
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents, persona, document_summary
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice, AppearanceSettings
 from . import cloud_speech
 from .history import History
 from .models import ModelJobs
@@ -354,6 +354,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             except Exception as error:
                 raise ValueError("Не удалось сохранить ключ поиска в системном хранилище Windows") from error
         store.save_settings(selected)
+        return settings()
+
+    @app.patch("/settings/appearance")
+    def save_appearance(body: AppearanceSettings):
+        # Visual preferences may change while a model is replying; never replace
+        # connection, speech, permissions or another settings draft here.
+        store.patch_settings(body.model_dump(exclude_none=True))
         return settings()
 
     @app.put("/settings/speech")
