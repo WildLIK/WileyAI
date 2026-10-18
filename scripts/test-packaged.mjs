@@ -184,6 +184,18 @@ async function verifyPackaged(data) {
     if (!series || JSON.parse(series.recurrence).weekdays.join(",") !== "0,2,4")
       throw new Error("Recurring reminder did not survive standalone restart");
     console.log("Standalone recurring schedule preserved after full restart.");
+    const selected = await fetch(connection.url + "/chat", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "Найди напоминание Standalone recurring reminder",
+        timezone: "Asia/Yekaterinburg",
+      }),
+    });
+    const selection = await selected.text();
+    if (!selected.ok || !selection.includes("Выбрана запись"))
+      throw new Error("Named task lookup failed in standalone runtime");
+    console.log("Standalone named task lookup OK, without a model.");
     if (process.argv.includes("--install-piper")) {
       const voice = await (
         await fetch(connection.url + "/voice", { headers })

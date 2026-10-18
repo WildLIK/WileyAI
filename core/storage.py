@@ -291,11 +291,15 @@ class Store:
         with self.db() as db:
             db.execute("UPDATE memory_candidates SET status='dismissed',content='' WHERE id=? AND status='pending' AND scope_id=?", (candidate_id, self.scope_id))
 
-    def remove(self, table: str, item_id: str):
+    def remove(self, table: str, item_id: str, *, expected: dict | None = None):
         if table not in {"memories", "aliases", "documents", "tasks", "notes"}:
             raise ValueError("Unknown table")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
+            if expected is not None:
+                if table != "tasks":
+                    raise ValueError("Проверка состояния доступна только для задач")
+                self._check_task_snapshot(db, item_id, expected)
             where, value = ("conversation_id", self.conversation_id) if table == "documents" else ("scope_id", self.scope_id) if table in {"memories", "tasks", "notes"} else (None, None)
             deleted = db.execute(f"DELETE FROM {table} WHERE id=?" + (f" AND {where}=?" if where else ""), (item_id, value) if where else (item_id,)).rowcount
             if not deleted:
@@ -305,6 +309,13 @@ class Store:
                 db.execute("DELETE FROM message_memories WHERE memory_id=?", (item_id,))
             if table == "tasks":
                 db.execute("DELETE FROM notifications WHERE task_id=? AND delivered=0", (item_id,))
+
+    def _check_task_snapshot(self, db, item_id, expected):
+        if not db.execute("SELECT 1 FROM conversations WHERE id=? AND COALESCE(project_id,'')=?", (self.conversation_id, self.scope_id)).fetchone():
+            raise ValueError("Чат уже удалён или перемещён. Повторите поиск в текущем пространстве.")
+        row = db.execute("SELECT * FROM tasks WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone()
+        if not row or any(row[key] != value for key, value in expected.items()):
+            raise ValueError("Запись изменилась или удалена после выбора. Повторите поиск: ничего не изменено.")
 
     def audit(self, kind: str, target: str, status: str):
         with self.db() as db:
@@ -366,11 +377,13 @@ class Store:
             row = db.execute("SELECT * FROM tasks WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone()
         return dict(row) if row else None
 
-    def revise_task(self, item_id: str, **changes) -> dict | None:
+    def revise_task(self, item_id: str, *, expected: dict | None = None, **changes) -> dict | None:
         if changes.keys() - {"title", "due", "done", "recurrence"}:
             raise ValueError("Недопустимое изменение задачи")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
+            if expected is not None:
+                self._check_task_snapshot(db, item_id, expected)
             row = db.execute("SELECT * FROM tasks WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone()
             if not row:
                 return None

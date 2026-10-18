@@ -959,7 +959,7 @@ wheels = [
 
 [[package]]
 name = "wileyai-core"
-version = "0.5.0"
+version = "0.6.0"
 source = { virtual = "." }
 dependencies = [
     { name = "anyio" },

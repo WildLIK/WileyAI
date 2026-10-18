@@ -996,6 +996,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             try:
                 yield event("user", message=user)
                 CalendarWorkflows(chat_store).expire_unanswered()
+                Workflows(chat_store).expire_unanswered()
                 followup = None if full_document else intents.consume(chat_store, text, open_tools, current.name)
                 if current.memory_suggestions and not full_document and search_query is None and not text.casefold().startswith("запомни:"):
                     chat_store.suggest_memories(user["id"])

@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from .storage import Store
 from .timeparse import describe_due, due_time, parse_time, parse_recurrence, recurrence_label, Recurrence
 from .repeats import RepeatRule, first_due
+from . import task_selection as selection
 
 
 LABELS = {"todo": "Задача", "reminder": "Напоминание", "timer": "Таймер", "alarm": "Будильник"}
@@ -22,6 +23,18 @@ class Result:
 class Workflows:
     def __init__(self, store: Store):
         self.store = store
+
+    def expire_unanswered(self):
+        """Only the immediately preceding task question can own a short reply."""
+        state = self.store.dialogue()
+        question = state.get("task_choice", {}).get("question") or state.get("pending", {}).get("prompt")
+        if question:
+            messages = self.store.list("messages", 2)
+            if len(messages) != 2 or messages[0]["role"] != "assistant" or messages[0]["content"] != question:
+                state.pop("task_choice", None)
+                if state.get("pending", {}).get("prompt"):
+                    state.pop("pending", None)
+                self.store.save_dialogue(state)
 
     def handle(self, text: str, zone: str | None = None, now: datetime | None = None, name: str = "Уайли") -> Result | None:
         zone_info = ZoneInfo(zone) if zone else datetime.now().astimezone().tzinfo
@@ -45,6 +58,27 @@ class Workflows:
             state["updated"] = now.timestamp()
             state["zone"] = str(zone_info)
             self.store.save_dialogue(state)
+
+        choice = state.get("task_choice")
+        if choice:
+            number = selection.choice_number(value)
+            if normalized in {"отмена", "отмени", "не надо", "передумал", "передумала"}:
+                state.pop("task_choice", None)
+                remember()
+                return Result("Выбор отменён. Задачи не изменены.")
+            if number is not None or normalized in {"да", "этот", "это", "выбираю"}:
+                if number is None or not 1 <= number <= len(choice["options"]):
+                    return Result(choice["question"])
+                state.pop("task_choice", None)
+                remember()
+                task = self.store.task(choice["options"][number - 1]["id"])
+                expected = choice["options"][number - 1]
+                if not task or selection.snapshot(task) != expected or choice["scope_id"] != self.store.scope_id:
+                    return Result("Запись изменилась или удалена после выбора. Повторите поиск: ничего не изменено.")
+                return self._selected(task, choice["action"], choice["timing"], state, now, remember,
+                                      expected, datetime.fromisoformat(choice["requested_at"]).astimezone(zone_info))
+            state.pop("task_choice", None)
+            remember()
 
         if state.get("pending") and (normalized in {"отмена", "отмени", "не надо", "передумал", "передумала"} or re.fullmatch(r"отмени (?:это |эту |этот )?(?:напоминание|задачу|таймер|будильник)", normalized)):
             state.pop("pending", None)
@@ -81,6 +115,7 @@ class Workflows:
 
         create = re.fullmatch(r"(напомни(?: мне)?|создай напоминание|(?:создай|добавь) задачу|добавь в список дел|(?:поставь|запусти|установи) таймер|(?:поставь|установи) будильник)\s*[:,—-]?\s*(.*)", value, re.I)
         if create:
+            state.pop("task_choice", None)
             verb = create[1].casefold()
             kind = "timer" if "таймер" in verb else "alarm" if "будильник" in verb else "todo" if "задачу" in verb or "список дел" in verb else "reminder"
             body = re.sub(r"^пожалуйста[, ]+", "", create[2], flags=re.I)
@@ -102,6 +137,29 @@ class Workflows:
                 return Result("Для повторов нужен часовой пояс. Создайте напоминание из чата программы или раздела «Задачи».")
             draft = {"kind": kind, "title": title, "day": parts.day.isoformat() if parts.day else None, "clock": parts.clock.isoformat() if parts.clock else None, "seconds": parts.seconds, "recurrence": self._rec_json(recurrence, str(zone_info))}
             return self._create(draft, state, now, remember)
+
+        named = selection.command(value)
+        if named:
+            state.pop("pending", None)
+            state.pop("task_choice", None)
+            state.pop("last_task", None)
+            remember()
+            try:
+                tasks = selection.find(self.store, named.query, named.kind, now,
+                                       include_stopped=named.action in {"find", "delete", "resume"})
+            except ValueError as error:
+                return Result(str(error))
+            if not tasks:
+                return Result("Не найдено подходящей записи в текущем пространстве. Уточните название/срок или откройте раздел «Задачи».")
+            if len(tasks) > 8:
+                return Result("Найдено больше восьми записей. Уточните название или дату, например «найди напоминание купить хлеб на завтра». Задачи не изменены.")
+            if len(tasks) == 1:
+                return self._selected(tasks[0], named.action, named.timing, state, now, remember, selection.snapshot(tasks[0]), now)
+            question = selection.question(tasks, zone_info)
+            state["task_choice"] = dict(action=named.action, timing=named.timing, options=[selection.snapshot(task) for task in tasks],
+                                        question=question, requested_at=now.isoformat(), scope_id=self.store.scope_id)
+            remember()
+            return Result(question)
 
         pending = state.get("pending")
         if pending:
@@ -144,23 +202,7 @@ class Workflows:
             task = self._recent(state)
             if not task:
                 return Result("Не вижу недавнюю задачу для переноса. Создайте напоминание в этом диалоге или выберите запись в разделе «Задачи».")
-            body = (move or implicit_move)[1]
-            body = re.sub(r"^на\s+(?=завтра|послезавтра|сегодня|\d{1,2}\.)", "", body, flags=re.I)
-            parts = parse_time(body, now, clock_context=True)
-            if parts.error:
-                return Result(parts.error)
-            if not parts.found or parts.rest not in {"", "позже", "раньше"}:
-                return Result("Укажите новое время, например «перенеси на 11» или «перенеси на завтра в 12».")
-            old = datetime.fromisoformat(task["due"]).astimezone(zone_info) if task["due"] else None
-            if parts.seconds is not None and body.casefold().startswith("на "):
-                if old is None:
-                    return Result("У этой задачи ещё нет срока. Укажите дату и время, например «перенеси на завтра в 12».")
-                shifted = (old.astimezone(timezone.utc) + timedelta(seconds=parts.seconds * (-1 if parts.rest == "раньше" else 1))).astimezone(zone_info)
-                parts.day, parts.clock, parts.seconds = shifted.date(), shifted.timetz().replace(tzinfo=None), None
-            elif parts.rest:
-                return Result("Для сдвига срока скажите, например, «перенеси на 15 минут позже».")
-            draft = {"kind": task["kind"], "title": task["title"], "day": (parts.day or (old.date() if old else None)).isoformat() if parts.day or old else None, "clock": (parts.clock or (old.timetz().replace(tzinfo=None) if old else None)).isoformat() if parts.clock or old else None, "seconds": parts.seconds, "recurrence": task.get("recurrence")}
-            return self._reschedule(task["id"], draft, state, now, remember)
+            return self._move_task(task, (move or implicit_move)[1], state, now, remember)
 
         cancel = re.fullmatch(r"(?:отмени|удали) (?:это |эту |этот |последнее |последнюю |последний )?(напоминание|задачу|таймер|будильник)", normalized)
         complete = re.fullmatch(r"(?:отметь (?:эту )?задачу (?:выполненной|завершенной)|задача выполнена|я это сделал|я это сделала)", normalized)
@@ -200,6 +242,76 @@ class Workflows:
         if re.match(r"^(?:перенесено|перенесена|перенесен|переноси|перенеси|перенести|переставь)\b", normalized):
             return Result("Срок не менял: не распознал точную команду переноса. Повторите, например: «перенеси напоминание на одиннадцать часов».")
         return None
+
+    def _selected(self, task, action, timing, state, now, remember, expected, requested_at):
+        try:
+            if action == "move":
+                return self._move_task(task, timing, state, now, remember, expected, requested_at)
+            if action == "find":
+                state["last_task"] = task["id"]
+                remember()
+                if task["done"]:
+                    return Result("Найдена запись: " + selection.describe(task, now.tzinfo) + ". Для редактирования откройте «Задачи».")
+                return Result("Выбрана запись: " + selection.describe(task, now.tzinfo) + ". Можно сказать «перенеси на 11» или «отмени это напоминание».")
+            if action in {"stop", "resume", "no_repeat"} and not task.get("recurrence"):
+                return Result("Эта запись не повторяется. Ничего не изменено.")
+            if action == "resume" and not task["done"]:
+                return Result("Эта серия уже включена. Ничего не изменено.")
+            if action == "delete":
+                self.store.remove("tasks", task["id"], expected=expected)
+                state.pop("last_task", None)
+                answer = f"Удалил: «{task['title']}». Запись удалена из задач."
+            else:
+                changes = {"recurrence": None} if action == "no_repeat" else {"done": action != "resume"}
+                self.store.revise_task(task["id"], expected=expected, **changes)
+                state["last_task"] = task["id"]
+                answer = {
+                    "complete": f"Отметил выполненной задачу «{task['title']}».",
+                    "stop": f"Серия «{task['title']}» остановлена.",
+                    "resume": f"Серия «{task['title']}» возобновлена.",
+                    "no_repeat": f"Повтор отменён: «{task['title']}». Ближайший срок остался однократным.",
+                }[action]
+            state.pop("pending", None)
+            remember()
+            self.store.audit("task", task["id"], "selected_" + action)
+            return Result(answer, ["tasks"])
+        except ValueError as error:
+            state.pop("pending", None)
+            remember()
+            return Result(str(error))
+
+    def _move_task(self, task, body, state, now, remember, expected=None, requested_at=None):
+        draft = {"kind": task["kind"], "title": task["title"], "day": None, "clock": None,
+                 "seconds": None, "recurrence": task.get("recurrence")}
+        if expected is not None:
+            draft["expected"] = expected
+        if not body:
+            return self._reschedule(task["id"], draft, state, now, remember)
+        anchor = requested_at or now
+        body = re.sub(r"^на\s+(?=завтра|послезавтра|сегодня|\d{1,2}\.)", "", body, flags=re.I)
+        parts = parse_time(body, anchor, clock_context=True)
+        if parts.error:
+            return Result(parts.error)
+        if not parts.found or parts.rest not in {"", "позже", "раньше"}:
+            return Result("Укажите новое время, например «перенеси на 11» или «перенеси на завтра в 12».")
+        old = datetime.fromisoformat(task["due"]).astimezone(now.tzinfo) if task["due"] else None
+        if parts.seconds is not None:
+            if body.casefold().startswith("на "):
+                if old is None:
+                    return Result("У этой задачи ещё нет срока. Укажите дату и время, например «перенеси на завтра в 12».")
+                base = old
+            elif parts.rest:
+                return Result("Для сдвига срока скажите, например, «перенеси на 15 минут позже».")
+            else:
+                base = anchor
+            shifted = (base.astimezone(timezone.utc) + timedelta(seconds=parts.seconds * (-1 if parts.rest == "раньше" else 1))).astimezone(now.tzinfo)
+            parts.day, parts.clock, parts.seconds = shifted.date(), shifted.timetz().replace(tzinfo=None), None
+        elif parts.rest:
+            return Result("Для сдвига срока скажите, например, «перенеси на 15 минут позже».")
+        day = parts.day or (old.date() if old and old.date() > now.date() else None)
+        clock = parts.clock or (old.timetz().replace(tzinfo=None) if old else None)
+        draft.update(day=day.isoformat() if day else None, clock=clock.isoformat() if clock else None, seconds=parts.seconds)
+        return self._reschedule(task["id"], draft, state, now, remember)
 
     @staticmethod
     def _rec_json(rec: Recurrence | None, zone="UTC") -> str | None:
@@ -242,12 +354,21 @@ class Workflows:
         try:
             due = self._due(draft, now)
         except ValueError as error:
+            if state.get("pending", {}).get("prompt"):
+                state["pending"]["prompt"] = str(error)
+                remember()
             return Result(str(error))
         if due is None:
-            state["pending"] = {"draft": draft, "task_id": task_id}
+            prompt = "На какое время перенести? Например: «в 11»."
+            state["pending"] = {"draft": draft, "task_id": task_id, **({"prompt": prompt} if draft.get("expected") else {})}
             remember()
-            return Result("На какое время перенести? Например: «в 11».")
-        item = self.store.revise_task(task_id, due=due.astimezone(timezone.utc).isoformat(), recurrence=draft.get("recurrence"))
+            return Result(prompt)
+        try:
+            item = self.store.revise_task(task_id, expected=draft.get("expected"), due=due.astimezone(timezone.utc).isoformat(), recurrence=draft.get("recurrence"))
+        except ValueError as error:
+            state.pop("pending", None)
+            remember()
+            return Result(str(error))
         if not item:
             state.pop("pending", None)
             state.pop("last_task", None)

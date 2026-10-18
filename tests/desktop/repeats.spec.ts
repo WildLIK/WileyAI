@@ -80,6 +80,7 @@ test("recurring reminders: form, weekdays, stop/edit/resume, restart and Russian
     await page
       .getByRole("button", { name: "Сохранить изменения", exact: true })
       .click();
+    await expect(row).toContainText("по пн, ср, пт");
     await expect(row).toContainText("серия остановлена");
     [task] = await tasks(page);
     expect(task.done).toBe(1);
