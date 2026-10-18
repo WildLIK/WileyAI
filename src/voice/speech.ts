@@ -4,6 +4,7 @@ export type SpeechOptions = {
   minimumSpeechMs?: number;
   maximumSpeechMs?: number;
   preRollMs?: number;
+  noiseCalibrationMs?: number;
 };
 
 export function rms(samples: Float32Array): number {
@@ -22,7 +23,13 @@ export class SpeechSegmenter {
   private speechDuration = 0;
   private silence = 0;
   private noiseFloor = 0.002;
+  private calibratedMs = 0;
+  private calibration: number[] = [];
   isSpeaking = false;
+
+  get calibrating() {
+    return this.calibratedMs < this.options.noiseCalibrationMs;
+  }
 
   constructor(sampleRate: number, options: SpeechOptions = {}) {
     this.sampleRate = sampleRate;
@@ -32,6 +39,7 @@ export class SpeechSegmenter {
       minimumSpeechMs: options.minimumSpeechMs ?? 160,
       maximumSpeechMs: options.maximumSpeechMs ?? 25000,
       preRollMs: options.preRollMs ?? 320,
+      noiseCalibrationMs: options.noiseCalibrationMs ?? 0,
     };
   }
 
@@ -46,7 +54,25 @@ export class SpeechSegmenter {
     if (!samples.length) return null;
     const ms = (samples.length / this.sampleRate) * 1000;
     const level = rms(samples);
-    const threshold = Math.max(this.options.threshold, this.noiseFloor * 3);
+    if (this.calibratedMs < this.options.noiseCalibrationMs) {
+      this.calibratedMs += ms;
+      this.calibration.push(level);
+      // A median tolerates brief clicks during the initial background sample.
+      const sorted = [...this.calibration].sort((a, b) => a - b);
+      this.noiseFloor = sorted[Math.floor(sorted.length / 2)];
+      if (this.calibratedMs >= this.options.noiseCalibrationMs)
+        this.calibration = [];
+      return null;
+    }
+    const margin = this.options.noiseCalibrationMs
+      ? this.isSpeaking
+        ? 1.4
+        : 1.9
+      : 3;
+    const threshold = Math.max(
+      this.options.threshold,
+      this.noiseFloor * margin,
+    );
     const audible = level >= threshold;
     if (!this.isSpeaking) {
       this.preRoll.push(samples);

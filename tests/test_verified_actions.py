@@ -88,7 +88,7 @@ def test_media_refusal_and_no_session_never_claim_playback(tmp_path, monkeypatch
     assert "не принял" in windows_media.describe({"available": True, "backend": "smtc", "player": "Player", "state": "Пауза", "accepted": False, "action": "play"})
 
 
-@pytest.mark.parametrize("claim", ["Музыка запущена.", "Запускаю «Имп».", "Поставила музыку на паузу.", "Выключу музыку."])
+@pytest.mark.parametrize("claim", ["Музыка запущена.", "Запускаю «Имп».", "Поставила музыку на паузу.", "Выключу музыку.", "Проверю наличие Яндекс Браузера в системе.", "Проверила: браузер не найден."])
 def test_unexecuted_model_claims_do_not_reach_chat_or_speech(tmp_path, monkeypatch, claim):
     async def fake(*args):
         for character in claim:

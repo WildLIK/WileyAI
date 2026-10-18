@@ -27,6 +27,177 @@ class FakeCapture implements Capture {
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+test("TTS waits for an in-progress follow-up phrase; cancellation releases the wait", async () => {
+  const capture = new FakeCapture();
+  let finish: () => void = () => {};
+  const session = new Conversation({
+    capture,
+    listenWhileThinking: true,
+    prepare: async () => {},
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    onTurn: async (_audio, _signal, phase) => {
+      phase("thinking");
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  await session.start();
+  capture.utterance();
+  capture.push(20, 0.2);
+  let ready = false;
+  const controller = new AbortController();
+  const waiting = session.waitForPhrase(controller.signal).then(() => {
+    ready = true;
+  });
+  await tick();
+  assert.equal(ready, false);
+  capture.push(50, 0);
+  await waiting;
+  assert.equal(ready, true);
+  assert.equal(session.phase, "queued");
+  capture.push(20, 0.2);
+  const cancelled = session.waitForPhrase(controller.signal);
+  controller.abort();
+  await assert.rejects(cancelled, { name: "AbortError" });
+  await session.stop();
+  finish();
+  await tick();
+});
+
+test("continuous listening queues a bounded FIFO while thinking and never overlaps turns", async () => {
+  const capture = new FakeCapture();
+  let turns = 0;
+  let active = 0;
+  const finish: (() => void)[] = [];
+  const queued: [number, boolean][] = [];
+  const voices: number[] = [];
+  const session = new Conversation({
+    capture,
+    listenWhileThinking: true,
+    prepare: async () => {},
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    cooldownMs: 0,
+    onPending: (count, full) => queued.push([count, full]),
+    onTurn: async (audio, _signal, phase) => {
+      assert.equal(++active, 1);
+      voices.push(
+        new Int16Array((await audio.arrayBuffer()).slice(44)).find(
+          (value) => value !== 0,
+        )!,
+      );
+      turns++;
+      phase("thinking");
+      await new Promise<void>((resolve) => finish.push(resolve));
+      active--;
+    },
+  });
+  await session.start();
+  capture.utterance();
+  await tick();
+  assert.equal(session.phase, "thinking_listening");
+  for (const volume of [0.2, 0.3, 0.4, 0.5]) {
+    capture.push(20, volume);
+    capture.push(50, 0);
+  }
+  assert.equal(turns, 1);
+  assert.equal(session.phase, "queued");
+  assert.deepEqual(queued.at(-1), [3, true]);
+  for (let index = 0; index < 4; index++) {
+    finish[index]();
+    await tick();
+  }
+  assert.equal(turns, 4);
+  assert.equal(session.phase, "listening");
+  assert.deepEqual(
+    voices,
+    [0.1, 0.2, 0.3, 0.4].map((value) => Math.trunc(Math.fround(value) * 32767)),
+  );
+  await session.stop();
+});
+
+test("queued microphone audio is discarded on interrupt and stop, including late completion", async () => {
+  for (const stop of [false, true]) {
+    const capture = new FakeCapture();
+    let turns = 0;
+    let finish: () => void = () => {};
+    let signal: AbortSignal | undefined;
+    const session = new Conversation({
+      capture,
+      listenWhileThinking: true,
+      prepare: async () => {},
+      onPhase: () => {},
+      onError: (error) => {
+        throw error;
+      },
+      onTurn: async (_audio, current, phase) => {
+        turns++;
+        signal = current;
+        phase("thinking");
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      },
+    });
+    await session.start();
+    capture.utterance();
+    capture.utterance();
+    assert.equal(session.phase, "queued");
+    if (stop) await session.stop();
+    else session.interrupt();
+    assert.equal(signal?.aborted, true);
+    finish();
+    await tick();
+    assert.equal(turns, 1);
+    assert.equal(session.phase, stop ? "idle" : "listening");
+    await session.stop();
+  }
+});
+
+test("continuous mode rejects own playback and its tail but keeps an earlier queued phrase", async () => {
+  const capture = new FakeCapture();
+  let finish: () => void = () => {};
+  let speak: () => void = () => {};
+  let turns = 0;
+  const session = new Conversation({
+    capture,
+    listenWhileThinking: true,
+    prepare: async () => {},
+    cooldownMs: 40,
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    onTurn: async (_audio, _signal, phase) => {
+      turns++;
+      phase("thinking");
+      speak = () => phase("speaking");
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  await session.start();
+  capture.utterance();
+  capture.utterance();
+  speak();
+  capture.utterance();
+  finish();
+  await tick();
+  capture.utterance(); // Echo during the post-playback cooldown.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(turns, 2);
+  await session.stop();
+  finish();
+  await tick();
+});
+
 test("one phrase at a time; own audio during thinking/speaking is discarded", async () => {
   const capture = new FakeCapture();
   let turns = 0;

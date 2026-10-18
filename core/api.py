@@ -874,7 +874,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(413, "Запись слишком длинная")
         config = store.settings()
-        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name, config.stt_quality)}
+        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name, config.stt_quality, config.stt_environment)}
 
     @app.post("/voice/prepare")
     async def prepare_conversation():
@@ -1008,6 +1008,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         routine_name = requested_name(text) if search_query is None else None
         opening_text = intents.opening_request(text, current.name)
         command = commands.resolve(opening_text or text, store.list("aliases", 1000))
+        inspect_application = commands.application_query(text)
         await chat_lock.acquire()
         try:
             user = chat_store.add_message("user", text)
@@ -1148,6 +1149,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer, changed = workflow.text, workflow.changed
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
+                elif inspect_application:
+                    yield event("stage", text="Проверяю приложение на компьютере…")
+                    item = await asyncio.to_thread(app.state.applications.find, inspect_application)
+                    answer = f"Найдено приложение: {item['name']}. Путь: {item['target']}. Запуск не выполнялся." if item else f"{inspect_application}: в сохранённом списке, регистрации Windows, стандартных папках и меню «Пуск» не найдено. Для нестандартной установки добавьте путь в разделе «Команды»."
+                    store.audit("app.inspect", inspect_application, "found" if item else "not_found")
+                    yield event("delta", text=answer)
                 elif command:
                     yield event("stage", text="Передаю команду Windows и проверяю запуск…")
                     await run_step(open_tools, {"kind": command.kind, "target": command.target, "label": command.label}, open_progress)
@@ -1156,7 +1163,22 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     yield event("delta", text=answer)
                 elif opening_text is not None:
                     answer = "Не нашёл точное соответствие. Добавьте название и путь в разделе «Команды» или укажите полный путь/адрес сайта."
-                    if not commands.opening_target(opening_text):
+                    known_app = commands.known_application(opening_text)
+                    if known_app:
+                        if not current.allow_app_open:
+                            answer = "Открытие приложений отключено. Измените доступ в разделе «Команды»."
+                        else:
+                            yield event("stage", text=f"Ищу {known_app} на компьютере…")
+                            item = await asyncio.to_thread(app.state.applications.find, known_app)
+                            if item:
+                                if state["cancel"].is_set() or await request.is_disconnected():
+                                    raise asyncio.CancelledError
+                                yield event("stage", text="Передаю команду Windows и проверяю запуск…")
+                                await run_step(open_tools, {"kind": "app", "target": item["target"], "label": item["name"]}, open_progress)
+                                answer = open_progress[-1].removeprefix("1. ")
+                            else:
+                                answer = f"{known_app}: приложение не найдено в известных местах установки. Добавьте точный путь в разделе «Команды», если оно установлено в другой папке. Ничего не запущено."
+                    elif not commands.opening_target(opening_text):
                         answer = "Что открыть? Назовите сайт, папку, файл или приложение. Пока ничего не открыто."
                     elif current.command_understanding:
                         yield event("stage", text="Подбираю команду из каталога…")

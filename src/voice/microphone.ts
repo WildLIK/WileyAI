@@ -15,9 +15,13 @@ export class Microphone implements Capture {
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private node: AudioWorkletNode | null = null;
+  private filters: BiquadFilterNode[] = [];
   private generation = 0;
   private deviceId: string;
-  constructor(deviceId = "") {
+  constructor(
+    deviceId = "",
+    private music = false,
+  ) {
     this.deviceId = deviceId;
   }
 
@@ -28,7 +32,7 @@ export class Microphone implements Capture {
     const generation = ++this.generation;
     try {
       const stream = await navigator.mediaDevices.getUserMedia(
-        microphoneConstraints(this.deviceId),
+        microphoneConstraints(this.deviceId, this.music),
       );
       if (generation !== this.generation) {
         stream.getTracks().forEach((track) => track.stop());
@@ -67,7 +71,16 @@ export class Microphone implements Capture {
         onError(
           new Error("Аудиопроцессор остановился. Начните разговор заново."),
         );
-      source.connect(node);
+      if (this.music) {
+        const high = context.createBiquadFilter();
+        high.type = "highpass";
+        high.frequency.value = 100;
+        const low = context.createBiquadFilter();
+        low.type = "lowpass";
+        low.frequency.value = 6500;
+        this.filters = [high, low];
+        source.connect(high).connect(low).connect(node);
+      } else source.connect(node);
       // The worklet outputs silence. The microphone is never monitored to speakers.
       node.connect(context.destination);
       await context.resume();
@@ -83,6 +96,8 @@ export class Microphone implements Capture {
     this.stream = null;
     this.source?.disconnect();
     this.source = null;
+    this.filters.forEach((filter) => filter.disconnect());
+    this.filters = [];
     if (this.node) {
       this.node.port.onmessage = null;
       this.node.onprocessorerror = null;

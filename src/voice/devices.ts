@@ -1,4 +1,7 @@
-export function microphoneConstraints(deviceId = ""): MediaStreamConstraints {
+export function microphoneConstraints(
+  deviceId = "",
+  music = false,
+): MediaStreamConstraints {
   return {
     audio: {
       ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
@@ -6,7 +9,7 @@ export function microphoneConstraints(deviceId = ""): MediaStreamConstraints {
       sampleRate: 16000,
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true,
+      autoGainControl: !music,
     },
   };
 }

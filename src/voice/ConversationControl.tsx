@@ -62,7 +62,13 @@ export function ConversationControl({
       )}
       {(speaking ||
         (state.active &&
-          ["transcribing", "thinking", "speaking"].includes(state.phase))) && (
+          [
+            "transcribing",
+            "thinking",
+            "thinking_listening",
+            "queued",
+            "speaking",
+          ].includes(state.phase))) && (
         <button
           className="outline speech-stop"
           onClick={onInterrupt}

@@ -80,7 +80,7 @@ class Voice:
             self.models.clear()
             self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8")
 
-    def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate") -> str:
+    def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate", environment: str = "normal") -> str:
         with self.lock, self._using("stt"):
             self._load_stt(model)
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
@@ -89,12 +89,13 @@ class Voice:
             try:
                 # A fixed Russian vocabulary helps short device commands. Never use
                 # the previous chat/document as a prompt or rewrite the transcript.
-                vocabulary = "Громкость, прибавь, убавь, увеличь, уменьши, звук, открой, папку, приложение, напомни."
+                vocabulary = "Громкость, прибавь, убавь, увеличь, уменьши, звук, открой, папку, приложение, напомни. Яндекс Браузер, Яндекс Музыка, AIMP, Telegram, Chrome, Firefox, Edge."
+                options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
                 segments, _ = self.models[model].transcribe(
                     path, language="ru", vad_filter=True,
                     beam_size={"fast": 1, "balanced": 3, "accurate": 5}.get(quality, 5),
                     temperature=0.0, condition_on_previous_text=False,
-                    initial_prompt=(hint[:60] + ". " + vocabulary) if hint else vocabulary)
+                    initial_prompt=(hint[:60] + ". " + vocabulary) if hint else vocabulary, **options)
                 return " ".join(segment.text.strip() for segment in segments).strip()
             finally:
                 Path(path).unlink(missing_ok=True)

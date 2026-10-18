@@ -36,3 +36,14 @@ def test_recognition_cleans_recording_even_on_lazy_decoder_error(tmp_path, monke
     with pytest.raises(RuntimeError, match="decoder failed"):
         voice.transcribe(b"recording", "small")
     assert all(not Path(path).exists() for path in paths)
+
+
+def test_music_profile_uses_stricter_neural_vad_and_app_vocabulary(tmp_path, monkeypatch):
+    voice, captured = Voice(tmp_path), []
+    def transcribe(path, **options):
+        captured.append(options)
+        return iter([SimpleNamespace(text="Открой Яндекс Браузер.")]), None
+    monkeypatch.setattr(voice, "_load_stt", lambda model: voice.models.update({model: SimpleNamespace(transcribe=transcribe)}))
+    assert voice.transcribe(b"audio", "small", quality="accurate", environment="music") == "Открой Яндекс Браузер."
+    assert captured[0]["vad_parameters"] == {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}
+    assert "Яндекс Браузер" in captured[0]["initial_prompt"] and "AIMP" in captured[0]["initial_prompt"]

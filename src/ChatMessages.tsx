@@ -28,20 +28,26 @@ export function ChatMessages({
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const lastTop = useRef(0);
   const [below, setBelow] = useState(false);
   const update = () => {
     const element = viewport.current;
     if (!element) return;
     const away =
       element.scrollHeight - element.scrollTop - element.clientHeight > 80;
-    setBelow(away);
-    follow.current = !away;
+    // A delayed scroll event can arrive after streamed content has grown.
+    // Only upward movement means the reader left the end of the chat.
+    if (!away) follow.current = true;
+    else if (element.scrollTop < lastTop.current - 1) follow.current = false;
+    lastTop.current = element.scrollTop;
+    setBelow(away && !follow.current);
   };
   const bottom = () => {
     const element = viewport.current;
     if (!element) return;
     follow.current = true;
     element.scrollTop = element.scrollHeight;
+    lastTop.current = element.scrollTop;
     setBelow(false);
   };
   useLayoutEffect(() => {

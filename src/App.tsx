@@ -910,7 +910,7 @@ export function App() {
   function startSpeech(
     config: Settings,
     signal?: AbortSignal,
-    onSpeaking?: () => void,
+    onSpeaking?: () => void | Promise<void>,
   ) {
     channel.current?.postMessage({ type: "interrupt-speech" });
     stopAudio();
@@ -944,7 +944,7 @@ export function App() {
           },
         ),
       async (blob, signal) => {
-        onSpeaking?.();
+        await onSpeaking?.();
         if (generation === speechGeneration.current) setSpeechPhase("playing");
         try {
           await playAudio(blob, config.audio_output_device_id || "", signal);
@@ -1007,7 +1007,7 @@ export function App() {
       signal?: AbortSignal;
       conversation?: boolean;
       speechConfig?: Settings;
-      onSpeaking?: () => void;
+      onSpeaking?: () => void | Promise<void>;
       fullDocument?: boolean;
       webSearch?: boolean;
     } = {},
@@ -1190,10 +1190,29 @@ export function App() {
       );
       if (epoch !== conversationEpoch.current) return;
       session = new Conversation({
-        capture: new Microphone(config.audio_input_device_id),
+        capture: new Microphone(
+          config.audio_input_device_id,
+          config.stt_environment === "music",
+        ),
+        listenWhileThinking: config.conversation_listen_while_thinking,
+        onPending: (count, full) => {
+          if (count)
+            setNotice(
+              full
+                ? "Очередь заполнена: 3 фразы. Дождитесь обработки; следующие фразы пока не сохраняются."
+                : `Следующая фраза сохранена. В очереди: ${count}. Обработаю после текущего ответа.`,
+            );
+          else
+            setNotice((value) =>
+              /^(?:Следующая фраза сохранена\.|Очередь заполнена:)/.test(value)
+                ? ""
+                : value,
+            );
+        },
         speech: {
           threshold: config.conversation_threshold,
           silenceMs: config.conversation_silence_ms,
+          noiseCalibrationMs: config.stt_environment === "music" ? 600 : 0,
         },
         prepare: async (signal) => {
           await request("/voice/prepare", "POST", undefined, signal);
@@ -1240,7 +1259,11 @@ export function App() {
             signal,
             conversation: true,
             speechConfig: turnConfig,
-            onSpeaking: () => phase("speaking"),
+            onSpeaking: async () => {
+              await session?.waitForPhrase(signal);
+              signal.throwIfAborted();
+              phase("speaking");
+            },
           });
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
@@ -1296,7 +1319,12 @@ export function App() {
     controller.signal.throwIfAborted();
     if (generation !== manualGeneration.current) return;
     const media = await navigator.mediaDevices
-      .getUserMedia(microphoneConstraints(config.audio_input_device_id))
+      .getUserMedia(
+        microphoneConstraints(
+          config.audio_input_device_id,
+          config.stt_environment === "music",
+        ),
+      )
       .catch((error) => {
         throw microphoneError(error);
       });
@@ -3208,6 +3236,52 @@ export function App() {
                   />
                   <div className="card">
                     <h2>Распознавание и разговор</h2>
+                    <label>
+                      Условия записи
+                      <select
+                        value={settings.stt_environment}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            stt_environment: event.target
+                              .value as Settings["stt_environment"],
+                          })
+                        }
+                      >
+                        <option value="normal">Обычная комната</option>
+                        <option value="music">Музыка и шум</option>
+                      </select>
+                    </label>
+                    <p className="help">
+                      «Музыка и шум» отключает автоусиление фона, фильтрует
+                      крайние частоты микрофона разговора и строже отсекает
+                      участки без речи. Первые 0,6 секунды после включения
+                      разговора помолчите — измеряется фон. Громкий вокал может
+                      распознаваться как речь; наушники или более тихая музыка
+                      помогут больше.
+                    </p>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={settings.conversation_listen_while_thinking}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_listen_while_thinking:
+                              event.target.checked,
+                          })
+                        }
+                      />
+                      Слушать, пока модель думает
+                    </label>
+                    <p className="help">
+                      Следующие фразы сохраняются в очередь (до трёх) и
+                      обрабатываются после текущего ответа. Во время собственной
+                      озвучки и короткой паузы после неё приём фраз
+                      приостановлен. Завершение разговора или «Перебить» очищает
+                      очередь. Изменения применятся после сохранения и нового
+                      включения разговора.
+                    </p>
                     <label>
                       Модель распознавания
                       <select

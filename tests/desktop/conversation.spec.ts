@@ -329,6 +329,122 @@ test("conversation: stopping pending recognition prevents sending its late resul
   }
 });
 
+test("conversation: another real microphone phrase is retained while a reply is pending", async () => {
+  const { app, page } = await launch();
+  let first: Route | undefined;
+  let transcriptions = 0;
+  const chats: string[] = [];
+  const history: object[] = [];
+  const reply = (text: string, index: number) => {
+    const user = {
+      id: `queued-u${index}`,
+      role: "user",
+      content: text,
+      created: new Date().toISOString(),
+    };
+    const assistant = {
+      id: `queued-a${index}`,
+      role: "assistant",
+      content: "Услышала вашу мысль.",
+      created: new Date().toISOString(),
+    };
+    history.push(user, assistant);
+    return [
+      { type: "user", message: user },
+      { type: "delta", text: assistant.content },
+      { type: "done", message: assistant },
+    ]
+      .map((event) => "data: " + JSON.stringify(event) + "\n\n")
+      .join("");
+  };
+  try {
+    await page.evaluate(async () => {
+      const { url, token } = await window.wiley.connection();
+      const headers = {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      };
+      const settings = await (
+        await fetch(url + "/settings", { headers })
+      ).json();
+      const saved = await fetch(url + "/settings", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          ...settings,
+          stt_environment: "music",
+          conversation_listen_while_thinking: true,
+        }),
+      });
+      if (!saved.ok) throw new Error("Settings were not saved");
+    });
+    await page.route("**/voice/prepare", (route) =>
+      route.fulfill({ json: { ok: true } }),
+    );
+    await page.route("**/voice/transcribe", (route) => {
+      transcriptions++;
+      return route.fulfill({
+        json: {
+          text: transcriptions === 1 ? "Первая мысль" : "Ещё одна мысль",
+        },
+      });
+    });
+    await page.route("**/messages*", (route) =>
+      route.fulfill({ json: history }),
+    );
+    await page.route("**/voice/synthesize", (route) =>
+      route.fulfill({
+        contentType: "audio/wav",
+        body: Buffer.from(wav(new Float32Array(8000), 16000)),
+      }),
+    );
+    await page.route("**/chat", (route) => {
+      chats.push(route.request().postDataJSON().text);
+      if (chats.length === 1) {
+        first = route;
+        return;
+      }
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: reply(chats.at(-1)!, chats.length),
+      });
+    });
+    await page
+      .getByRole("button", { name: "Начать разговор", exact: true })
+      .click();
+    await expect(page.locator(".conversation-phase")).toHaveText(
+      "Измеряю фон · помолчите",
+      { timeout: 10000 },
+    );
+    await expect.poll(() => !!first, { timeout: 15000 }).toBe(true);
+    await expect(page.locator(".conversation-phase")).toHaveText(
+      "Думаю · слушаю вас",
+    );
+    await expect(page.locator(".conversation-phase")).toHaveText(
+      "Следующая фраза в очереди",
+      { timeout: 12000 },
+    );
+    expect(transcriptions).toBe(1);
+    expect(chats).toEqual(["Первая мысль"]);
+    await first!.fulfill({
+      contentType: "text/event-stream",
+      body: reply(chats[0], 1),
+    });
+    await expect.poll(() => chats.length, { timeout: 10000 }).toBe(2);
+    expect(chats).toEqual(["Первая мысль", "Ещё одна мысль"]);
+    await page
+      .getByRole("button", { name: "Завершить разговор", exact: true })
+      .click();
+    await micStopped(page);
+    const stopped = transcriptions;
+    await page.waitForTimeout(5500);
+    expect(transcriptions).toBe(stopped);
+    await page.screenshot({ path: "local/screenshots/conversation-queue.png" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("conversation: missing voice component stops before acquiring the microphone", async () => {
   const { app, page } = await launch();
   try {

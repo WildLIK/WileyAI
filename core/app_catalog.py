@@ -47,7 +47,7 @@ CATALOG = (
     app("whatsapp", "messengers", "WhatsApp", "ватсап|ватсапп|вотсап", "WhatsApp.exe", "%LOCALAPPDATA%/WhatsApp/WhatsApp.exe"),
     app("viber", "messengers", "Viber", "вайбер", "Viber.exe", "%LOCALAPPDATA%/Viber/Viber.exe"),
     app("chrome", "browsers", "Google Chrome", "chrome|хром|гугл хром", "chrome.exe", "%LOCALAPPDATA%/Google/Chrome/Application/chrome.exe", *pf("Google/Chrome/Application/chrome.exe")),
-    app("yandex-browser", "browsers", "Яндекс Браузер", "yandex browser|яндекс браузер|браузер яндекс", "browser.exe", "%LOCALAPPDATA%/Yandex/YandexBrowser/Application/browser.exe", *pf("Yandex/YandexBrowser/Application/browser.exe")),
+    app("yandex-browser", "browsers", "Яндекс Браузер", "yandex browser|яндекс браузер|браузер яндекс|яндекс праузер|яндекс броузер", "browser.exe", "%LOCALAPPDATA%/Yandex/YandexBrowser/Application/browser.exe", *pf("Yandex/YandexBrowser/Application/browser.exe")),
     app("firefox", "browsers", "Mozilla Firefox", "firefox|мозилла|мозиллу|мозила|мозилу|файрфокс|mozilla", "firefox.exe", *pf("Mozilla Firefox/firefox.exe")),
     app("edge", "browsers", "Microsoft Edge", "edge|эдж|эдж браузер|майкрософт эдж", "msedge.exe", *pf("Microsoft/Edge/Application/msedge.exe")),
     app("opera", "browsers", "Opera", "опера|оперу|opera browser", "opera.exe", *pf("Opera/launcher.exe")),
@@ -70,7 +70,7 @@ CATALOG = (
 
 
 def name_key(value):
-    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е").replace("яндекс.", "яндекс ")).strip(" .!")
+    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е").replace("яндекс.", "яндекс ").replace(",", " ")).strip(" .!")
 
 
 APP_NAMES = {name_key(label): spec.name for spec in CATALOG for label in (spec.name, *spec.aliases)}

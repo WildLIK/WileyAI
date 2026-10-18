@@ -214,6 +214,25 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await choose("Микрофон и разговор");
     await expect(idlePolicy).toHaveValue("never");
     await expect(recognitionQuality).toHaveValue("balanced");
+    const environment = page.getByRole("combobox", {
+      name: "Условия записи",
+      exact: true,
+    });
+    const continuous = page.getByLabel("Слушать, пока модель думает", {
+      exact: true,
+    });
+    await expect(environment).toHaveValue("normal");
+    await expect(continuous).toBeChecked();
+    await environment.selectOption("music");
+    await continuous.uncheck();
+    await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+    await page.reload();
+    await page
+      .getByRole("button", { name: "⚙ Настройки", exact: true })
+      .click();
+    await choose("Микрофон и разговор");
+    await expect(environment).toHaveValue("music");
+    await expect(continuous).not.toBeChecked();
     expect(errors).toEqual([]);
   } finally {
     await app.close();

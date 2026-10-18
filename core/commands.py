@@ -106,6 +106,18 @@ def resolve(text: str, aliases: list[dict]) -> Command | None:
     return None
 
 
+def known_application(text):
+    target = opening_target(text)
+    if not target:
+        return None
+    return canonical_name(re.sub(r"^(?:приложение|программу)\s+", "", normalize(target)))
+
+
+def application_query(text):
+    match = re.fullmatch(r"(?:проверь(?: наличие)?|найди(?: в системе)?|есть ли(?: у меня)?)\s+(?:приложение\s+|программу\s+)?([^?!.\n]+)[?!. ]*", text.strip(), re.I)
+    return canonical_name(match[1]) if match else None
+
+
 def validate(command: Command):
     if command.kind == "url":
         parsed = urlparse(command.target)

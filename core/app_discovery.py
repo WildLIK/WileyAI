@@ -11,7 +11,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from .app_catalog import CATALOG, CATEGORIES, shortcut_spec
+from .app_catalog import CATALOG, CATEGORIES, shortcut_spec, canonical_name
 
 
 @dataclass
@@ -160,6 +160,23 @@ class ApplicationScanner:
     def __init__(self, root=None):
         self.lock = threading.Lock()
         self.cache = Path(root) / "applications.json" if root is not None else None
+
+    def find(self, name):
+        """Resolve only a known product, rechecking the local file before launch.
+
+        Explicit open requests authorize discovery of that product. Unknown names
+        never trigger scanning. Manual command aliases still take priority.
+        """
+        canonical = canonical_name(name)
+        if not canonical:
+            return None
+        for item in self.saved()["items"]:
+            if canonical_name(item["name"]) == canonical and local_file(item["target"], (".exe", ".lnk")):
+                return item
+        for item in self.scan()["items"]:
+            if canonical_name(item["name"]) == canonical and local_file(item["target"], (".exe", ".lnk")):
+                return item
+        return None
 
     def saved(self):
         empty = {"supported": os.name == "nt", "items": [], "categories": CATEGORIES, "warnings": [], "scanned_at": None}

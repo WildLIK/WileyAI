@@ -53,10 +53,15 @@ test("chat follows the bottom, preserves reading position and offers a scroll ar
     await arrow.click();
     await expect.poll(distance).toBeLessThan(5);
     await expect(arrow).toHaveCount(0);
-    await viewport.locator(":scope > div").evaluate((element) => {
+    await viewport.evaluate((element) => {
       const extra = document.createElement("p");
       extra.textContent = "Продолжение потока. ".repeat(100);
-      element.append(extra);
+      element.firstElementChild!.append(extra);
+      element.firstElementChild!.lastElementChild!.remove();
+      element.dispatchEvent(new Event("scroll"));
+      element.firstElementChild!.append(extra);
+      // Reproduce a queued scroll event delivered before ResizeObserver.
+      element.dispatchEvent(new Event("scroll"));
     });
     await expect.poll(distance).toBeLessThan(5);
     await viewport.evaluate((element) => {

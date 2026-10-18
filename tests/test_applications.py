@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -119,3 +120,83 @@ def test_scan_cache_survives_reopening_without_rescanning(tmp_path, monkeypatch)
     assert saved["items"] == [item] and saved["scanned_at"] == scanned["scanned_at"]
     (tmp_path / "applications.json").write_text('{"items":[{"target":"broken"}]}')
     assert discovery.ApplicationScanner(tmp_path).saved()["items"] == []
+
+
+@pytest.mark.parametrize("name", ["Яндекс Праузер", "Яндекс, браузер", "Яндекс броузер"])
+def test_known_spoken_browser_variants(name):
+    assert canonical_name(name) == "Яндекс Браузер"
+    assert commands.known_application("Открой " + name) == "Яндекс Браузер"
+
+
+def test_find_known_app_checks_saved_file_and_refreshes_stale_path(tmp_path, monkeypatch):
+    path = tmp_path / "browser.exe"
+    path.touch()
+    item = {"id": "browser", "name": "Яндекс Браузер", "category": "browsers", "target": str(path), "source": "test", "aliases": []}
+    calls = []
+    monkeypatch.setattr(discovery, "discover", lambda: calls.append(1) or {"supported": True, "items": [item] if path.exists() else []})
+    scanner = discovery.ApplicationScanner(tmp_path)
+    assert scanner.find("Яндекс Праузер") == item and calls == [1]
+    assert discovery.ApplicationScanner(tmp_path).find("Яндекс, браузер") == item and calls == [1]
+    assert scanner.find("Случайная программа") is None and calls == [1]
+    path.unlink()
+    assert scanner.find("Яндекс Браузер") is None and calls == [1, 1]
+
+
+def test_direct_browser_request_discovers_without_manual_import_and_uses_verified_launcher(tmp_path, monkeypatch):
+    path = tmp_path / "browser.exe"
+    path.touch()
+    calls, launches = [], []
+    app = create_app(tmp_path, "applications-launch-0123456789")
+    def find(name):
+        calls.append(name)
+        return {"name": name, "target": str(path)}
+    monkeypatch.setattr(app.state.applications, "find", find)
+    monkeypatch.setattr(commands, "execute", lambda command, **kw: launches.append(command) or "Процесс подтверждён: PID 123.")
+    async def forbidden(*args):
+        pytest.fail("A native app lookup must not call the model")
+        yield ""
+    monkeypatch.setattr("core.providers.chat", forbidden)
+    with TestClient(app, headers={"Authorization": "Bearer applications-launch-0123456789"}) as api:
+        assert "PID 123" in api.post("/chat", json={"text": "Открой Яндекс Праузер."}).text
+        assert calls == ["Яндекс Браузер"] and len(launches) == 1
+        assert api.get("/aliases").json()["custom"] == []
+        assert api.get("/actions").json()[0]["target"] == str(path)
+        response = api.post("/chat", json={"text": "Проверь Яндекс Браузер"})
+        assert "Запуск не выполнялся" in response.text and len(launches) == 1
+        assert any(item["kind"] == "app.inspect" for item in api.get("/actions").json())
+        store = Store(tmp_path)
+        store.patch_settings({"allow_app_open": False})
+        api.post("/chat", json={"text": "Открой Яндекс Браузер"})
+        assert len(launches) == 1 and len(calls) == 2
+        store.patch_settings({"allow_app_open": True})
+        monkeypatch.setattr(app.state.applications, "find", lambda name: None)
+        assert "Ничего не запущено" in api.post("/chat", json={"text": "Открой Яндекс Браузер"}).text
+        assert len(launches) == 1
+
+
+@pytest.mark.parametrize("cancel", [True, False])
+def test_browser_discovery_cannot_launch_after_stop_or_permission_revocation(tmp_path, monkeypatch, cancel):
+    path = tmp_path / "browser.exe"
+    path.touch()
+    app = create_app(tmp_path, "app-lookup-cancel-0123456789")
+    started, release = threading.Event(), threading.Event()
+    launches = []
+    def find(name):
+        started.set()
+        assert release.wait(5)
+        return {"name": name, "target": str(path)}
+    monkeypatch.setattr(app.state.applications, "find", find)
+    monkeypatch.setattr(commands, "execute", lambda command, **kw: launches.append(command) or "launched")
+    with TestClient(app, headers={"Authorization": "Bearer app-lookup-cancel-0123456789"}) as api:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(api.post, "/chat", json={"text": "Открой Яндекс Праузер", "request_id": "browser-lookup"})
+            try:
+                assert started.wait(5)
+                if cancel:
+                    assert api.post("/chat/stop", json={"request_id": "browser-lookup"}).status_code == 200
+                else:
+                    Store(tmp_path).patch_settings({"allow_app_open": False})
+            finally:
+                release.set()
+            future.result(timeout=5)
+        assert launches == []

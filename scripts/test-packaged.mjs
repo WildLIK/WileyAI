@@ -69,6 +69,19 @@ async function verifyPackaged(data) {
     const health = await api("/health");
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
+    const recognition = await api("/settings");
+    if (
+      recognition.stt_environment !== "normal" ||
+      recognition.conversation_listen_while_thinking !== true
+    )
+      throw new Error(
+        "Missing conversation/recognition defaults in the packaged runtime",
+      );
+    await api("/settings", "PUT", {
+      ...recognition,
+      stt_environment: "music",
+      conversation_listen_while_thinking: false,
+    });
     const appsBefore = (await api("/aliases")).custom.length;
     const discovered = await api("/applications/scan", "POST");
     if (
@@ -88,6 +101,35 @@ async function verifyPackaged(data) {
       cachedApps.items.length !== discovered.items.length
     )
       throw new Error("Application scan cache was not saved");
+    if (discovered.items.length) {
+      const candidate = discovered.items[0];
+      const inspection = await fetch(connection.url + "/chat", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + connection.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: "Проверь " + candidate.name }),
+      });
+      const inspected = await inspection.text();
+      if (
+        !inspection.ok ||
+        !inspected.includes("Запуск не выполнялся") ||
+        !inspected.includes(candidate.name)
+      )
+        throw new Error(
+          "Native application inspection failed in standalone runtime",
+        );
+      if (
+        !(await api("/actions")).some(
+          (item) => item.kind === "app.inspect" && item.status === "found",
+        )
+      )
+        throw new Error("Native application inspection was not audited");
+      console.log(
+        "Standalone app inspection OK: real cached file found without a model or launch.",
+      );
+    }
     const helper = join(data, "VerifiedHelper.exe");
     const compiler = join(
       process.env.SystemRoot,
@@ -120,10 +162,12 @@ async function verifyPackaged(data) {
       text: "Открой проверка процесса",
       dry_run: false,
     });
-    const action = (await api("/actions"))[0];
+    const action = (await api("/actions")).find(
+      (item) => item.kind === "app" && item.target === helper,
+    );
     if (
       !launched.text.includes("PID") ||
-      action.status !== "process_started" ||
+      action?.status !== "process_started" ||
       !action.details.pid
     )
       throw new Error("Packaged core did not verify the actual helper process");
@@ -230,7 +274,9 @@ async function verifyPackaged(data) {
   });
   try {
     const page = await next.firstWindow();
-    await page.getByRole("heading", { name: "Привет, я Уайли." }).waitFor();
+    await page
+      .getByRole("button", { name: "Начать разговор", exact: true })
+      .waitFor();
     await page.waitForFunction(
       () =>
         document.documentElement.dataset.theme === "nebula" &&
@@ -241,6 +287,19 @@ async function verifyPackaged(data) {
     const savedApps = await (
       await fetch(connection.url + "/applications", { headers })
     ).json();
+    const recognition = await (
+      await fetch(connection.url + "/settings", { headers })
+    ).json();
+    if (
+      recognition.stt_environment !== "music" ||
+      recognition.conversation_listen_while_thinking !== false
+    )
+      throw new Error(
+        "Conversation/recognition preferences lost on standalone restart",
+      );
+    console.log(
+      "Standalone recognition and continuous-listening preferences preserved.",
+    );
     if (!savedApps.scanned_at || !savedApps.items.length)
       throw new Error("Application scan cache lost on full restart");
     console.log(

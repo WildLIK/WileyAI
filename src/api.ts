@@ -49,6 +49,8 @@ export interface Settings {
   audio_output_device_id: string;
   conversation_silence_ms: number;
   conversation_threshold: number;
+  stt_environment: "normal" | "music";
+  conversation_listen_while_thinking: boolean;
   avatar_path: string;
   has_api_key?: boolean;
   api_key?: string;

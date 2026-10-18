@@ -1,10 +1,13 @@
 const { randomUUID } = require("node:crypto");
 const phases = new Set([
   "preparing",
+  "calibrating",
   "listening",
   "hearing",
   "transcribing",
   "thinking",
+  "thinking_listening",
+  "queued",
   "speaking",
 ]);
 

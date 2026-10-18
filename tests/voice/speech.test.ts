@@ -48,3 +48,20 @@ test("WAV is mono PCM16 with the correct sample rate and clipped samples", () =>
   assert.equal(view.getInt16(50, true), 32767);
   assert.ok(Math.abs(rms(new Float32Array([0.1, -0.1])) - 0.1) < 1e-6);
 });
+
+test("music profile calibrates steady background and ends speech above it without waiting 25 seconds", () => {
+  const detector = new SpeechSegmenter(16000, { noiseCalibrationMs: 600 });
+  assert.equal(detector.calibrating, true);
+  assert.equal(feed(detector, 30, 0.03), null);
+  assert.equal(detector.calibrating, false);
+  assert.equal(feed(detector, 150, 0.03), null);
+  assert.equal(detector.isSpeaking, false);
+  feed(detector, 20, 0.13);
+  assert.equal(detector.isSpeaking, true);
+  const utterance = feed(detector, 50, 0.03);
+  assert.ok(utterance && utterance.length < 16000 * 2);
+  assert.equal(detector.isSpeaking, false);
+  detector.reset();
+  assert.equal(detector.calibrating, false);
+  assert.equal(feed(detector, 100, 0.03), null);
+});

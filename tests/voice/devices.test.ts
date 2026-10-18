@@ -17,6 +17,21 @@ test("selected microphone is required exactly; the Windows default omits its ID"
   );
 });
 
+test("music profile keeps echo and noise suppression but does not amplify background", () => {
+  assert.equal(
+    (microphoneConstraints().audio as MediaTrackConstraints).autoGainControl,
+    true,
+  );
+  assert.deepEqual(microphoneConstraints("usb", true).audio, {
+    deviceId: { exact: "usb" },
+    channelCount: 1,
+    sampleRate: 16000,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: false,
+  });
+});
+
 test("missing output reports an error instead of silently playing on another device", async () => {
   const ids: string[] = [];
   const audio = {
