@@ -1500,12 +1500,6 @@ export function App() {
       <div className="pet-window">
         <div className="pet-drag">
           <span>◈ {settings.name}</span>
-          <button
-            aria-label="Открыть настройки"
-            onClick={() => window.wiley.showWindow("settings")}
-          >
-            ⚙
-          </button>
         </div>
         <Avatar path={settings.avatar_path} speaking={speaking} />
         {activity.slice(0, 2).map((item) => (
@@ -1531,6 +1525,14 @@ export function App() {
             onClick={() => window.wiley.clickThrough(true)}
           >
             Пропуск кликов
+          </button>
+          <button
+            className="pet-settings"
+            title="Настройки"
+            aria-label="Открыть настройки"
+            onClick={() => window.wiley.showWindow("settings")}
+          >
+            <span aria-hidden="true">⚙</span>
           </button>
         </div>
         <ConversationControl

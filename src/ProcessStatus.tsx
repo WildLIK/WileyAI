@@ -20,6 +20,16 @@ export function ProcessStatus({
       data-process={kind}
     >
       <span className="process-glyph" aria-hidden="true">
+        <svg className="process-ring" viewBox="0 0 40 40" fill="none">
+          <circle className="process-orbit-track" cx="20" cy="20" r="17" />
+          <circle
+            className="process-orbit"
+            cx="20"
+            cy="20"
+            r="17"
+            pathLength="120"
+          />
+        </svg>
         {kind === "voice" || kind === "listen" ? (
           <span className="process-wave">
             {[0, 1, 2, 3, 4].map((index) => (
@@ -28,7 +38,6 @@ export function ProcessStatus({
           </span>
         ) : (
           <svg viewBox="0 0 40 40" fill="none">
-            <circle className="process-orbit" cx="20" cy="20" r="17" />
             {kind === "brain" ? (
               <>
                 <path d="M12 12 28 14 20 29 12 12 11 26 28 14" />

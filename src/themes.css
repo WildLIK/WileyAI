@@ -815,6 +815,7 @@ progress:indeterminate::-webkit-progress-bar {
   max-width: 460px;
 }
 .process-glyph {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -824,19 +825,29 @@ progress:indeterminate::-webkit-progress-bar {
   flex-shrink: 0;
 }
 .process-glyph svg {
-  width: 38px;
-  height: 38px;
+  width: 100%;
+  height: 100%;
   stroke: currentColor;
   stroke-width: 1.4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.process-orbit {
+.process-glyph .process-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.process-orbit-track {
   stroke-width: 1;
-  stroke-dasharray: 16 10 4 10;
-  opacity: 0.65;
-  transform-origin: 20px 20px;
-  animation: process-spin 4s linear infinite;
+  opacity: 0.16;
+}
+.process-orbit {
+  stroke-width: 1.8;
+  stroke-dasharray: 24 8 8 16 12 52;
+  opacity: 0.95;
+  animation: process-orbit-travel 1.6s linear infinite;
 }
 .process-copy {
   display: grid;
@@ -878,8 +889,7 @@ progress:indeterminate::-webkit-progress-bar {
   border-radius: 9px;
   gap: 9px;
 }
-.compact .process-glyph,
-.compact .process-glyph svg {
+.compact .process-glyph {
   width: 28px;
   height: 28px;
 }
@@ -892,13 +902,13 @@ progress:indeterminate::-webkit-progress-bar {
 .process-wave {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 30px;
+  gap: 2px;
+  height: 23px;
 }
 .process-wave i {
   display: block;
-  width: 3px;
-  height: 12px;
+  width: 2px;
+  height: 9px;
   border-radius: 4px;
   background: var(--accent);
   animation: process-wave 1s ease-in-out infinite alternate;
@@ -906,11 +916,11 @@ progress:indeterminate::-webkit-progress-bar {
 }
 .process-wave i:nth-child(2),
 .process-wave i:nth-child(4) {
-  height: 20px;
+  height: 15px;
   animation-delay: -0.4s;
 }
 .process-wave i:nth-child(3) {
-  height: 28px;
+  height: 23px;
   animation-delay: -0.7s;
 }
 .process-listen .process-wave i {
@@ -950,9 +960,12 @@ body:has(.pet-window) {
     transform: translateY(0);
   }
 }
-@keyframes process-spin {
+@keyframes process-orbit-travel {
+  from {
+    stroke-dashoffset: 0;
+  }
   to {
-    transform: rotate(360deg);
+    stroke-dashoffset: -120;
   }
 }
 @keyframes process-wave {

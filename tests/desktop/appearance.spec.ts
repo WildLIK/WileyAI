@@ -359,6 +359,26 @@ test("process animations follow real pending reply and speech states, and disapp
     await expect(
       page.locator('.message[aria-busy] [data-process="brain"]'),
     ).toBeVisible();
+    const orbit = page.locator(".message[aria-busy] .process-orbit");
+    const offset = () =>
+      orbit.evaluate((node) => getComputedStyle(node).strokeDashoffset);
+    const before = await offset();
+    await expect.poll(offset).not.toBe(before);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect
+      .poll(() =>
+        orbit.evaluate((node) => getComputedStyle(node).animationName),
+      )
+      .toBe("none");
+    const still = await offset();
+    await page.waitForTimeout(150);
+    expect(await offset()).toBe(still);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect
+      .poll(() =>
+        orbit.evaluate((node) => getComputedStyle(node).animationName),
+      )
+      .toBe("process-orbit-travel");
     await page.evaluate(() =>
       (window as unknown as { processText(): void }).processText(),
     );
@@ -376,12 +396,82 @@ test("process animations follow real pending reply and speech states, and disapp
     await expect(
       page.getByText("Озвучиваю ответ", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.locator('[data-process="voice"] .process-orbit'),
+    ).toBeVisible();
     await page.screenshot({ path: "local/screenshots/process-voice.png" });
     await expect(page.locator(".process-status")).toHaveCount(0, {
       timeout: 10000,
     });
   } finally {
     release();
+    await app.close();
+  }
+});
+
+test("avatar: transparent drag area and settings beside click-through fit the smallest window", async () => {
+  const data = await mkdtemp(join(tmpdir(), "wiley-avatar-controls-"));
+  const app = await electron.launch({
+    args: ["--mute-audio", "."],
+    env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+  });
+  try {
+    const page = await app.firstWindow();
+    await expect(
+      page.getByRole("heading", { name: "Привет, я Уайли." }),
+    ).toBeVisible();
+    const opened = app.waitForEvent("window");
+    await page
+      .getByRole("button", { name: "Показать аватара", exact: true })
+      .click();
+    const avatar = await opened;
+    const settings = avatar.getByRole("button", {
+      name: "Открыть настройки",
+      exact: true,
+    });
+    await expect(settings).toBeVisible();
+    await expect(avatar.locator(".pet-drag button")).toHaveCount(0);
+    expect(
+      await avatar
+        .locator(".pet-drag")
+        .evaluate((node) => getComputedStyle(node).backgroundColor),
+    ).toBe("rgba(0, 0, 0, 0)");
+    expect(
+      await settings.evaluate((node) =>
+        node.previousElementSibling?.textContent?.trim(),
+      ),
+    ).toBe("Пропуск кликов");
+    for (const width of [360, 300]) {
+      await avatar.setViewportSize({ width, height: 570 });
+      const layout = await avatar.locator(".pet-actions").evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return {
+          fits: node.scrollWidth <= node.clientWidth,
+          buttons: [...node.querySelectorAll("button")].map((button) => {
+            const child = button.getBoundingClientRect();
+            return (
+              child.left >= box.left &&
+              child.right <= box.right &&
+              child.top >= box.top &&
+              child.bottom <= box.bottom
+            );
+          }),
+        };
+      });
+      expect(layout.fits).toBe(true);
+      expect(layout.buttons).toEqual([true, true, true, true]);
+    }
+    await avatar.screenshot({
+      path: "local/screenshots/avatar-transparent-toolbar.png",
+      omitBackground: true,
+    });
+    const settingsWindow = app.waitForEvent("window");
+    await settings.click();
+    const preferences = await settingsWindow;
+    await expect(
+      preferences.getByRole("heading", { name: "Настройки ассистента" }),
+    ).toBeVisible();
+  } finally {
     await app.close();
   }
 });

@@ -1332,27 +1332,35 @@ small {
   align-items: center;
   padding: 8px 12px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-mid) 80%, transparent);
+  background: transparent;
   color: var(--text-main);
   font-size: 12px;
 }
-.pet-drag button {
-  -webkit-app-region: no-drag;
-  font-size: 20px;
-}
 .pet-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) 28px;
+  gap: 4px;
+  align-items: center;
   background: color-mix(in srgb, var(--surface-mid) 93%, transparent);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px;
 }
 .pet-actions button {
+  min-width: 0;
   font-size: 10px;
-  padding: 7px 8px;
+  padding: 7px 5px;
   border-radius: 7px;
+  white-space: nowrap;
+}
+.pet-actions .pet-settings {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
 }
 .pet-actions button:hover {
   background: var(--surface-high);
