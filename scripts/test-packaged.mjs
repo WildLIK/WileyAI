@@ -70,6 +70,10 @@ async function verifyPackaged(data) {
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
     const recognition = await api("/settings");
+    const music = await api("/music/yandex");
+    if (recognition.music_player !== "auto" || music.connected || music.selected)
+      throw new Error("Unexpected music connection in a clean packaged profile");
+    console.log("Standalone Yandex adapter loaded: no connection or personal player touched.");
     if (
       recognition.stt_environment !== "normal" ||
       recognition.conversation_listen_while_thinking !== true

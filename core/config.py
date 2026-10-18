@@ -80,6 +80,7 @@ class Settings(BaseModel):
     allow_app_open: bool = True
     allow_web_open: bool = True
     allow_audio_control: bool = True
+    music_player: Literal["auto", "yandex"] = "auto"
     command_understanding: bool = False
     search_enabled: bool = False
     search_provider: Literal["searxng", "brave"] = "searxng"

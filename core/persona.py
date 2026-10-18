@@ -5,12 +5,14 @@ import re
 def action_context(text, history):
     if len(text) > 250 or re.search(r"\b(?:напиши|сочини|придумай|рассказ|сцену|ролевая)\b", text, re.I):
         return False
-    vocabulary = r"музык|плеер|проигр|программ|браузер|запуст|включ|откро|аимп|\bimp\b"
+    vocabulary = r"музык|плеер|проигр|программ|браузер|запуст|включ|откро|аимп|песн|трек|любим|лайк|пауза|\bimp\b"
     return bool(re.search(vocabulary, text, re.I) or (len(text.split()) <= 4 and history and re.search(vocabulary, history[-1]["content"], re.I)))
 
 
 def without_unexecuted_claims(text):
     # Used only on ordinary short control-related replies, before any text/TTS leaves the core.
+    if re.search(r"\b(?:(?:добавил[аи]?|убрал[аи]?|удалил[аи]?)\s+.{0,35}(?:любим|избран)|(?:поставил[аи]?|снял[аи]?)\s+лайк)", text, re.I):
+        return "Избранное в этом ответе не изменялось. Подключите Яндекс Музыку в разделе «Команды» и скажите «добавь в любимые» или «убери из любимых»."
     if re.search(r"\b(?:проверил[аи]?|проверю|проверяю|наш[её]л|нашла|обнаружил[аи]?)\b", text, re.I):
         return "Проверка Windows в этом ответе не выполнялась. Для настоящей проверки скажите «проверь Яндекс Браузер» или назовите другое приложение."
     if re.search(r"\b(?:запускаю|запустил[аи]?|открываю|открыл[аи]?|включил[аи]?|выключил[аи]?|включу|выключу|открою|поставил[аи]?\s+.{0,50}на паузу)|музыка\s+(?:запущена|включена|началась)|запускаю\s+«", text, re.I):

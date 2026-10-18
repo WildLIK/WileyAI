@@ -1,0 +1,38 @@
+import * as THREE from "three";
+
+/** Neutral studio illumination avoids a blue/grey cast on pale anime avatars. */
+export function addAvatarLighting(scene: THREE.Scene) {
+  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xc9c4cf, 0.3));
+  const key = new THREE.DirectionalLight(0xfff5ee, 1.5);
+  key.position.set(1, 2, 3);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xe8f3ff, 0.3);
+  fill.position.set(-2, 1, 1);
+  scene.add(fill);
+}
+
+/** Fit both wingspan and height, including depth, for any companion panel size. */
+export function fitAvatarCamera(
+  camera: THREE.PerspectiveCamera,
+  bounds: THREE.Box3,
+) {
+  if (bounds.isEmpty()) return;
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  const distance =
+    Math.max(
+      size.y / (2 * tanHalfFov),
+      size.x / (2 * tanHalfFov * Math.max(camera.aspect, 0.01)),
+      0.1,
+    ) *
+      1.1 +
+    size.z / 2;
+  camera.position.copy(center).add(new THREE.Vector3(0, 0, distance));
+  camera.near = Math.max(0.001, distance / 1000);
+  camera.far = Math.max(20, distance + size.length() * 3);
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}

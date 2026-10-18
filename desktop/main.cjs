@@ -478,6 +478,7 @@ app.whenReady().then(async () => {
     const response = await fetch(current.url + "/settings", {
       headers: { Authorization: "Bearer " + current.token },
     });
+    if (!response.ok) throw new Error("Не удалось получить настройки аватара");
     const settings = await response.json();
     const file = settings.avatar_path;
     if (!file || path.extname(file).toLowerCase() !== ".vrm") return null;

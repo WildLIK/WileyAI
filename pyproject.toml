@@ -1,6 +1,6 @@
 [project]
 name = "wileyai-core"
-version = "0.9.1"
+version = "0.10.0"
 description = "Local-first WileyAI runtime"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "python-docx>=1.1,<2",
     "psutil>=6,<8",
     "tzdata>=2026.5",
+    "websockets>=15,<18",
 ]
 
 [project.optional-dependencies]

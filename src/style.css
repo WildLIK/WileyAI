@@ -1319,7 +1319,20 @@ small {
 }
 .pet-window .avatar-stage {
   height: auto;
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
+}
+.pet-window > :not(.avatar-stage) {
+  flex-shrink: 0;
+}
+.yandex-music form {
+  margin-top: 18px;
+}
+.music-restart {
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 .pet-window .orb {
   width: 135px;

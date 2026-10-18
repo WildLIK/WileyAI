@@ -1,8 +1,8 @@
 {
   "name": "wileyai",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
-  "description": "Локальный персональный ассистент для Windows",
+  "description": "Р›РѕРєР°Р»СЊРЅС‹Р№ РїРµСЂСЃРѕРЅР°Р»СЊРЅС‹Р№ Р°СЃСЃРёСЃС‚РµРЅС‚ РґР»СЏ Windows",
   "type": "module",
   "main": "desktop/main.cjs",
   "scripts": {
@@ -13,6 +13,7 @@
     "start": "electron .",
     "test": "node scripts/python.mjs -m pytest",
     "test:voice": "node --experimental-strip-types --test tests/voice/*.test.ts tests/voice/*.test.cjs",
+    "test:avatar": "node scripts/test-avatar.mjs",
     "test:desktop": "playwright test",
     "check": "npm run build && npm test && npm run test:voice",
     "format": "prettier --write src desktop scripts/*.mjs tests/desktop/*.ts",

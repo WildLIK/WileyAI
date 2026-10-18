@@ -26,7 +26,7 @@ def app(key, category, name, aliases, exes, *locations):
 
 CATALOG = (
     app("aimp", "music", "AIMP", "аимп|эймп", "AIMP.exe", *pf("AIMP/AIMP.exe")),
-    app("yandex-music", "music", "Яндекс Музыка", "яндекс музыку|яндексмузыка|yandex music|yandexmusic", "Яндекс Музыка.exe|ЯндексМузыка.exe|YandexMusic.exe", *pf("YandexMusic/Яндекс Музыка.exe", "YandexMusic/ЯндексМузыка.exe", "YandexMusic/YandexMusic.exe")),
+    app("yandex-music", "music", "Яндекс Музыка", "яндекс музыку|яндексмузыка|yandex music|yandexmusic", "Яндекс Музыка.exe|ЯндексМузыка.exe|YandexMusic.exe", *pf("YandexMusic/Яндекс Музыка.exe", "YandexMusic/ЯндексМузыка.exe", "YandexMusic/YandexMusic.exe", "YandexMusicMod/Яндекс Музыка.exe")),
     app("spotify", "music", "Spotify", "спотифай", "Spotify.exe", "%APPDATA%/Spotify/Spotify.exe", *pf("Spotify/Spotify.exe")),
     app("foobar", "music", "foobar2000", "фубар|foobar", "foobar2000.exe", *pf("foobar2000/foobar2000.exe")),
     app("vlc", "video", "VLC", "влс|ви эл си|vlc media player", "vlc.exe", *pf("VideoLAN/VLC/vlc.exe")),

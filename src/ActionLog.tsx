@@ -19,6 +19,8 @@ const labels: Record<string, string> = {
   ok: "Выполнено",
   error: "Ошибка",
   preview: "Только проверка",
+  connected: "Плеер подключён",
+  ambiguous: "Нужно уточнение",
 };
 export function ActionLog() {
   const [items, setItems] = useState<Entry[]>([]);
@@ -54,25 +56,28 @@ export function ActionLog() {
       {error && <p role="alert">{error}</p>}
       {!items.length && <p className="help">Действий пока нет.</p>}
       <div className="action-log-entries">
-        {items.slice(0, 20).map((item) => (
-          <details
-            key={item.id}
-            className={item.status === "error" ? "action-error" : ""}
-          >
-            <summary>
-              <time>{new Date(item.created).toLocaleString("ru-RU")}</time>
-              <strong>{labels[item.status] || item.status}</strong>
-              <span>
-                {item.kind} · {item.target}
-              </span>
-            </summary>
-            <p>
-              {item.details.text ||
-                "Дополнительные сведения отсутствуют у этой старой записи."}
-            </p>
-            {item.details.pid && <small>PID: {item.details.pid}</small>}
-          </details>
-        ))}
+        {items
+          .slice(-20)
+          .reverse()
+          .map((item) => (
+            <details
+              key={item.id}
+              className={item.status === "error" ? "action-error" : ""}
+            >
+              <summary>
+                <time>{new Date(item.created).toLocaleString("ru-RU")}</time>
+                <strong>{labels[item.status] || item.status}</strong>
+                <span>
+                  {item.kind} · {item.target}
+                </span>
+              </summary>
+              <p>
+                {item.details.text ||
+                  "Дополнительные сведения отсутствуют у этой старой записи."}
+              </p>
+              {item.details.pid && <small>PID: {item.details.pid}</small>}
+            </details>
+          ))}
       </div>
     </section>
   );

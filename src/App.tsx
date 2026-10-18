@@ -37,6 +37,7 @@ import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
 import { Applications } from "./Applications";
+import { YandexMusic } from "./YandexMusic";
 import { ActionLog } from "./ActionLog";
 import { NebulaBackground } from "./NebulaBackground";
 import { CalendarPanel } from "./Calendar";
@@ -2615,6 +2616,12 @@ export function App() {
               }}
             />
             <DeviceAudio />
+            <YandexMusic
+              onChanged={async () => {
+                acceptSettings(await request<Settings>("/settings"));
+                channel.current?.postMessage({ type: "settings" });
+              }}
+            />
             <ActionLog />
             <RoutinePanel
               key={activeChatId + ":" + restoredVersion}

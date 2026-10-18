@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
+import { addAvatarLighting, fitAvatarCamera } from "./avatarPresentation";
 
 export function Avatar({
   path,
@@ -22,6 +23,7 @@ export function Avatar({
     let frame = 0;
     let vrm: VRM | undefined;
     let renderer: THREE.WebGLRenderer;
+    let bounds: THREE.Box3 | undefined;
     const container = host.current;
     setError("");
     try {
@@ -32,22 +34,36 @@ export function Avatar({
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.NeutralToneMapping;
     container.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     camera.position.set(0, 1.15, 3.1);
     camera.lookAt(0, 0.95, 0);
-    scene.add(new THREE.HemisphereLight(0xc9e1ff, 0x55506d, 1.2));
-    const light = new THREE.DirectionalLight(0xffffff, 0.8);
-    light.position.set(1, 2, 3);
-    scene.add(light);
+    addAvatarLighting(scene);
     const resize = () => {
       const width = container.clientWidth || 300;
       const height = container.clientHeight || 400;
       renderer.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      if (bounds) fitAvatarCamera(camera, bounds);
     };
+    let contextLost = false;
+    const lost = (event: Event) => {
+      event.preventDefault();
+      contextLost = true;
+      if (!disposed) setError("Восстанавливаю 3D после сбоя видеодрайвера…");
+    };
+    const restored = () => {
+      contextLost = false;
+      if (!disposed) {
+        resize();
+        setError("");
+      }
+    };
+    renderer.domElement.addEventListener("webglcontextlost", lost);
+    renderer.domElement.addEventListener("webglcontextrestored", restored);
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     resize();
@@ -63,15 +79,21 @@ export function Avatar({
     window.wiley
       .avatarBytes()
       .then(async (data) => {
-        if (!data || disposed) return;
+        if (disposed) return;
+        if (!data)
+          throw new Error(
+            "Не удалось прочитать файл аватара. Выберите VRM повторно в настройках.",
+          );
         const gltf = await loader.parseAsync(new Uint8Array(data).buffer, "");
         if (disposed) {
           VRMUtils.deepDispose(gltf.scene);
           return;
         }
         const loaded = gltf.userData.vrm as VRM | undefined;
-        if (!loaded)
+        if (!loaded) {
+          VRMUtils.deepDispose(gltf.scene);
           throw new Error("В файле не найдена совместимая модель VRM");
+        }
         vrm = loaded;
         VRMUtils.rotateVRM0(vrm);
         const leftArm = vrm.humanoid.getNormalizedBoneNode("leftUpperArm");
@@ -79,6 +101,10 @@ export function Avatar({
         if (leftArm) leftArm.rotation.z = -1.1;
         if (rightArm) rightArm.rotation.z = 1.1;
         scene.add(vrm.scene);
+        vrm.update(0);
+        vrm.scene.updateMatrixWorld(true);
+        bounds = new THREE.Box3().setFromObject(vrm.scene, true);
+        fitAvatarCamera(camera, bounds);
       })
       .catch((error) => {
         if (!disposed) setError(error.message || "Не удалось загрузить VRM");
@@ -86,7 +112,8 @@ export function Avatar({
     let previous = 0;
     const animate = (milliseconds: number) => {
       frame = requestAnimationFrame(animate);
-      if (document.hidden || milliseconds - previous < 1000 / 30) return;
+      if (document.hidden || contextLost || milliseconds - previous < 1000 / 30)
+        return;
       const delta = Math.min((milliseconds - previous) / 1000, 0.1);
       previous = milliseconds;
       const time = milliseconds / 1000;
@@ -110,6 +137,8 @@ export function Avatar({
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderer.domElement.removeEventListener("webglcontextlost", lost);
+      renderer.domElement.removeEventListener("webglcontextrestored", restored);
       if (vrm) VRMUtils.deepDispose(vrm.scene);
       renderer.dispose();
       renderer.domElement.remove();

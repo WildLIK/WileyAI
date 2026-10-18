@@ -39,6 +39,8 @@ from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run
 from . import audio_intents
 from . import windows_media
 from .app_discovery import ApplicationScanner
+from .music_intents import MusicAction, resolve as resolve_music
+from .yandex_music import YandexMusic, run_action as run_music
 from .app_catalog import CATALOG as APP_CATALOG, canonical_name as app_name
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
@@ -109,6 +111,10 @@ class ModelBody(BaseModel):
 
 class CommandBody(TextBody):
     dry_run: bool = True
+
+
+class MusicConnectionBody(BaseModel):
+    restart: bool = Field(default=False, strict=True)
 
 
 class WebSourceBody(BaseModel):
@@ -231,6 +237,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app.state.store = store
     app.state.monitor = monitor
     app.state.applications = ApplicationScanner(root)
+    music_player = YandexMusic(root, store, app.state.applications)
+    app.state.music = music_player
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
 
     @app.middleware("http")
@@ -672,6 +680,23 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             return {"available": False, "text": str(error)}
 
+    @app.get("/music/yandex")
+    def yandex_status():
+        return music_player.status()
+
+    @app.post("/music/yandex/connect")
+    def yandex_connect(body: MusicConnectionBody):
+        return music_player.connect(restart=body.restart)
+
+    @app.post("/music/yandex/disconnect")
+    def yandex_disconnect():
+        return music_player.disconnect()
+
+    @app.post("/music/yandex/action")
+    async def yandex_action(body: MusicAction):
+        progress = []
+        return await run_music(music_player, body, progress)
+
     @app.put("/tools/access")
     async def opening_access(body: OpenAccessBody):
         current = store.settings()
@@ -715,6 +740,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.post("/commands")
     def command_preview(body: CommandBody):
+        current = store.settings()
+        music = resolve_music(body.text, preferred=current.music_player == "yandex", name=current.name)
+        if music:
+            result = {"text": "Яндекс Музыка: " + music.action} if body.dry_run else music_player.execute(music)
+            return {**result, "kind": "music.yandex", "target": music.model_dump()}
         audio = resolve_audio(body.text, store.settings().name)
         if audio:
             return {**audio_tools.execute(audio, dry_run=body.dry_run), "kind": "audio", "target": audio.model_dump()}
@@ -1003,7 +1033,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         text = body.text.strip()
         if body.full_document and (not body.document_ids or body.web_search):
             raise HTTPException(400, "Для полного пересказа прикрепите файлы и выключите веб-поиск")
-        search_query = None if body.full_document else websearch.requested_query(text, body.web_search)
+        music_request = None if body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
+        search_query = None if body.full_document or music_request else websearch.requested_query(text, body.web_search)
         full_document = body.full_document
         routine_name = requested_name(text) if search_query is None else None
         opening_text = intents.opening_request(text, current.name)
@@ -1059,6 +1090,10 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         return
                 elif full_document:
                     pass  # Reading mode never runs task, memory or Windows commands.
+                elif music_request is not None:
+                    yield event("stage", text="Ищу песню в Яндекс Музыке…" if music_request.action == "search_play" else "Передаю команду Яндекс Музыке и проверяю результат…")
+                    answer = (await run_music(music_player, music_request, audio_progress))["text"]
+                    yield event("delta", text=answer)
                 elif (audio := resolve_audio(text, current.name)) is not None:
                     # A pending opening choice must never swallow an explicit audio
                     # command. No model inference or document text is used here.
