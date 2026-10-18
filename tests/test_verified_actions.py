@@ -88,7 +88,7 @@ def test_media_refusal_and_no_session_never_claim_playback(tmp_path, monkeypatch
     assert "не принял" in windows_media.describe({"available": True, "backend": "smtc", "player": "Player", "state": "Пауза", "accepted": False, "action": "play"})
 
 
-@pytest.mark.parametrize("claim", ["Музыка запущена.", "Запускаю «Имп».", "Поставила музыку на паузу.", "Выключу музыку.", "Проверю наличие Яндекс Браузера в системе.", "Проверила: браузер не найден."])
+@pytest.mark.parametrize("claim", ["Музыка запущена.", "Запускаю «Имп».", "Поставила музыку на паузу.", "Выключу музыку.", "Проверю наличие Яндекс Браузера в системе.", "Проверила: браузер не найден.", "Найдено: «Турбина туриста» (Иван Дорн).\nВоспроизведение: Ivan Dorren — Turbina Tourista.", "Трек воспроизводится."])
 def test_unexecuted_model_claims_do_not_reach_chat_or_speech(tmp_path, monkeypatch, claim):
     async def fake(*args):
         for character in claim:
@@ -99,9 +99,32 @@ def test_unexecuted_model_claims_do_not_reach_chat_or_speech(tmp_path, monkeypat
         result = api.post("/chat", json={"text": "Программа IIMP"})
         events = [json.loads(line[6:]) for line in result.text.splitlines() if line.startswith("data: ")]
         text = "".join(event["text"] for event in events if event["type"] == "delta")
-        assert claim not in text and "не выполнялась" in text
+        assert claim not in text and ("не выполнялась" in text or "не выполнялись" in text)
         assert api.get("/actions").json() == []
         assert api.get("/messages").json()[-1]["content"] == text
+
+
+def test_screenshot_search_and_followup_never_call_model(tmp_path, monkeypatch):
+    token = "verified-actions-tests-0123456789"
+    app = create_app(tmp_path, token)
+    app.state.store.patch_settings({"music_player": "yandex"})
+    calls = []
+    def forbidden(*args, **kwargs): raise AssertionError("Search must use the music tool, not model text or Windows media")
+    monkeypatch.setattr(providers, "chat", forbidden)
+    monkeypatch.setattr(windows_media, "perform", forbidden)
+    def search(command, cancel=None):
+        calls.append(command)
+        app.state.store.audit("music.yandex", "yandex:search_play", "unconfirmed", {"text": "Запуск этой песни не подтверждён"})
+        return {"confirmed": False, "text": "Запуск этой песни не подтверждён"}
+    monkeypatch.setattr(app.state.music, "execute", search)
+    with TestClient(app, headers={"Authorization": "Bearer " + token}) as api:
+        for phrase in ("найти песню турбина туриста", "так, включи её"):
+            result = api.post("/chat", json={"text": phrase, "mode": "conversation"})
+            events = [json.loads(line[6:]) for line in result.text.splitlines() if line.startswith("data: ")]
+            answer = events[-1]["message"]["content"]
+            assert answer == "Запуск этой песни не подтверждён"
+        assert [command.query for command in calls] == ["турбина туриста", "турбина туриста"]
+        assert len(api.get("/actions").json()) == 2
 
 
 def test_yandex_music_spoken_dot_uses_added_app(tmp_path):

@@ -46,7 +46,7 @@ def resolve(text, *, preferred=False, name="Уайли"):
         return None
     if re.match(r"^(?:не |как |если |например |напиши |расскажи )", value, re.I) or value.startswith(('"', '«', '“')):
         return None
-    search = re.fullmatch(r"(?:найди(?: и (?:включи|поставь))?|включи|поставь|воспроизведи)\s+(?:мне\s+)?(?:песню|трек|композицию)\s+(.+)", value, re.I)
+    search = re.fullmatch(r"(?:найди(?: и (?:включи|поставь))?|найти(?: и (?:включить|поставить))?|поищи|включи|поставь|воспроизведи)\s+(?:мне\s+)?(?:песню|трек|композицию)\s+(.+)", value, re.I)
     if search and (preferred or explicit):
         return MusicAction(action="search_play", query=search[1].strip(' "«»'))
     if not (preferred or explicit):
@@ -73,6 +73,18 @@ def resolve(text, *, preferred=False, name="Уайли"):
     if music_help(value, name) is not None:
         return MusicAction(action="play")
     return None
+
+
+def followup(text, history, *, preferred=False, name="Уайли"):
+    """A pronoun can only reuse the immediately preceding user's song query."""
+    value, explicit = request(text, name)
+    if value is None or not re.fullmatch(r"(?:так[, ]+)?(?:включи|запусти|поставь) (?:ее|её|эту песню|этот трек)", value, re.I):
+        return None
+    if len(history) != 2 or history[0]["role"] != "user" or history[1]["role"] != "assistant":
+        return None
+    previous = resolve(history[0]["content"], preferred=preferred or explicit, name=name)
+    # Model-produced titles or claims never supply the query or select a player.
+    return previous if previous and previous.action == "search_play" else None
 
 
 def search_query(value):

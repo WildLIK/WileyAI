@@ -39,7 +39,7 @@ from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run
 from . import audio_intents
 from . import windows_media
 from .app_discovery import ApplicationScanner
-from .music_intents import MusicAction, resolve as resolve_music
+from .music_intents import MusicAction, resolve as resolve_music, followup as music_followup
 from .yandex_music import YandexMusic, run_action as run_music
 from .app_catalog import CATALOG as APP_CATALOG, canonical_name as app_name
 from .routines import Routines, RoutineBody, requested_name, run_step
@@ -1034,6 +1034,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if body.full_document and (not body.document_ids or body.web_search):
             raise HTTPException(400, "Для полного пересказа прикрепите файлы и выключите веб-поиск")
         music_request = None if body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
+        if music_request is None and not body.full_document and not body.web_search:
+            music_request = music_followup(text, chat_store.list("messages", 2), preferred=current.music_player == "yandex", name=current.name)
         search_query = None if body.full_document or music_request else websearch.requested_query(text, body.web_search)
         full_document = body.full_document
         routine_name = requested_name(text) if search_query is None else None

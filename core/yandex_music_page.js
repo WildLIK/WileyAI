@@ -68,7 +68,7 @@ async function wileyMusic(command) {
     }
     throw new Error("Не найдено поле поиска Яндекс Музыки");
   }
-  if (command.action === "results" || command.action === "select") {
+  if (["results", "select", "select_target"].includes(command.action)) {
     const nodes = [...document.querySelectorAll(id("SEARCH_TRACK_CARD") + ',[class*="SearchBestResultsTrackBlock_root"] [class*="CommonTrack_root"],[class*="SearchTrackList_root"] [class*="CommonTrack_root"]')].filter(visible);
     const rows = nodes.map((node) => ({ node, ...meta(node) })).filter((row) => row.id && row.title).filter((row, i, list) => list.findIndex((other) => other.id === row.id) === i).slice(0, 20);
     const plain = rows.map(({ node, ...row }) => row);
@@ -82,6 +82,14 @@ async function wileyMusic(command) {
     if (!ready) throw new Error("Новые результаты поиска ещё не подтверждены");
     const row = rows.find((row) => row.id === command.id);
     if (!row || row.title !== command.title || row.artists !== command.artists) throw new Error("Результаты поиска изменились. Повторите поиск песни");
+    if (command.action === "select_target") {
+      const button = find(row.node, id("PLAY_BUTTON") + "," + id("PLAY_BUTTON_WITH_COVER"));
+      if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") throw new Error("Кнопка воспроизведения найденной песни недоступна");
+      button.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+      const box = button.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw new Error("Кнопка найденной песни находится за пределами окна");
+      return { x, y, reveal: !button.contains(document.elementFromPoint(x, y)) };
+    }
     click(row.node, id("PLAY_BUTTON") + "," + id("PLAY_BUTTON_WITH_COVER"));
     return { dispatched: true };
   }

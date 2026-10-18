@@ -62,11 +62,10 @@ test("Yandex renderer: scoped controls, idempotent favorites, new search results
           '<div data-test-id="SEARCH_TRACK_CARD"><a href="/track/42" data-test-id="TRACK_TITLE">With You</a><a href="/artist/2">Linkin Park</a><button data-test-id="PLAY_BUTTON">Play found</button></div>';
       }, 1300),
     );
-    document
-      .querySelector("#results")!
-      .addEventListener("click", () =>
-        (window as unknown as { played: string[] }).played.push("42"),
-      );
+    document.querySelector("#results")!.addEventListener("click", (event) => {
+      if (event.isTrusted)
+        (window as unknown as { played: string[] }).played.push("42");
+    });
   });
   expect((await action(page, { action: "status" })).volume).toBe(40);
   await action(page, { action: "play" });
@@ -117,6 +116,18 @@ test("Yandex renderer: scoped controls, idempotent favorites, new search results
     }),
   ).rejects.toThrow("изменились");
   await action(page, { action: "select", query, ...results.rows[0] });
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { played: string[] }).played,
+    ),
+  ).toEqual([]); // Synthetic element.click() is not proof of native playback.
+  const songTarget = await action(page, {
+    action: "select_target",
+    query,
+    ...results.rows[0],
+  });
+  expect(songTarget.reveal).toBe(false);
+  await page.mouse.click(songTarget.x, songTarget.y);
   expect(
     await page.evaluate(
       () => (window as unknown as { played: string[] }).played,

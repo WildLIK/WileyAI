@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from core.api import create_app
-from core.music_intents import MusicAction, resolve, search_query
+from core.music_intents import MusicAction, resolve, search_query, followup
 from core.yandex_music import YandexMusic, Renderer, rank, run_action
 from core.storage import Store
 from core import persona
@@ -73,6 +73,22 @@ def test_unspecified_song_means_resume_and_named_song_still_means_search():
     assert resolve("Включи песню Linkin Park With You", preferred=True).action == "search_play"
 
 
+@pytest.mark.parametrize("phrase", ["найти песню турбина туриста", "Найди песню турбина туриста", "Найти и включить песню турбина туриста", "Поищи песню турбина туриста", "Можешь найти песню турбина туриста?"])
+def test_screenshot_search_variants_are_native_requests(phrase):
+    assert resolve(phrase, preferred=True) == MusicAction(action="search_play", query="турбина туриста")
+
+
+def test_song_followup_uses_user_query_not_model_claims():
+    history = [{"role": "user", "content": "найти песню турбина туриста"}, {"role": "assistant", "content": "Найдено: совершенно другая песня"}]
+    assert followup("так, включи её", history, preferred=True) == MusicAction(action="search_play", query="турбина туриста")
+    assert followup("Включи её", history) is None  # No implicit player selection.
+    assert followup("Не включи её", history, preferred=True) is None
+    assert followup('«Включи её»', history, preferred=True) is None
+    assert followup("Включи её и открой браузер", history, preferred=True) is None
+    assert followup("Включи её", history[:1], preferred=True) is None
+    assert followup("Включи её", [{"role": "user", "content": "Привет"}, history[1]], preferred=True) is None
+
+
 @pytest.mark.parametrize("body", [{"action": "shell"}, {"action": "volume"}, {"action": "volume", "value": True}, {"action": "volume", "value": -1}, {"action": "search_play", "query": ""}, {"action": "pause", "query": "abc"}, {"action": "play", "url": "http://example.com"}])
 def test_arguments_are_bounded(body):
     with pytest.raises(ValidationError): MusicAction.model_validate(body)
@@ -100,10 +116,14 @@ class Page:
         self.rows = [{"id": "2", "title": "Numb", "artists": "Linkin Park"}]
     def action(self, action, **kwargs):
         self.calls.append((action, kwargs))
-        if action == "status": return dict(self.state)
+        if action == "status":
+            if self.state["playing"] and not self.ignore:
+                self.state["position"] = self.state.get("position", 0) + .2
+            return dict(self.state)
         if action == "results": return {"ready": True, "rows": self.rows}
-        if action == "select" and not self.ignore:
-            self.state.update(id=kwargs["id"], title=kwargs["title"], artists=kwargs["artists"], playing=True)
+        if action == "select_target":
+            self.selection = kwargs
+            return {"x": 50, "y": 10}
         if action in {"play", "pause"} and not self.ignore: self.state["playing"] = action == "play"
         if action in {"like", "unlike", "toggle_like"}:
             wanted = not self.state["liked"] if action == "toggle_like" else action == "like"
@@ -112,7 +132,13 @@ class Page:
         if action == "volume_target": self.desired = kwargs["value"]; return {"x": 50, "y": 10}
         return {"dispatched": True}
     def pointer(self, *args):
-        if not self.ignore: self.state["volume"] = self.desired
+        if self.ignore: return
+        if getattr(self, "selection", None):
+            self.state.update(**{key: self.selection[key] for key in ("id", "title", "artists")}, playing=True)
+            self.selection = None
+        else:
+            self.state["volume"] = self.desired
+    def hover(self, *args): pass
 
 
 @pytest.fixture
@@ -143,8 +169,37 @@ def test_ambiguous_search_never_plays(controller):
     page.rows.append({"id": "3", "title": "Numb", "artists": "Linkin Park"})
     result = player.execute(MusicAction(action="search_play", query="Linkin Park Numb"))
     assert result["confirmed"] is False and len(result["candidates"]) == 2
-    assert not any(call[0] == "select" for call in page.calls)
+    assert not any(call[0] in {"select", "select_target"} for call in page.calls)
     assert player.store.list("actions")[-1]["status"] == "ambiguous"
+
+
+def test_repeating_search_does_not_pause_an_already_playing_match(controller):
+    player, page = controller
+    page.state.update(id="2", title="Numb", artists="Linkin Park", playing=True)
+    result = player.execute(MusicAction(action="search_play", query="Linkin Park Numb"))
+    assert result["confirmed"] and result["playback_progress"]
+    assert not any(kind in {"select", "select_target"} for kind, _ in page.calls)
+
+
+@pytest.mark.parametrize("fault", ["different_track", "paused", "stalled", "missing_position", "invalid_position"])
+def test_search_cannot_claim_playback_without_selected_track_progress(controller, fault, monkeypatch):
+    player, page = controller
+    original = page.action
+    def action(kind, **arguments):
+        state = original(kind, **arguments)
+        if kind == "status":
+            if fault == "different_track": state["id"] = "999"
+            if fault == "paused": state["playing"] = False
+            if fault == "stalled": state["position"] = 10
+            if fault == "missing_position": state.pop("position", None)
+            if fault == "invalid_position": state["position"] = float("nan")
+        return state
+    monkeypatch.setattr(page, "action", action)
+    result = player.execute(MusicAction(action="search_play", query="Linkin Park Numb"))
+    assert not result["confirmed"] and not result["playback_progress"]
+    assert "Запуск этой песни не подтверждён" in result["text"]
+    assert result["selected"]["id"] == "2"
+    assert player.store.list("actions")[-1]["status"] == "unconfirmed"
 
 
 def test_permission_revocation_and_cancellation_before_dispatch(controller):
@@ -172,11 +227,12 @@ def test_api_and_chat_target_yandex_without_global_media(tmp_path, monkeypatch):
         assert api.post("/music/yandex/action", json={"action": "play"}).json()["confirmed"]
         assert api.post("/commands", json={"text": "пауза"}).json()["kind"] == "music.yandex"
         assert len(calls) == 1  # Preview has no effects.
-        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню", "Яндекс Музыка, продолжи музыку", "Убавь в громкость"):
+        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню", "Яндекс Музыка, продолжи музыку", "Убавь в громкость", "найти песню турбина туриста", "так, включи её"):
             response = api.post("/chat", json={"text": text})
             events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
             assert events[-1]["type"] == "done" and "Подтверждено" in events[-1]["message"]["content"]
-        assert [c.action for c in calls] == ["play", "next", "search_play", "play", "play", "change_volume"]
+        assert [c.action for c in calls] == ["play", "next", "search_play", "play", "play", "change_volume", "search_play", "search_play"]
+        assert calls[-1].query == calls[-2].query == "турбина туриста"
         assert api.post("/music/yandex/action", json={"action": "shell"}).status_code == 422
 
 

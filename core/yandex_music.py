@@ -7,6 +7,7 @@ from urllib.parse import urlparse, unquote
 import asyncio
 import difflib
 import json
+import math
 import os
 import re
 import socket
@@ -288,8 +289,22 @@ class YandexMusic:
                         self.store.audit("music.yandex", target, "ambiguous", result)
                         return result
                     selected = candidates[0]; expected_id = selected["id"]
-                    check()
-                    page.action("select", query=search_query(command.query), id=selected["id"], title=selected["title"], artists=selected["artists"])
+                    # A synthetic element.click() need not activate Electron's
+                    # audio context. Dispatch a native pointer after revalidating
+                    # the exact fresh result and its hit target on hover.
+                    current_track = page.action("status")
+                    if current_track.get("id") != expected_id or current_track.get("playing") is not True:
+                        selection = {key: selected[key] for key in ("id", "title", "artists")}
+                        for attempt in range(5):
+                            check()
+                            button = page.action("select_target", query=search_query(command.query), **selection)
+                            if attempt and not button.get("reveal"):
+                                break
+                            page.hover(button["x"], button["y"])
+                            time.sleep(.1)
+                        else:
+                            raise ValueError("Кнопка найденной песни перекрыта или недоступна. Запуск не отправлен")
+                        check(); page.pointer(button["x"], button["y"])
                 elif action in {"volume", "change_volume"}:
                     def volume_target(value):
                         for _ in range(10):
@@ -309,7 +324,9 @@ class YandexMusic:
                     check(); page.pointer(slider["x"], slider["y"])
                 elif action != "status":
                     check(); response = page.action(action)
+                progress_start, playback_progress = None, False
                 def confirmed(state):
+                    nonlocal progress_start, playback_progress
                     if action == "status": return state.get("available", False)
                     if action == "play": return state.get("playing") is True and state.get("available")
                     if action == "pause": return state.get("playing") is False and state.get("available")
@@ -317,7 +334,18 @@ class YandexMusic:
                     if action in {"next", "previous"}: return bool(state.get("id") and state["id"] != before.get("id"))
                     if action in {"like", "unlike", "toggle_like"}: return state.get("id") == before.get("id") and state.get("liked") is response.get("wanted")
                     if action in {"volume", "change_volume"}: return state.get("volume") is not None and abs(state["volume"] - desired_volume) <= 3
-                    return state.get("id") == expected_id and state.get("playing") is True
+                    if not state.get("available") or state.get("id") != expected_id or state.get("playing") is not True:
+                        progress_start = None
+                        playback_progress = False
+                        return False
+                    position = state.get("position")
+                    if type(position) not in {int, float} or not math.isfinite(position) or position < 0:
+                        playback_progress = False
+                        return False
+                    if progress_start is None or position < progress_start:
+                        progress_start = position
+                    playback_progress = position - progress_start >= .15
+                    return playback_progress
                 after = page.action("status")
                 for _ in range(25):
                     if confirmed(after): break
@@ -329,6 +357,13 @@ class YandexMusic:
                 if action in {"volume", "change_volume"}: change = f"Громкость плеера: {after.get('volume')}%"
                 text = ("Яндекс Музыка подтвердила: " if verified else "Изменение в Яндекс Музыке не подтверждено. Прочитанное состояние: ") + change + (". " + detail if detail else "")
                 result = {"confirmed": verified, "state": after, "text": text}
+                if action == "search_play":
+                    result["selected"] = {key: selected[key] for key in ("id", "title", "artists")}
+                    result["playback_progress"] = playback_progress
+                    result["text"] = (
+                        "Найдена и воспроизводится в Яндекс Музыке: " + detail + ". Плеер подтвердил трек и продвижение воспроизведения."
+                        if verified else "Найдена песня: " + selected["artists"] + " — " + selected["title"] + ". Запуск этой песни не подтверждён: плеер не показал выбранный трек с продвижением воспроизведения."
+                    )
                 self.store.audit("music.yandex", target, "confirmed" if verified else "unconfirmed", result)
                 return result
         except Exception as error:

@@ -22,19 +22,20 @@ def test_real_electron_transport_and_player_readback(tmp_path):
     html.write_text('''<!doctype html><section data-test-id="PLAYERBAR_DESKTOP">
       <a href="/track/1" data-test-id="TRACK_TITLE">Old song</a><a href="/artist/1">Other Artist</a>
       <button data-test-id="PLAY_BUTTON">Play</button><button data-test-id="NEXT_TRACK_BUTTON">Next</button><button data-test-id="PREVIOUS_TRACK_BUTTON">Previous</button>
-      <button data-test-id="LIKE_BUTTON" aria-pressed="false">Like</button>
+      <button data-test-id="LIKE_BUTTON" aria-pressed="false">Like</button><input data-test-id="TIMECODE_SLIDER" type="range" max="300" value="0">
       <div data-test-id="CHANGE_VOLUME_SLIDER" style="width:200px;height:20px;background:gray"><span role="slider" aria-valuenow=".4" aria-valuemin="0" aria-valuemax="1" style="display:block;width:1px;height:20px"></span></div>
       </section><a href="/search">Search</a><input data-test-id="SEARCH_PAGE_SEARCH_INPUT"><div id="results"></div>
       <script>
       const root=document.querySelector('section');
+      setInterval(()=>{if(root.querySelector('[data-test-id="PAUSE_BUTTON"]')){const clock=root.querySelector('input');clock.value=Number(clock.value)+1;}},500);
       root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const key=b.dataset.testId;
       if(key==='PLAY_BUTTON')b.dataset.testId='PAUSE_BUTTON';if(key==='PAUSE_BUTTON')b.dataset.testId='PLAY_BUTTON';
       if(key==='LIKE_BUTTON')b.setAttribute('aria-pressed',String(b.getAttribute('aria-pressed')!=='true'));
       if(key.includes('TRACK_BUTTON'))root.querySelector('a').href='/track/'+(key.startsWith('NEXT')?'2':'1');});
       document.querySelector('[data-test-id="CHANGE_VOLUME_SLIDER"]').addEventListener('mousedown',e=>{const box=e.currentTarget.getBoundingClientRect();e.currentTarget.querySelector('span').setAttribute('aria-valuenow',Math.round((e.clientX-box.left)/box.width*100)/100);});
       document.querySelector('a[href="/search"]').onclick=e=>e.preventDefault();
-      document.querySelector('input').oninput=()=>setTimeout(()=>{document.querySelector('#results').innerHTML='<div data-test-id="SEARCH_TRACK_CARD"><a href="/track/42" data-test-id="TRACK_TITLE">With You</a><a href="/artist/2">Linkin Park</a><button data-test-id="PLAY_BUTTON">Play found</button></div>';},1000);
-      document.querySelector('#results').onclick=()=>{root.querySelector('a').href='/track/42';root.querySelector('a').textContent='With You';root.querySelectorAll('a')[1].textContent='Linkin Park';root.querySelector('button').dataset.testId='PAUSE_BUTTON';};
+      document.querySelector('[data-test-id="SEARCH_PAGE_SEARCH_INPUT"]').oninput=()=>setTimeout(()=>{document.querySelector('#results').innerHTML='<div data-test-id="SEARCH_TRACK_CARD"><a href="/track/42" data-test-id="TRACK_TITLE">With You</a><a href="/artist/2">Linkin Park</a><button data-test-id="PLAY_BUTTON">Play found</button></div>';},1000);
+      document.querySelector('#results').onclick=e=>{if(!e.isTrusted)return;root.querySelector('a').href='/track/42';root.querySelector('a').textContent='With You';root.querySelectorAll('a')[1].textContent='Linkin Park';root.querySelector('button').dataset.testId='PAUSE_BUTTON';};
       </script>''', encoding="utf-8")
     main = tmp_path / "fixture.cjs"
     main.write_text("const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>{const w=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false}});w.loadFile(require('path').join(__dirname,'resources/index.html'));});app.on('window-all-closed',()=>app.quit());", encoding="utf-8")
