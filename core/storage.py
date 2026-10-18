@@ -366,11 +366,13 @@ class Store:
             db.execute("INSERT INTO notes (id,title,content,created,scope_id) VALUES (:id,:title,:content,:created,:scope_id) ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content", {**item, "scope_id": self.scope_id})
         return item
 
-    def save_task(self, title: str, kind: str, due: str | None, done: bool = False, item_id: str | None = None, recurrence: str | None = None) -> dict:
+    def save_task(self, title: str, kind: str, due: str | None, done: bool = False, item_id: str | None = None, recurrence: str | None = None, *, check_conversation: bool = False) -> dict:
         item = dict(id=item_id or uuid.uuid4().hex, title=title, kind=kind, due=due, done=int(done), created=now(), recurrence=recurrence)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             self._check_scope(db)
+            if check_conversation and not db.execute("SELECT 1 FROM conversations WHERE id=? AND COALESCE(project_id,'')=?", (self.conversation_id, self.scope_id)).fetchone():
+                raise ValueError("Чат перемещён или удалён. Повторите просьбу в текущем пространстве.")
             if item_id and not db.execute("SELECT 1 FROM tasks WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone():
                 raise ValueError("Задача уже удалена или принадлежит другому проекту")
             self._write_task(db, item)

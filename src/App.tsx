@@ -2811,6 +2811,24 @@ export function App() {
                     <label className="checkbox">
                       <input
                         type="checkbox"
+                        checked={settings.task_understanding}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            task_understanding: event.target.checked,
+                          })
+                        }
+                      />
+                      Понимать свободные просьбы о задачах
+                    </label>
+                    <p className="help">
+                      Используется выбранная модель. Перед изменением
+                      показываются задача и точный срок. Подтвердите план словом
+                      «да» или отмените.
+                    </p>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
                         checked={settings.memory_suggestions}
                         onChange={(event) =>
                           setSettings({

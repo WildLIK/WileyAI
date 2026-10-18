@@ -42,6 +42,7 @@ export interface Settings {
   allow_audio_control: boolean;
   music_player: "auto" | "yandex";
   command_understanding: boolean;
+  task_understanding: boolean;
   search_enabled: boolean;
   search_provider: "searxng" | "brave";
   search_base_url: string;

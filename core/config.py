@@ -82,6 +82,7 @@ class Settings(BaseModel):
     allow_audio_control: bool = True
     music_player: Literal["auto", "yandex"] = "auto"
     command_understanding: bool = False
+    task_understanding: bool = True
     search_enabled: bool = False
     search_provider: Literal["searxng", "brave"] = "searxng"
     search_base_url: str = "http://127.0.0.1:8080"

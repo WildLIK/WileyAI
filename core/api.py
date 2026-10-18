@@ -36,7 +36,7 @@ from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
 from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio, music_help
-from . import audio_intents
+from . import audio_intents, task_intents
 from . import windows_media
 from .app_discovery import ApplicationScanner
 from .music_intents import MusicAction, resolve as resolve_music, followup as music_followup
@@ -1065,12 +1065,18 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             pending_choices = []
             pending_model_assisted = True
             pending_audio = None
+            pending_task_plan = None
+            task_progress = []
             try:
                 yield event("user", message=user)
                 CalendarWorkflows(chat_store).expire_unanswered()
                 Workflows(chat_store).expire_unanswered()
                 audio_followup = audio_intents.consume(chat_store, text, current.name)
                 followup = None if full_document else intents.consume(chat_store, text, open_tools, current.name)
+                task_reply = await task_intents.consume(chat_store, current, text, body.timezone,
+                    allow=not full_document and search_query is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
+                if task_reply and task_reply.changed:
+                    task_progress.append(task_reply.text)
                 if current.memory_suggestions and not full_document and search_query is None and not text.casefold().startswith("запомни:"):
                     chat_store.suggest_memories(user["id"])
                 if search_query is not None:
@@ -1148,6 +1154,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else followup.text
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
+                elif task_reply is not None:
+                    answer, changed, pending_task_plan = task_reply.text, task_reply.changed, task_reply if task_reply.plan else None
+                    yield event("delta", text=answer)
                 elif text.casefold().startswith("запомни: "):
                     chat_store.add_memory(text.split(":", 1)[1].strip(), source_message_id=user["id"])
                     answer = "Запомнил. Посмотреть и удалить запись можно в разделе «Память»."
@@ -1187,9 +1196,24 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer, changed = workflow.text, workflow.changed
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
+                elif not body.document_ids and task_intents.needs_model_time(text, current.name):
+                    if current.task_understanding:
+                        yield event("stage", text="Разбираю задачу и срок…")
+                        with monitor.activity("brain:" + current.model):
+                            proposal = await task_intents.propose(chat_store, current, text, body.timezone)
+                        answer, pending_task_plan = proposal.text, proposal if proposal.plan else None
+                    else:
+                        answer = "Понимание свободных просьб о задачах выключено. Включите его в настройках или укажите точную дату и время, например «напомни завтра в 10 оплатить интернет». Ничего не изменено."
+                    yield event("delta", text=answer)
                 elif (workflow := await asyncio.to_thread(Workflows(chat_store).handle, text, body.timezone, None, current.name)) is not None:
                     answer, changed = workflow.text, workflow.changed
                     answer = persona.local_result(answer, current.grammatical_gender)
+                    yield event("delta", text=answer)
+                elif current.task_understanding and not body.document_ids and task_intents.eligible(text, current.name):
+                    yield event("stage", text="Подбираю действие и запись задачи…")
+                    with monitor.activity("brain:" + current.model):
+                        proposal = await task_intents.propose(chat_store, current, text, body.timezone)
+                    answer, pending_task_plan = proposal.text, proposal if proposal.plan else None
                     yield event("delta", text=answer)
                 elif inspect_application:
                     yield event("stage", text="Проверяю приложение на компьютере…")
@@ -1327,10 +1351,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted)
                     if pending_audio:
                         audio_intents.remember(chat_store, assistant["id"], pending_audio)
+                    if pending_task_plan:
+                        task_intents.remember(chat_store, assistant["id"], pending_task_plan)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
             except asyncio.CancelledError:
+                if task_progress:
+                    with CancelScope(shield=True):
+                        chat_store.add_message("assistant", task_progress[-1] + "\nОтвет остановлен. Изменение задачи сохранено.")
                 if open_progress:
                     with CancelScope(shield=True):
                         chat_store.add_message("assistant", open_progress[-1].removeprefix("1. ") + "\nУже переданная Windows команда открытия не отменяется.")
