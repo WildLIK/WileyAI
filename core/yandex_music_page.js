@@ -6,9 +6,9 @@ async function wileyMusic(command) {
   const find = (root, selector) => [...(root?.querySelectorAll(selector) || [])].find(visible);
   const text = (node) => (node?.textContent || "").trim().slice(0, 200);
   const searchInput = () => find(document, id("SEARCH_PAGE_SEARCH_INPUT") + ',input[class*="SearchPage_input"],input[type="search"]');
-  const sliderNode = () => {
-    const wrapper = find(bar(), id("CHANGE_VOLUME_SLIDER"));
-    if (wrapper?.checkVisibility && !wrapper.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return null;
+  const sliderNode = (visibleOnly = false) => {
+    const wrapper = bar()?.querySelector(id("CHANGE_VOLUME_SLIDER"));
+    if (visibleOnly && wrapper?.checkVisibility && !wrapper.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return null;
     return wrapper?.matches('input[type="range"],[role="slider"]') ? wrapper : wrapper?.querySelector('input[type="range"],[role="slider"]');
   };
   const volume = () => {
@@ -21,10 +21,18 @@ async function wileyMusic(command) {
     return raw !== null && raw !== "" && max > min ? Math.round((Number(raw) - min) / (max - min) * 100) : null;
   };
   const meta = (root) => {
-    const link = root?.querySelector('a[href*="/track/"]');
-    const title = text(root?.querySelector(id("TRACK_TITLE"))) || text(link), version = text(root?.querySelector(id("TRACK_VERSION")));
-    return { id: link?.getAttribute("href")?.match(/\/track\/(\d+)/)?.[1] || "", title: title + (version && !title.includes(version) ? " (" + version + ")" : ""),
-      artists: [...(root?.querySelectorAll('a[href*="/artist/"]') || [])].map(text).join(", ") };
+    const link = root?.querySelector(id("TRACK_TITLE")) || root?.querySelector('a[href*="/track/"]');
+    // Desktop routes omit entity IDs from href. Read only the track prop of
+    // the nearest title component, like the mod's own bounded metadata reader.
+    let model = null, fiber = link?.[Object.keys(link || {}).find((key) => key.startsWith("__reactFiber$"))];
+    for (let n = 0; fiber && n < 32; n++, fiber = fiber.return) {
+      const candidate = fiber.memoizedProps?.track;
+      if (candidate && typeof candidate.title === "string" && /^\d+$/.test(String(candidate.id || ""))) { model = candidate; break; }
+    }
+    const title = text(link) || model?.title || "", version = text(root?.querySelector(id("TRACK_VERSION"))) || model?.version || "";
+    const artists = model?.artists?.map((a) => a.name).filter((name) => typeof name === "string").join(", ");
+    return { id: model ? String(model.id) : link?.getAttribute("href")?.match(/\/track\/(\d+)/)?.[1] || "", title: (title + (version && !title.includes(version) ? " (" + version + ")" : "")).slice(0, 300),
+      artists: artists || [...(root?.querySelectorAll(id("SEPARATED_ARTIST_TITLE") + "," + id("ARTIST_TITLE") + ',a[href*="/artist/"]') || [])].map(text).join(", ").slice(0, 300) };
   };
   const state = () => {
     let details = null;
@@ -34,7 +42,7 @@ async function wileyMusic(command) {
     const pressed = like?.getAttribute("aria-pressed");
     return { available: !!root && !!(details?.trackMeta?.id || track.id), id: String(details?.trackMeta?.id || track.id), title: String(details?.trackMeta?.title || track.title).slice(0, 200),
       artists: details?.trackMeta?.artists?.map((a) => a.name).join(", ").slice(0, 300) || track.artists,
-      playing: typeof details?.isPlaying === "boolean" ? details.isPlaying : !!find(root, id("PAUSE_BUTTON")), position: Number(details?.playback?.position) || 0,
+      playing: typeof details?.isPlaying === "boolean" ? details.isPlaying : !!find(root, id("PAUSE_BUTTON")), position: Number(details?.playback?.position ?? root?.querySelector(id("TIMECODE_SLIDER"))?.value) || 0,
       liked: pressed === "true" ? true : pressed === "false" ? false : null,
       volume: volume() };
   };
@@ -90,7 +98,7 @@ async function wileyMusic(command) {
     if (before.liked !== wanted) click(root, id("LIKE_BUTTON"));
     return { dispatched: true, wanted };
   } else if (command.action === "volume_target") {
-    const slider = sliderNode();
+    const slider = sliderNode(true);
     if (!slider) {
       const button = find(root, id("CHANGE_VOLUME_BUTTON"));
       if (!button) throw new Error("Не найден регулятор громкости Яндекс Музыки");

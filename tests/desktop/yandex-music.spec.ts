@@ -183,3 +183,98 @@ test("Yandex connection UI preserves restart offer and requires the dedicated bu
     await app.close();
   }
 });
+
+test("Yandex desktop metadata works without numeric href or enabled Discord helper", async ({
+  page,
+}) => {
+  await page.setContent(`<section data-test-id="PLAYERBAR_DESKTOP">
+    <a data-test-id="TRACK_TITLE" href="/album/track">With You</a><a data-test-id="SEPARATED_ARTIST_TITLE" href="/artist">Linkin Park</a>
+    <button data-test-id="PAUSE_BUTTON">Pause</button><button data-test-id="LIKE_BUTTON" aria-pressed="false">Like</button>
+    <input data-test-id="TIMECODE_SLIDER" type="range" max="200" value="30">
+    <div style="opacity:0"><input data-test-id="CHANGE_VOLUME_SLIDER" type="range" min="0" max="1" step=".01" value=".7"></div>
+    <button data-test-id="CHANGE_VOLUME_BUTTON">Volume</button>
+    </section><div data-test-id="SEARCH_TRACK_CARD"><a data-test-id="TRACK_TITLE" href="/album/track">Numb</a><button data-test-id="PLAY_BUTTON">Play</button></div>`);
+  await page.evaluate(() => {
+    Object.assign(window, {
+      __getPlayerState: () => ({ enabled: false, data: null }),
+    });
+    for (const [selector, id, title] of [
+      ['section [data-test-id="TRACK_TITLE"]', "42", "With You"],
+      ['[data-test-id="SEARCH_TRACK_CARD"] a', "43", "Numb"],
+    ]) {
+      const node = document.querySelector(selector)!;
+      let fiber: { memoizedProps: object; return: unknown } = {
+        memoizedProps: {
+          track: { id, title, artists: [{ name: "Linkin Park" }] },
+        },
+        return: null,
+      };
+      for (let depth = 0; depth < 15; depth++)
+        fiber = { memoizedProps: {}, return: fiber };
+      Object.assign(node, { __reactFiber$fixture: fiber });
+    }
+  });
+  const state = await action(page, { action: "status" });
+  expect(state).toMatchObject({
+    available: true,
+    id: "42",
+    title: "With You",
+    artists: "Linkin Park",
+    playing: true,
+    position: 30,
+    volume: 70,
+  });
+  expect(await action(page, { action: "results" })).toEqual([
+    { id: "43", title: "Numb", artists: "Linkin Park" },
+  ]);
+  const reveal = await action(page, { action: "volume_target", value: 40 });
+  expect(reveal.reveal).toBe(true);
+});
+
+test("Yandex connection errors stay readable and the selected source remains visible", async () => {
+  const data = await mkdtemp(join(tmpdir(), "wiley-yandex-error-"));
+  const app = await electron.launch({
+    args: ["--mute-audio", "."],
+    env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.route("**/music/yandex**", async (route) => {
+      if (route.request().url().endsWith("/connect"))
+        return route.fulfill({
+          status: 400,
+          json: {
+            detail:
+              "Запуск отменён в подтверждении Windows. Повторите подключение.",
+          },
+        });
+      return route.fulfill({
+        json: { connected: false, selected: true, enabled: true },
+      });
+    });
+    await page.getByRole("button", { name: "⌘ Команды", exact: true }).click();
+    const panel = page.getByRole("region", {
+      name: "Яндекс Музыка",
+      exact: true,
+    });
+    await panel
+      .getByRole("button", { name: "Подключить Яндекс Музыку", exact: true })
+      .click();
+    await expect(panel.getByRole("alert")).toHaveText(
+      "Запуск отменён в подтверждении Windows. Повторите подключение.",
+    );
+    await expect(
+      panel.getByText("Выбрана Яндекс Музыка, но связь недоступна.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("button", {
+        name: "Подключить Яндекс Музыку",
+        exact: true,
+      }),
+    ).toBeEnabled();
+  } finally {
+    await app.close();
+  }
+});

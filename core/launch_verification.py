@@ -31,7 +31,7 @@ def process_ids(executable):
     return result
 
 
-def shell_launch(target):
+def shell_launch(target, arguments=(), directory=None):
     class ShellInfo(c.Structure):
         _fields_ = [("cbSize", w.DWORD), ("fMask", w.ULONG), ("hwnd", w.HWND),
                     ("lpVerb", w.LPCWSTR), ("lpFile", w.LPCWSTR), ("lpParameters", w.LPCWSTR),
@@ -44,8 +44,10 @@ def shell_launch(target):
     kernel = c.WinDLL("kernel32", use_last_error=True)
     kernel.CloseHandle.argtypes = [w.HANDLE]
     kernel.CloseHandle.restype = w.BOOL
-    # NOCLOSEPROCESS | NOASYNC | FLAG_NO_UI: no shell commands or extra parameters.
-    info = ShellInfo(cbSize=c.sizeof(ShellInfo), fMask=0x40 | 0x100 | 0x400, lpFile=str(target), nShow=1)
+    # Windows receives an EXE and separately quoted arguments, never a shell command.
+    info = ShellInfo(cbSize=c.sizeof(ShellInfo), fMask=0x40 | 0x100 | 0x400, lpFile=str(target),
+                     lpParameters=subprocess.list2cmdline(arguments) if arguments else None,
+                     lpDirectory=str(directory) if directory else None, nShow=1)
     ole = c.WinDLL("ole32")
     ole.CoInitializeEx.argtypes = [c.c_void_p, w.DWORD]
     ole.CoInitializeEx.restype = c.c_int32
@@ -56,7 +58,10 @@ def shell_launch(target):
         raise ValueError("Windows не предоставила контекст запуска приложения")
     try:
         if not shell.ShellExecuteExW(c.byref(info)):
-            raise ValueError(f"Windows отклонила запуск (код {c.get_last_error()}).")
+            code = c.get_last_error()
+            if code == 1223:
+                raise ValueError("Запуск отменён в подтверждении Windows. Если приложению нужны права администратора, подтвердите системный запрос при повторном запуске.")
+            raise ValueError(f"Windows отклонила запуск (код {code}).")
     finally:
         if info.hProcess: kernel.CloseHandle(info.hProcess)
         if initialized >= 0: ole.CoUninitialize()

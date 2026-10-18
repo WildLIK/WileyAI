@@ -5,6 +5,7 @@ import threading
 from types import SimpleNamespace
 from pathlib import Path
 import httpx
+import psutil
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,8 @@ from core.music_intents import MusicAction, resolve, search_query
 from core.yandex_music import YandexMusic, Renderer, rank, run_action
 from core.storage import Store
 from core import persona
+from core.yandex_music import start_player, exit_waiter
+from core.device_audio import resolve as audio_resolve
 
 
 @pytest.mark.parametrize("text,action,value", [
@@ -22,6 +25,9 @@ from core import persona
     ("Добавь в любимые", "like", None), ("Убери из любимых", "unlike", None),
     ("Что сейчас играет", "status", None), ("Громкость музыки 30 процентов", "volume", 30),
     ("Сделай тише", "change_volume", -10),
+    ("включи песню", "play", None), ("включи трек", "play", None),
+    ("сними песню с паузы", "play", None), ("Останови музыку", "pause", None),
+    ("првоерь проигрыватель", "status", None),
 ])
 def test_whole_utterance_commands(text, action, value):
     assert resolve(text, preferred=True) == MusicAction(action=action, value=value)
@@ -40,6 +46,12 @@ def test_music_selection_and_query_data():
     assert search_query("Something Else") == "Something Else"
 
 
+def test_unspecified_song_means_resume_and_named_song_still_means_search():
+    assert audio_resolve("Включи песню").action == "play"
+    assert audio_resolve("Включи песню Linkin Park With You") is None
+    assert resolve("Включи песню Linkin Park With You", preferred=True).action == "search_play"
+
+
 @pytest.mark.parametrize("body", [{"action": "shell"}, {"action": "volume"}, {"action": "volume", "value": True}, {"action": "volume", "value": -1}, {"action": "search_play", "query": ""}, {"action": "pause", "query": "abc"}, {"action": "play", "url": "http://example.com"}])
 def test_arguments_are_bounded(body):
     with pytest.raises(ValidationError): MusicAction.model_validate(body)
@@ -56,6 +68,7 @@ def test_unexecuted_model_favorite_claims_do_not_reach_the_user():
     assert persona.action_context("А в любимых?", [])
     assert "не изменялось" in persona.without_unexecuted_claims("Я добавила песню в любимые.")
     assert persona.without_unexecuted_claims("Мне нравится эта песня.") == "Мне нравится эта песня."
+    assert "не проверялось" in persona.without_unexecuted_claims("Проверка проигрывателя завершена. Проверенный статус: музыка на паузе.")
 
 
 class Page:
@@ -138,11 +151,11 @@ def test_api_and_chat_target_yandex_without_global_media(tmp_path, monkeypatch):
         assert api.post("/music/yandex/action", json={"action": "play"}).json()["confirmed"]
         assert api.post("/commands", json={"text": "пауза"}).json()["kind"] == "music.yandex"
         assert len(calls) == 1  # Preview has no effects.
-        for text in ("Следующая песня", "Найди песню Linkin Park With You"):
+        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню"):
             response = api.post("/chat", json={"text": text})
             events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
             assert events[-1]["type"] == "done" and "Подтверждено" in events[-1]["message"]["content"]
-        assert [c.action for c in calls] == ["play", "next", "search_play"]
+        assert [c.action for c in calls] == ["play", "next", "search_play", "play"]
         assert api.post("/music/yandex/action", json={"action": "shell"}).status_code == 422
 
 
@@ -186,7 +199,7 @@ def test_cancel_waits_for_dispatched_operation(controller):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("fault", [None, "foreign_pid", "public_bind", "foreign_page", "foreign_socket"])
+@pytest.mark.parametrize("fault", [None, "desktop", "foreign_desktop", "foreign_pid", "public_bind", "foreign_page", "foreign_socket"])
 def test_debug_channel_is_process_bound_loopback_and_page_scoped(tmp_path, monkeypatch, fault):
     player = YandexMusic(tmp_path, Store(tmp_path), None)
     data = {"pid": 12, "exe": str(tmp_path / "Яндекс Музыка.exe"), "port": 32123}
@@ -195,6 +208,8 @@ def test_debug_channel_is_process_bound_loopback_and_page_scoped(tmp_path, monke
     listener = SimpleNamespace(pid=13 if fault == "foreign_pid" else 12, status="LISTEN", laddr=SimpleNamespace(port=32123, ip="0.0.0.0" if fault == "public_bind" else "127.0.0.1"))
     monkeypatch.setattr("core.yandex_music.psutil.net_connections", lambda **_: [listener])
     page = {"type": "page", "url": "https://evil.example/" if fault == "foreign_page" else (tmp_path / "resources" / "index.html").as_uri(), "webSocketDebuggerUrl": "ws://127.0.0.1:32123/devtools/page/test"}
+    if fault == "desktop": page["url"] = "music-application://desktop/"
+    if fault == "foreign_desktop": page["url"] = "music-application://evil.example/"
     if fault == "foreign_socket": page["webSocketDebuggerUrl"] = "ws://example.com:32123/devtools/page/test"
     class Client:
         def __init__(self, **kwargs): assert kwargs == {"trust_env": False, "follow_redirects": False, "timeout": 3}
@@ -207,8 +222,46 @@ def test_debug_channel_is_process_bound_loopback_and_page_scoped(tmp_path, monke
         assert url == page["webSocketDebuggerUrl"] and kwargs["proxy"] is None
         yield object()
     monkeypatch.setattr("websockets.sync.client.connect", connect)
-    if fault:
+    if fault not in {None, "desktop"}:
         with pytest.raises(ValueError):
             with player.renderer(): pytest.fail("Untrusted connection admitted")
     else:
         with player.renderer() as renderer: assert isinstance(renderer, Renderer)
+
+
+def test_windows_launch_uses_shell_for_application_elevation(monkeypatch, tmp_path):
+    import os
+    if os.name != "nt": pytest.skip("Windows shell launch")
+    calls = []
+    monkeypatch.setattr("core.yandex_music.shell_launch", lambda exe, **kw: calls.append((exe, kw)))
+    executable = tmp_path / "Яндекс Музыка.exe"
+    start_player(executable, 32123)
+    assert calls == [(executable, {"arguments": ["--remote-debugging-port=32123", "--remote-debugging-address=127.0.0.1"], "directory": tmp_path})]
+
+
+@pytest.mark.parametrize("error", [OSError(740, "elevation required"), psutil.AccessDenied(123)])
+def test_connect_native_errors_are_readable_json_and_audited(tmp_path, monkeypatch, error):
+    monkeypatch.setenv("WILEYAI_TEST", "1")
+    app = create_app(tmp_path, "yandex-tests-0123456789abcdef")
+    def fail(*args): raise error
+    monkeypatch.setattr(app.state.music, "_connect", fail)
+    with TestClient(app, headers={"Authorization": "Bearer yandex-tests-0123456789abcdef"}) as api:
+        response = api.post("/music/yandex/connect", json={"restart": True}, headers={"Origin": "app://wileyai"})
+        assert response.status_code == 400 and "Windows" in response.json()["detail"]
+        assert response.headers["access-control-allow-origin"] == "app://wileyai"
+        assert app.state.store.list("actions")[-1]["status"] == "error"
+
+
+def test_windows_exit_waiter_keeps_handle_before_termination(tmp_path, monkeypatch):
+    import os, subprocess, sys, psutil
+    if os.name != "nt": pytest.skip("Windows native synchronization")
+    process = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"], creationflags=subprocess.CREATE_NO_WINDOW)
+    def forbidden(*args, **kwargs): raise AssertionError("Do not reopen terminated processes through psutil.wait_procs")
+    monkeypatch.setattr("core.yandex_music.psutil.wait_procs", forbidden)
+    try:
+        with exit_waiter([psutil.Process(process.pid)]) as wait:
+            process.terminate()
+            assert wait()
+    finally:
+        if process.poll() is None: process.terminate()
+        process.wait(timeout=5)

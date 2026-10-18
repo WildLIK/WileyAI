@@ -57,8 +57,8 @@ def resolve(text, *, preferred=False, name="Уайли"):
         try: return MusicAction(action="volume", value=percentage(volume[1]))
         except ValueError: return None
     audio = audio_command(value, name)
-    if audio and audio.action in {"play", "pause", "play_pause", "next", "previous", "media_status", "set_volume", "change_volume"}:
-        return MusicAction(action={"media_status": "status", "set_volume": "volume"}.get(audio.action, audio.action), value=audio.value)
+    if audio and audio.action in {"play", "pause", "stop", "play_pause", "next", "previous", "media_status", "set_volume", "change_volume"}:
+        return MusicAction(action={"media_status": "status", "set_volume": "volume", "stop": "pause"}.get(audio.action, audio.action), value=audio.value)
     if music_help(value, name) is not None:
         return MusicAction(action="play")
     return None

@@ -1,5 +1,7 @@
 """Local, process-bound Electron adapter; it never reads account credentials."""
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+import ctypes
+from ctypes import wintypes
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 import asyncio
@@ -18,6 +20,7 @@ from anyio import CancelScope
 from .app_catalog import canonical_name
 from .app_discovery import local_file, shortcut_targets
 from .music_intents import MusicAction, search_query
+from .launch_verification import shell_launch
 
 PAGE_SCRIPT = Path(__file__).with_name("yandex_music_page.js").read_text(encoding="utf-8")
 EXES = {"яндекс музыка.exe", "яндексмузыка.exe", "yandexmusic.exe"}
@@ -40,6 +43,44 @@ def running(executable):
 
 def debug_port(process):
     return next((int(arg.split("=", 1)[1]) for arg in process.cmdline() if re.fullmatch(r"--remote-debugging-port=\d{1,5}", arg)), None)
+
+
+@contextmanager
+def exit_waiter(processes):
+    """Keep SYNCHRONIZE handles before termination; psutil reopens dead PIDs on Windows."""
+    if os.name != "nt":
+        yield lambda: not psutil.wait_procs(processes, timeout=4)[1]
+        return
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    with ExitStack() as handles:
+        opened = []
+        for process in processes:
+            handle = kernel.OpenProcess(0x00100000, False, process.pid)
+            if not handle:
+                code = ctypes.get_last_error()
+                if code in {87, 1168}: continue  # Already exited before opening.
+                raise ValueError("Windows не разрешила ожидать закрытия плеера. Закройте Яндекс Музыку вручную и повторите подключение.")
+            opened.append(handle)
+            handles.callback(kernel.CloseHandle, handle)
+        def wait():
+            deadline = time.monotonic() + 4
+            return all(kernel.WaitForSingleObject(handle, max(0, int((deadline - time.monotonic()) * 1000))) == 0 for handle in opened)
+        yield wait
+
+
+def start_player(executable, port):
+    arguments = [f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1"]
+    if os.name == "nt":
+        # Shell handles an application's elevation manifest through the normal UAC prompt.
+        shell_launch(executable, arguments=arguments, directory=executable.parent)
+    else:
+        subprocess.Popen([str(executable), *arguments], cwd=executable.parent, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def rank(query, rows):
@@ -146,7 +187,7 @@ class YandexMusic:
         def allowed(page):
             url = urlparse(page.get("url", ""))
             file = unquote(url.path).lstrip("/").replace("\\", "/").casefold()
-            return page.get("type") == "page" and ((url.scheme == "file" and not url.netloc and file.startswith(resource) and file.endswith(".html")) or (url.scheme == "https" and url.hostname in {"music.yandex.ru", "music.yandex.com"}))
+            return page.get("type") == "page" and ((url.scheme == "file" and not url.netloc and file.startswith(resource) and file.endswith(".html")) or (url.scheme == "https" and url.hostname in {"music.yandex.ru", "music.yandex.com"}) or (url.scheme == "music-application" and url.netloc == "desktop"))
         matches = [page for page in pages if isinstance(page, dict) and allowed(page)] if isinstance(pages, list) else []
         if len(matches) != 1: raise ValueError("Не найдено единственное окно плеера Яндекс Музыки")
         websocket = matches[0].get("webSocketDebuggerUrl", "")
@@ -166,26 +207,38 @@ class YandexMusic:
             return {"connected": False, "selected": selected, "enabled": enabled, "error": str(error)[:240] if isinstance(error, ValueError) else "Связь с плеером недоступна"}
 
     def connect(self, restart=False):
+        try:
+            return self._connect(restart)
+        except (psutil.Error, OSError) as error:
+            text = "Windows не разрешила доступ к плееру. Закройте Яндекс Музыку вручную и подключите её из WileyAI. Подтвердите запрос Windows, если эта сборка требует прав администратора."
+            self.store.audit("music.connect", "yandex", "error", {"text": text, "error": type(error).__name__})
+            raise ValueError(text) from None
+        except ValueError as error:
+            self.store.audit("music.connect", "yandex", "error", {"text": str(error)[:300]})
+            raise
+
+    def _connect(self, restart=False):
         if not self.store.settings().allow_app_open or not self.store.settings().allow_audio_control:
             raise ValueError("Разрешите запуск приложений и управление звуком в разделе «Команды»")
         with self.lock:
             executable = self.executable()
+            self.store.patch_settings({"music_player": "yandex"})
             instances = running(executable)
             process = next((p for p in instances if debug_port(p)), None)
             if instances and process is None:
-                if not restart: return {"connected": False, "restart_required": True, "text": "Плеер уже открыт без локального управления. Подключение потребует перезапуска; музыка остановится."}
-                for instance in instances:
-                    children = instance.children(recursive=True)
-                    for child in [*children, instance]:
-                        try:
-                            if same_file(child.exe(), executable): child.terminate()
-                        except psutil.NoSuchProcess: pass
-                _, alive = psutil.wait_procs(instances, timeout=4)
-                if alive: raise ValueError("Не удалось закрыть прежний плеер. Завершите его вручную и повторите подключение")
+                if not restart: return {"connected": False, "selected": True, "restart_required": True, "text": "Плеер уже открыт без локального управления. Подключение потребует перезапуска; музыка остановится."}
+                with exit_waiter(instances) as wait:
+                    for instance in instances:
+                        children = instance.children(recursive=True)
+                        for child in [*children, instance]:
+                            try:
+                                if same_file(child.exe(), executable): child.terminate()
+                            except psutil.NoSuchProcess: pass
+                    if not wait(): raise ValueError("Не удалось закрыть прежний плеер. Завершите его вручную и повторите подключение")
             if process is None:
                 with socket.socket() as reserved:
                     reserved.bind(("127.0.0.1", 0)); port = reserved.getsockname()[1]
-                subprocess.Popen([str(executable), f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1"], cwd=executable.parent, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                start_player(executable, port)
                 for _ in range(50):
                     process = next((p for p in running(executable) if debug_port(p) == port), None)
                     if process: break
@@ -202,7 +255,7 @@ class YandexMusic:
                     self.store.audit("music.connect", str(executable), "connected", {"pid": process.pid})
                     return {**status, "selected": True, "text": "Яндекс Музыка подключена. Музыкальные команды адресованы этому плееру."}
                 time.sleep(.2)
-            raise ValueError("Плеер запущен, но локальное управление недоступно. Проверьте поддержку этой версии приложения")
+            raise ValueError("Плеер запущен, но подключение не завершено: " + status.get("error", "канал управления недоступен"))
 
     def disconnect(self):
         with self.lock:
@@ -258,7 +311,7 @@ class YandexMusic:
                     check(); response = page.action(action)
                 def confirmed(state):
                     if action == "status": return state.get("available", False)
-                    if action == "play": return state.get("playing") is True
+                    if action == "play": return state.get("playing") is True and state.get("available")
                     if action == "pause": return state.get("playing") is False and state.get("available")
                     if action == "play_pause": return state.get("playing") != before.get("playing")
                     if action in {"next", "previous"}: return bool(state.get("id") and state["id"] != before.get("id"))

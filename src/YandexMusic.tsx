@@ -19,6 +19,10 @@ type Connection = {
   error?: string;
   enabled?: boolean;
 };
+const describeError = (reason: unknown) =>
+  reason instanceof TypeError
+    ? "Не удалось получить ответ локального ядра WileyAI. Проверьте, что программа работает, и повторите подключение."
+    : String(reason).replace(/^Error: /, "");
 
 export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
   const [connection, setConnection] = useState<Connection>();
@@ -43,7 +47,7 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
       if (result.state?.volume != null) setVolume(result.state.volume);
     } catch (reason) {
       if (alive.current && generation.current === current)
-        setError(String(reason));
+        setError(describeError(reason));
     }
   }, []);
   useEffect(() => {
@@ -74,11 +78,18 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
       window.dispatchEvent(new Event("wiley-data-updated"));
       if (path !== "action") {
         setConnection(result);
-        await onChanged();
       }
     } catch (reason) {
-      if (alive.current) setError(String(reason));
+      if (alive.current) setError(describeError(reason));
     } finally {
+      if (path !== "action") {
+        try {
+          await onChanged();
+        } catch (reason) {
+          if (alive.current)
+            setError((previous) => previous || describeError(reason));
+        }
+      }
       busy.current = false;
       if (alive.current) {
         setWorking("");
@@ -113,12 +124,13 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
         </button>
       </div>
       <p className="help">
-        Управление приложением и YandexMusicMod через локальный канал Electron.
-        После подключения музыкальные команды в чате и голосом относятся к
-        Яндекс Музыке.
+        Подключите настольную Яндекс Музыку или YandexMusicMod. Музыкальные
+        команды в чате и голосом будут относиться к этому плееру. Если сборке
+        нужны права администратора, Windows запросит подтверждение запуска.
       </p>
       <div className="button-row">
         <button
+          className="outline"
           disabled={!!working || connection?.connected}
           onClick={() => void run("connect", {}, "Подключаю Яндекс Музыку…")}
         >
@@ -141,6 +153,7 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
             воспроизведение остановится.
           </p>
           <button
+            className="outline"
             disabled={!!working}
             onClick={() =>
               void run(
@@ -226,7 +239,10 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
             disabled={blocked}
           />
         </label>
-        <button disabled={blocked || query.trim().length < 2}>
+        <button
+          className="outline"
+          disabled={blocked || query.trim().length < 2}
+        >
           Найти и включить
         </button>
       </form>
@@ -239,6 +255,11 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
         <ProcessStatus
           kind={working.startsWith("Ищу") ? "search" : "brain"}
           label={working}
+          detail={
+            /подключ/i.test(working)
+              ? "Если появился запрос Windows, подтвердите запуск плеера"
+              : undefined
+          }
         />
       )}
       {notice && <p role="status">{notice}</p>}
