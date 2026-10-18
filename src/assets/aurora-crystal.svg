@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" fill="none">
+  <defs>
+    <linearGradient id="edge" x1="50" y1="40" x2="1370" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#77e3ee" stop-opacity=".25"/>
+      <stop offset=".48" stop-color="#9aa9ff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#77e3ee" stop-opacity=".24"/>
+    </linearGradient>
+    <linearGradient id="facet" x1="0" y1="0" x2="440" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#77e3ee" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#9aa9ff" stop-opacity=".005"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="1060" y1="370" x2="1440" y2="950" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9aa9ff" stop-opacity=".008"/>
+      <stop offset="1" stop-color="#9aa9ff" stop-opacity=".07"/>
+    </linearGradient>
+  </defs>
+  <!-- Unequal facets and long bonds form a quiet crystal structure, without a grid. -->
+  <g fill="url(#facet)">
+    <path d="M-40 130 160 54 310 208 120 344Z"/>
+    <path d="m120 344 190-136 94 254-200 102Z"/>
+    <path d="m-40 622 244-58-54 248-190 114Z"/>
+    <path d="m160 54 230-100 122 144-202 110Z"/>
+  </g>
+  <g fill="url(#violet)">
+    <path d="m1138 240 190-80 152 160-194 140Z"/>
+    <path d="m1060 580 226-120 194 260-258 70Z"/>
+    <path d="m1060 580 162 210-266 126-106-188Z"/>
+    <path d="m1222 790 258-70-34 270-490-74Z"/>
+  </g>
+  <g stroke="url(#edge)" stroke-width=".8" stroke-linejoin="round">
+    <path d="M-40 130 160 54 310 208 120 344-40 130M160 54l-40 290L-40 408m350-200 94 254-284-118 84 220L-40 622m350-414 202-110L390-46 160 54m244 408 146-156L310 208m94 254-200 102-54 248-190 114m244-362 146 190-200 58m254-350-54 292 254 108-24 138m-530-188 110 180m200-830 236-48 158 160m-158-160-70 204 228-44-74 210m-320-12 166-154m16 548 246-134 106 188-214 104m108-292 210-148 162 210-266 126m104-336 226-120-64-220-222 110m222-110 190-80 152 160-194 140 194 260-258 70 224 200m-160-830 152-102m-24 262 194-140m-258 470 258-70m-524 196 490 74"/>
+    <path d="m550 306 266 12 98 170-310 374m310-374 146 92M748 114l-26-154m192 528 224-248m-758 22 132-164" stroke-dasharray="3 8" opacity=".45"/>
+  </g>
+  <g fill="#99edf4" opacity=".35">
+    <circle cx="160" cy="54" r="2.2"/><circle cx="310" cy="208" r="2"/>
+    <circle cx="120" cy="344" r="2.6"/><circle cx="404" cy="462" r="2"/>
+    <circle cx="204" cy="564" r="2.4"/><circle cx="150" cy="812" r="2"/>
+    <circle cx="512" cy="98" r="1.8"/><circle cx="550" cy="306" r="1.5"/>
+    <circle cx="350" cy="754" r="2"/><circle cx="1060" cy="580" r="2.8"/>
+    <circle cx="1138" cy="240" r="2.5"/><circle cx="1286" cy="460" r="2"/>
+    <circle cx="1222" cy="790" r="2.5"/><circle cx="956" cy="916" r="2"/>
+  </g>
+</svg>

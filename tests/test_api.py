@@ -206,13 +206,18 @@ def test_voice_prepare_reports_missing_components(api, monkeypatch):
 
 def test_transcription_receives_assistant_name_hint(api, monkeypatch):
     captured = []
-    def transcribe(self, data, model, hint):
-        captured.append((data, model, hint))
+    def transcribe(self, data, model, hint, quality):
+        captured.append((data, model, hint, quality))
         return "Привет, Уайли"
     monkeypatch.setattr(Voice, "transcribe", transcribe)
     result = api.post("/voice/transcribe", files={"file": ("utterance.wav", b"audio", "audio/wav")})
     assert result.json() == {"text": "Привет, Уайли"}
-    assert captured == [(b"audio", "small", "Уайли")]
+    assert captured == [(b"audio", "small", "Уайли", "accurate")]
+    settings = api.get("/settings").json()
+    settings["stt_quality"] = "balanced"
+    assert api.put("/settings", json=settings).status_code == 200
+    assert api.post("/voice/transcribe", files={"file": ("utterance.wav", b"audio", "audio/wav")}).status_code == 200
+    assert captured[-1][-1] == "balanced"
 
 
 @pytest.mark.parametrize("field,value", [("conversation_silence_ms", 0), ("conversation_silence_ms", 3000), ("conversation_threshold", 0), ("conversation_threshold", 1)])

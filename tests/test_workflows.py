@@ -16,6 +16,25 @@ NOW = datetime(2026, 10, 16, 9, 0, tzinfo=ZoneInfo(ZONE))
 TOKEN = "workflow-tests-token-0123456789"
 
 
+def test_local_timezone_with_surrogates_after_native_speech_still_saves_pending_question(tmp_path, monkeypatch):
+    from core import workflows
+    broken_zone = timezone(timedelta(hours=5), "RTZ 4 (\udce7\udce8\udcec\udce0)")
+    class LocalClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 18, 12, tzinfo=tz or broken_zone)
+        def astimezone(self, tz=None):
+            return super().astimezone(tz or broken_zone)
+    monkeypatch.setattr(workflows, "datetime", LocalClock)
+    store = Store(tmp_path)
+    result = Workflows(store).handle("напомни купить хлеб")
+    assert "Когда" in result.text
+    assert store.dialogue()["zone"] == "UTC+05:00"
+    completed = Workflows(store).handle("завтра в 10")
+    assert completed.changed == ["tasks"]
+    assert store.list("tasks")[0]["title"] == "купить хлеб"
+
+
 @pytest.fixture
 def workflow(tmp_path):
     store = Store(tmp_path)

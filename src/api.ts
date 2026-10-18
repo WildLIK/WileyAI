@@ -17,6 +17,7 @@ export interface Settings {
   response_tokens: number;
   temperature: number;
   stt_model: "tiny" | "base" | "small";
+  stt_quality: "fast" | "balanced" | "accurate";
   tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3" | "cloud";
   tts_service: "openrouter" | "routerai" | "compatible";
   tts_base_url: string;

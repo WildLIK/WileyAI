@@ -26,7 +26,7 @@
   --glass-chrome: #0c1729dc;
   --panel-shadow: 0 14px 40px #00000024;
   --shine: #ffffff0e;
-  --grid: #88d9ef06;
+  --crystal-image: url("./assets/aurora-crystal.svg");
   --muted: var(--text-muted);
   --line: var(--border);
   --mint: var(--accent);
@@ -63,7 +63,7 @@
   --glass-chrome: #eaf4fce8;
   --panel-shadow: 0 14px 40px #34577813;
   --shine: #ffffffb3;
-  --grid: #357aaa08;
+  --crystal-image: none;
   color-scheme: light;
 }
 :root[data-theme="ember"] {
@@ -93,7 +93,7 @@
   --glass-chrome: #100f13eb;
   --panel-shadow: 0 14px 40px #00000030;
   --shine: #ffcbd50b;
-  --grid: #ff8d9c06;
+  --crystal-image: none;
 }
 body {
   background: transparent;
@@ -102,29 +102,37 @@ body {
 .setup-page {
   background:
     radial-gradient(
-      ellipse at 4% 0%,
-      color-mix(in srgb, var(--glow) 12%, transparent),
-      transparent 44%
+      ellipse at 5% 0%,
+      color-mix(in srgb, var(--glow) 25%, transparent),
+      transparent 60%
     ),
     radial-gradient(
-      ellipse at 96% 85%,
-      color-mix(in srgb, var(--brand-secondary) 8%, transparent),
-      transparent 48%
+      ellipse at 96% 95%,
+      color-mix(in srgb, var(--brand-secondary) 21%, transparent),
+      transparent 65%
     ),
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
-    var(--surface-base);
-  background-size:
-    auto,
-    auto,
-    56px 56px,
-    56px 56px,
-    auto;
+    var(--crystal-image),
+    linear-gradient(
+      145deg,
+      var(--surface-mid),
+      var(--surface-base) 48%,
+      color-mix(in srgb, var(--surface-base) 92%, var(--brand-secondary))
+    );
+  background-size: auto, auto, cover, auto;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 .sidebar,
 .topbar,
 .companion-panel {
-  background: var(--glass-chrome);
+  background:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--glow) 6%, transparent),
+      transparent 45%,
+      color-mix(in srgb, var(--brand-secondary) 6%, transparent)
+    ),
+    var(--glass-chrome);
 }
 .sidebar {
   border-right-color: color-mix(in srgb, var(--accent-border) 55%, transparent);
@@ -152,7 +160,13 @@ body {
 .composer,
 .history-dialog {
   background:
-    linear-gradient(135deg, var(--shine), transparent 52%), var(--glass-panel);
+    linear-gradient(
+      135deg,
+      var(--shine),
+      transparent 48%,
+      color-mix(in srgb, var(--brand-secondary) 7%, transparent)
+    ),
+    var(--glass-panel);
   border-color: color-mix(in srgb, var(--accent-border) 45%, var(--border));
   box-shadow:
     inset 0 1px 0 var(--shine),
@@ -462,6 +476,12 @@ progress:indeterminate::-webkit-progress-bar {
   flex-direction: column;
   gap: 10px;
   padding-top: 5px;
+}
+.theme-aurora .theme-preview {
+  background-image:
+    url("./assets/aurora-crystal.svg"),
+    linear-gradient(135deg, #173747, #101b2c 48%, #272b4a);
+  background-size: cover;
 }
 .preview-sidebar i,
 .preview-main i {

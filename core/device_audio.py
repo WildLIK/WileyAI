@@ -50,7 +50,7 @@ def percentage(text):
     return value
 
 
-def resolve(text, name="Уайли"):
+def request_text(text, name="Уайли"):
     # Only the user's whole utterance is a command. Quotes, negation, compound
     # instructions and text from documents never become executable actions.
     if len(text) > 200 or any(ord(char) < 32 for char in text) or any(char in text for char in '"«»“”'):
@@ -60,13 +60,20 @@ def resolve(text, name="Уайли"):
     value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста$", "", value)
     # A direct, polite request remains executable; ordinary questions about how
     # audio works do not match. Keep the allowed imperative vocabulary bounded.
-    polite = re.fullmatch(r"(?:ты )?можешь (?:пожалуйста )?((?:сделать (?:громче|тише|потише)|(?:увеличить|уменьшить|установить) громкость|(?:включить|выключить) звук)(?: [\w %]+)?)\??", value)
+    polite = re.fullmatch(r"(?:ты )?можешь (?:пожалуйста )?((?:сделать (?:громче|тише|потише)|(?:увеличить|уменьшить|прибавить|убавить|установить) громкость|(?:включить|выключить) звук)(?: [\w %]+)?)\??", value)
     if polite:
         value = polite[1]
-        for source, target in (("сделать", "сделай"), ("увеличить", "увеличь"), ("уменьшить", "уменьши"), ("установить", "установи"), ("включить", "включи"), ("выключить", "выключи")):
+        for source, target in (("сделать", "сделай"), ("увеличить", "увеличь"), ("уменьшить", "уменьши"), ("прибавить", "прибавь"), ("убавить", "убавь"), ("установить", "установи"), ("включить", "включи"), ("выключить", "выключи")):
             if value.startswith(source + " "):
                 value = target + value[len(source):]
                 break
+    return value
+
+
+def resolve(text, name="Уайли"):
+    value = request_text(text, name)
+    if value is None:
+        return None
     fixed = {
         "какая громкость": "status", "какая громкость?": "status", "покажи громкость": "status", "текущая громкость": "status",
         "выключи звук": "mute", "отключи звук": "mute", "убери звук": "mute", "включи звук": "unmute", "верни звук": "unmute",
@@ -83,9 +90,9 @@ def resolve(text, name="Уайли"):
     match = re.fullmatch(r"(?:установи |выстави |поставь |сделай )?громкость(?: на)? ([\w %]+)", value)
     if match:
         return AudioAction(action="set_volume", value=percentage(match[1]))
-    match = re.fullmatch(r"(?:(увеличь|уменьши) громкость|(сделай громче|сделай тише|громче|тише)) на ([\w %]+)", value)
+    match = re.fullmatch(r"(?:(увеличь|уменьши|прибавь|убавь) (?:громкость|звук)|(сделай громче|сделай тише|сделай потише|громче|тише|потише)) на ([\w %]+)", value)
     if match:
-        return AudioAction(action="change_volume", value=percentage(match[3]) * (-1 if match[1] == "уменьши" or "тише" in (match[2] or "") else 1))
+        return AudioAction(action="change_volume", value=percentage(match[3]) * (-1 if match[1] in {"уменьши", "убавь"} or "тише" in (match[2] or "") else 1))
     return None
 
 

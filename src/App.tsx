@@ -3201,7 +3201,32 @@ export function App() {
                         ))}
                       </select>
                     </label>
+                    <label>
+                      Точность распознавания
+                      <select
+                        value={settings.stt_quality}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            stt_quality: event.target
+                              .value as Settings["stt_quality"],
+                          })
+                        }
+                      >
+                        <option value="accurate">
+                          Точнее · немного медленнее
+                        </option>
+                        <option value="balanced">
+                          Баланс точности и скорости
+                        </option>
+                        <option value="fast">
+                          Быстрее · возможны неточности
+                        </option>
+                      </select>
+                    </label>
                     <p className="help">
+                      «Точнее» проверяет больше вариантов и может работать
+                      дольше. Для русского языка рекомендуем Whisper small.
                       После записи распознанный текст появится в поле сообщения:
                       его можно исправить перед отправкой.
                     </p>

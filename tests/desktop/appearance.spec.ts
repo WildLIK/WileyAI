@@ -103,6 +103,7 @@ test("themes: live previews, preserved drafts, multiple windows, restart, light 
     await page.getByLabel("Имя", { exact: true }).fill("Уайли");
     await page.getByRole("button", { name: "◈ Общение", exact: true }).click();
     for (const [theme, name] of [
+      ["aurora", "Аврора"],
       ["ice", "Ледяной свет"],
       ["ember", "Красный контур"],
     ]) {

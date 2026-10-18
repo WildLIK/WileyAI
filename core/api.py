@@ -35,6 +35,7 @@ from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
 from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio
+from . import audio_intents
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
 from .voice_resources import run_idle_resources
@@ -845,7 +846,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(413, "Запись слишком длинная")
         config = store.settings()
-        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name)}
+        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name, config.stt_quality)}
 
     @app.post("/voice/prepare")
     async def prepare_conversation():
@@ -1000,10 +1001,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             open_progress = []
             audio_progress = []
             pending_choices = []
+            pending_audio = None
             try:
                 yield event("user", message=user)
                 CalendarWorkflows(chat_store).expire_unanswered()
                 Workflows(chat_store).expire_unanswered()
+                audio_followup = audio_intents.consume(chat_store, text, current.name)
                 followup = None if full_document else intents.consume(chat_store, text, open_tools, current.name)
                 if current.memory_suggestions and not full_document and search_query is None and not text.casefold().startswith("запомни:"):
                     chat_store.suggest_memories(user["id"])
@@ -1030,6 +1033,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     # A pending opening choice must never swallow an explicit audio
                     # command. No model inference or document text is used here.
                     answer = await run_audio(audio_tools, audio, audio_progress)
+                    yield event("delta", text=answer)
+                elif audio_followup is not None:
+                    answer = await run_audio(audio_tools, audio_followup.action, audio_progress) if audio_followup.action else audio_followup.text
+                    yield event("delta", text=answer)
+                elif (suggestion := audio_intents.suggest(text, current.name)) is not None:
+                    pending_audio = suggestion if suggestion.action else None
+                    answer = suggestion.text
                     yield event("delta", text=answer)
                 elif followup is not None:
                     if followup.command:
@@ -1188,6 +1198,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
                     if pending_choices:
                         intents.remember(chat_store, assistant["id"], pending_choices)
+                    if pending_audio:
+                        audio_intents.remember(chat_store, assistant["id"], pending_audio)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")

@@ -57,6 +57,7 @@ class Settings(BaseModel):
     response_tokens: int = Field(default=2048, ge=256, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     stt_model: Literal["tiny", "base", "small"] = "small"
+    stt_quality: Literal["fast", "balanced", "accurate"] = "accurate"
     tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3", "cloud"] = "silero"
     tts_service: Literal["openrouter", "routerai", "compatible"] = "openrouter"
     tts_base_url: str = "https://openrouter.ai/api/v1"

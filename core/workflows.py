@@ -37,7 +37,10 @@ class Workflows:
                 self.store.save_dialogue(state)
 
     def handle(self, text: str, zone: str | None = None, now: datetime | None = None, name: str = "Уайли") -> Result | None:
-        zone_info = ZoneInfo(zone) if zone else datetime.now().astimezone().tzinfo
+        # Piper/espeak can change LC_CTYPE on Windows. Python may then expose
+        # surrogate bytes in the localized zone name. The unnamed fixed offset
+        # preserves the same fallback time semantics without storing that name.
+        zone_info = ZoneInfo(zone) if zone else timezone(datetime.now().astimezone().utcoffset())
         now = (now or datetime.now(timezone.utc)).astimezone(zone_info)
         state = self.store.dialogue()
         if now.timestamp() - state.get("updated", 0) > CONTEXT_SECONDS or state.get("zone", str(zone_info)) != str(zone_info):

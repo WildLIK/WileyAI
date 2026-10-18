@@ -81,6 +81,12 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await choose("Мозг");
     await choose("Микрофон и разговор");
     await expect(idlePolicy).toHaveValue("never");
+    const recognitionQuality = page.getByRole("combobox", {
+      name: "Точность распознавания",
+      exact: true,
+    });
+    await expect(recognitionQuality).toHaveValue("accurate");
+    await recognitionQuality.selectOption("balanced");
     await page.getByRole("button", { name: "Сохранить", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("Настройки сохранены");
     // A hidden category must not keep a microphone test recording in the background.
@@ -207,6 +213,7 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     ).toHaveValue("draft-model");
     await choose("Микрофон и разговор");
     await expect(idlePolicy).toHaveValue("never");
+    await expect(recognitionQuality).toHaveValue("balanced");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
 
-from core import providers, windows_audio
+from core import providers, windows_audio, audio_intents
 from core.api import create_app
 from core.backups import Backups
 from core.config import Settings
@@ -19,6 +19,12 @@ from core.storage import Store
 
 
 @pytest.mark.parametrize("text, action, value", [
+    ("Прибавь громкость на 10", "change_volume", 10),
+    ("Убавь громкость на десять процентов", "change_volume", -10),
+    ("Можешь прибавить громкость на десять?", "change_volume", 10),
+    ("Ты можешь убавить громкость на двадцать процентов?", "change_volume", -20),
+    ("Прибавь звук на 5", "change_volume", 5),
+    ("Сделай потише на 15", "change_volume", -15),
     ("Уайли, сделай громче", "change_volume", 10),
     ("Можешь сделать тише?", "change_volume", -10),
     ("Ты можешь установить громкость на пятьдесят процентов?", "set_volume", 50),
@@ -51,6 +57,33 @@ def test_russian_audio_intents(text, action, value):
 ])
 def test_only_whole_unquoted_user_utterances_are_commands(text):
     assert resolve(text) is None
+
+
+@pytest.mark.parametrize("text, delta", [
+    ("Припав кромкость", 10), ("Припав громкость на 10", 10),
+    ("Уайли, припай громкость на пятнадцать", 15), ("Убавь кромкость", -10),
+])
+def test_garbled_volume_is_only_a_confirmation_suggestion(text, delta):
+    assert resolve(text) is None
+    suggestion = audio_intents.suggest(text)
+    assert suggestion.action == AudioAction(action="change_volume", value=delta)
+    assert "пока не изменена" in suggestion.text
+
+
+@pytest.mark.parametrize("text", [
+    "Не припав кромкость", "если скажу припав кромкость", '«припав кромкость»',
+    "Как прибавь громкость", "почему припай громкость", "Привет", "припав кромкость\n",
+    "Он сказал припав кромкость", "припав кромкость?",
+])
+def test_audio_suggestions_do_not_reinterpret_mentions_or_negation(text):
+    assert audio_intents.suggest(text) is None
+
+
+@pytest.mark.parametrize("text", ["Припай фиг громкость", "Припав кромкость на 999", "Припав кромкость и открой блокнот"])
+def test_unclear_volume_does_not_prepare_an_action(text):
+    suggestion = audio_intents.suggest(text)
+    assert suggestion.action is None
+    assert "не изменена" in suggestion.text
 
 
 @pytest.mark.parametrize("body", [
@@ -116,6 +149,80 @@ def test_api_and_chat_use_same_adapter_without_model(audio):
     assert api.post("/commands", json={"text": "включи звук", "dry_run": False}).json()["muted"] is False
     assert device.calls == [("volume", 65), ("volume", 55), ("mute", True), ("mute", False)]
     assert all(item["kind"] == "device.audio" for item in store.list("actions"))
+
+
+def audio_chat(api, text, **fields):
+    response = api.post("/chat", json={"text": text, **fields})
+    assert response.status_code == 200
+    events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+    assert events[-1]["type"] == "done", events
+    return events[-1]["message"]["content"]
+
+
+def test_garbled_volume_requires_confirmation_and_can_be_cancelled(audio):
+    api, store, device = audio
+    assert "Выполнить?" in audio_chat(api, "Припав кромкость на 10", mode="conversation")
+    assert device.calls == [] and store.list("actions") == []
+    assert "50%" in audio_chat(api, "да")
+    assert device.calls == [("volume", 50)]
+    audio_chat(api, "Убавь кромкость")
+    assert "отменено" in audio_chat(api, "отмена")
+    assert device.calls == [("volume", 50)]
+    assert "60%" in audio_chat(api, "Прибавь громкость на 10")
+    assert "не изменена" in audio_chat(api, "Припай фиг громкость")
+    assert device.calls == [("volume", 50), ("volume", 60)]
+
+
+def test_confirmation_rechecks_permission_and_expires(audio, monkeypatch):
+    api, store, device = audio
+    audio_chat(api, "Припав громкость")
+    store.save_settings(Settings(allow_audio_control=False))
+    response = api.post("/chat", json={"text": "да"})
+    assert "Управление звуком отключено" in response.text and device.calls == []
+    store.save_settings(Settings())
+    audio_chat(api, "Припав громкость")
+    original = audio_intents.time.time
+    monkeypatch.setattr(audio_intents.time, "time", lambda: original() + 121)
+    assert "устарело" in audio_chat(api, "да")
+    assert device.calls == []
+
+
+def test_restored_question_cannot_execute_without_its_pending_state(audio):
+    api, store, device = audio
+    audio_chat(api, "Припав громкость")
+    store.save_dialogue({})  # Restoring a backup intentionally drops pending commands.
+    assert "устарело" in audio_chat(api, "да")
+    assert device.calls == []
+
+
+def test_audio_confirmation_does_not_own_another_question_or_chat(audio):
+    api, store, device = audio
+    audio_chat(api, "Припав громкость")
+    # A new task question takes ownership of the next short reply.
+    assert "Когда" in audio_chat(api, "Напомни купить хлеб")
+    assert "pending_audio" not in store.dialogue()
+    assert "Выполнить?" in audio_chat(api, "Припав громкость")
+    # A manually replaced last assistant message also invalidates a stale proposal.
+    store.add_message("assistant", "Другая тема")
+    assert "устарело" in audio_chat(api, "да")
+    assert device.calls == []
+
+
+def test_audio_confirmation_is_scoped_to_chat_and_survives_store_reopen(audio):
+    from core.chatspaces import Spaces
+    api, store, device = audio
+    audio_chat(api, "Припав громкость")
+    other = Spaces(store).create_chat()
+    another_store = store.for_chat(other["id"])
+    another_store.add_message("user", "да")
+    assert audio_intents.consume(another_store, "да") is None
+    # Reading the persisted proposal through a fresh Store must still validate
+    # the original chat's last question; no in-memory global owns the choice.
+    reopened = Store(store.root).for_chat(store.conversation_id)
+    reopened.add_message("user", "да")
+    result = audio_intents.consume(reopened, "да")
+    assert result.action == AudioAction(action="change_volume", value=10)
+    assert device.calls == []  # Consume only returns a typed action to the executor.
 
 
 def test_preview_does_not_touch_hardware(audio):
