@@ -28,6 +28,17 @@ from core.device_audio import resolve as audio_resolve
     ("включи песню", "play", None), ("включи трек", "play", None),
     ("сними песню с паузы", "play", None), ("Останови музыку", "pause", None),
     ("првоерь проигрыватель", "status", None),
+    ("Яндекс Музыка, продолжи музыку.", "play", None),
+    ("Уайли, Яндекс Музыка, продолжи музыку.", "play", None),
+    ("Продолжи музыку в Яндекс Музыке", "play", None),
+    ("Можешь продолжить музыку?", "play", None),
+    ("Яндекс Музыка, можешь продолжить музыку?", "play", None),
+    ("Можешь продолжить музыку в Яндекс Музыке?", "play", None),
+    ("Яндекс Музыка, можешь продолжить музыку в Яндекс Музыке?", "play", None),
+    ("Давай, продолжи музыку", "play", None),
+    ("Играй музыку", "play", None),
+    ("Яндекс Музыка, убавь в громкость на 10.", "change_volume", -10),
+    ("Убавь, громкость музыки на 10.", "change_volume", -10),
 ])
 def test_whole_utterance_commands(text, action, value):
     assert resolve(text, preferred=True) == MusicAction(action=action, value=value)
@@ -44,6 +55,16 @@ def test_music_selection_and_query_data():
     action = resolve("Найди песню линкин парк виз ю в Яндекс Музыке")
     assert action.action == "search_play" and search_query(action.query) == "Linkin Park With You"
     assert search_query("Something Else") == "Something Else"
+    assert resolve("Яндекс Музыка, продолжи музыку") == MusicAction(action="play")
+    assert resolve("Найди песню Яндекс Музыка", preferred=True).query == "Яндекс Музыка"
+    assert resolve('Найди песню «Love, Music»', preferred=True).query == "Love, Music"
+    assert resolve('Найди песню «В Яндекс Музыке»', preferred=True).query == "В Яндекс Музыке"
+    assert resolve("Найди песню Яндекс Музыка") is None  # Title alone cannot select a player.
+
+
+@pytest.mark.parametrize("phrase", ["Яндекс Музыка, не продолжай музыку", "Яндекс Музыка, не продолжи музыку", "Яндекс Музыка, если продолжи музыку", 'Яндекс Музыка, «продолжи музыку»', "Можешь не продолжить музыку?", "Яндекс Музыка, продолжи музыку и открой блокнот"])
+def test_named_source_preserves_negation_quotes_and_whole_request(phrase):
+    assert resolve(phrase, preferred=True) is None
 
 
 def test_unspecified_song_means_resume_and_named_song_still_means_search():
@@ -151,12 +172,44 @@ def test_api_and_chat_target_yandex_without_global_media(tmp_path, monkeypatch):
         assert api.post("/music/yandex/action", json={"action": "play"}).json()["confirmed"]
         assert api.post("/commands", json={"text": "пауза"}).json()["kind"] == "music.yandex"
         assert len(calls) == 1  # Preview has no effects.
-        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню"):
+        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню", "Яндекс Музыка, продолжи музыку", "Убавь в громкость"):
             response = api.post("/chat", json={"text": text})
             events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
             assert events[-1]["type"] == "done" and "Подтверждено" in events[-1]["message"]["content"]
-        assert [c.action for c in calls] == ["play", "next", "search_play", "play"]
+        assert [c.action for c in calls] == ["play", "next", "search_play", "play", "play", "change_volume"]
         assert api.post("/music/yandex/action", json={"action": "shell"}).status_code == 422
+
+
+@pytest.mark.parametrize("player,phrase,expected", [
+    ("yandex", "Упавь в громкость на 10", MusicAction(action="change_volume", value=-10)),
+    ("yandex", "Протоже музыку", MusicAction(action="play")),
+    ("auto", "Яндекс Музыка, протоже музыку", MusicAction(action="play")),
+])
+def test_confirmation_keeps_named_player_and_never_falls_back(tmp_path, monkeypatch, player, phrase, expected):
+    monkeypatch.setenv("WILEYAI_TEST", "1")
+    def forbidden(*args, **kwargs): raise AssertionError("No model or Windows media controls for a Yandex correction")
+    monkeypatch.setattr("core.windows_media.perform", forbidden)
+    monkeypatch.setattr("core.windows_audio.endpoint", forbidden)
+    monkeypatch.setattr("core.providers.chat", forbidden)
+    app = create_app(tmp_path, "yandex-tests-0123456789abcdef")
+    store, calls = app.state.store, []
+    store.patch_settings({"music_player": player})
+    monkeypatch.setattr(app.state.music, "execute", lambda command, cancel=None: calls.append(command) or {"text": "Подтверждено тестовым плеером"})
+    from tests.test_device_audio import audio_chat
+    with TestClient(app, headers={"Authorization": "Bearer yandex-tests-0123456789abcdef"}) as api:
+        question = audio_chat(api, phrase, mode="conversation")
+        assert "Яндекс Музыка" in question and "Выполнить?" in question and calls == []
+        pending = store.dialogue()["pending_audio"]
+        assert pending["target"] == "yandex"
+        assert "Подтверждено" in audio_chat(api, "да")
+        assert calls == [expected] and "pending_audio" not in store.dialogue()
+        audio_chat(api, phrase)
+        assert "отменен" in audio_chat(api, "отмена")
+        assert calls == [expected]
+        audio_chat(api, phrase)
+        store.patch_settings({"music_player": "auto" if player == "yandex" else "yandex"})
+        assert "устарело" in audio_chat(api, "да")
+        assert calls == [expected]
 
 
 def test_connect_never_restarts_without_explicit_request(tmp_path, monkeypatch):

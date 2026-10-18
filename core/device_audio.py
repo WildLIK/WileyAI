@@ -52,24 +52,32 @@ def percentage(text):
     return value
 
 
+INFINITIVES = {"сделать": "сделай", "увеличить": "увеличь", "уменьшить": "уменьши", "прибавить": "прибавь", "убавить": "убавь", "установить": "установи", "включить": "включи", "выключить": "выключи", "продолжить": "продолжи", "возобновить": "возобнови", "остановить": "останови", "приостановить": "приостанови", "снять": "сними", "переключить": "переключи", "найти": "найди", "поставить": "поставь", "воспроизвести": "воспроизведи", "добавить": "добавь", "убрать": "убери"}
+
+
+def request_form(text, name="Уайли"):
+    """Strip grammatical request wrappers only; never infer a misspelled verb."""
+    value = text.strip().rstrip(".! ")
+    value = re.sub(r"^" + re.escape(name) + r"[,!]?[ ]+", "", value, flags=re.I)
+    value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста$", "", value, flags=re.I).strip()
+    value = re.sub(r"^давай[, ]+", "", value, flags=re.I)
+    polite = re.fullmatch(r"(?:ты )?можешь[, ]+(?:пожалуйста[, ]+)?(\w+)[, ]+(.+?)\??", value, re.I)
+    if polite and polite[1].casefold() in INFINITIVES:
+        value = INFINITIVES[polite[1].casefold()] + " " + polite[2].rstrip("? ")
+    return value
+
+
 def request_text(text, name="Уайли"):
     # Only the user's whole utterance is a command. Quotes, negation, compound
     # instructions and text from documents never become executable actions.
     if len(text) > 200 or any(ord(char) < 32 for char in text) or any(char in text for char in '"«»“”'):
         return None
-    value = normalize(text)
-    value = re.sub(r"^" + re.escape(normalize(name)) + r"[,!]?(?:\s+)", "", value)
-    value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста$", "", value)
+    value = normalize(request_form(text, name))
+    value = re.sub(r"[, ]+", " ", value).strip()
+    # ASR may insert a preposition between the verb and volume noun. Other
+    # fillers, verb changes, negation and compound requests remain unmatched.
+    value = re.sub(r"^(\w+) в (громкость|громкости|звук)\b", r"\1 \2", value)
     value = re.sub(r"^(прибавь|убавь|добавь|увеличь|уменьши|включи|выключи|отключи) мне ", r"\1 ", value)
-    # A direct, polite request remains executable; ordinary questions about how
-    # audio works do not match. Keep the allowed imperative vocabulary bounded.
-    polite = re.fullmatch(r"(?:ты )?можешь (?:пожалуйста )?((?:сделать (?:громче|тише|потише)|(?:увеличить|уменьшить|прибавить|убавить|установить) громкость|(?:включить|выключить) звук)(?: [\w %]+)?)\??", value)
-    if polite:
-        value = polite[1]
-        for source, target in (("сделать", "сделай"), ("увеличить", "увеличь"), ("уменьшить", "уменьши"), ("прибавить", "прибавь"), ("убавить", "убавь"), ("установить", "установи"), ("включить", "включи"), ("выключить", "выключи")):
-            if value.startswith(source + " "):
-                value = target + value[len(source):]
-                break
     return value
 
 
@@ -84,7 +92,7 @@ def resolve(text, name="Уайли"):
         "переключи воспроизведение": "play_pause", "музыка пауза": "play_pause", "музыка продолжить": "play_pause",
         "останови музыку": "stop", "останови проигрыватель": "stop",
         "поставь музыку на паузу": "pause", "поставь на паузу": "pause", "поставь плеер на паузу": "pause", "приостанови музыку": "pause", "пауза": "pause",
-        "продолжи музыку": "play", "продолжи воспроизведение": "play", "возобнови музыку": "play", "возобнови воспроизведение": "play", "сними с паузы": "play", "воспроизведи музыку": "play",
+        "продолжи музыку": "play", "продолжи воспроизведение": "play", "возобнови музыку": "play", "возобнови воспроизведение": "play", "сними с паузы": "play", "воспроизведи музыку": "play", "играй музыку": "play",
         "включи песню": "play", "включи трек": "play", "продолжи песню": "play", "продолжи трек": "play", "сними песню с паузы": "play", "сними музыку с паузы": "play", "сними трек с паузы": "play",
         "где музыка": "media_status", "где музыка?": "media_status", "проверь проигрыватель": "media_status", "проверь музыку": "media_status", "музыка играет?": "media_status",
         "првоерь проигрыватель": "media_status", "проверь плеер": "media_status",

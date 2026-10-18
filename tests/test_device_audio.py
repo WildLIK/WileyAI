@@ -22,6 +22,10 @@ from core.storage import Store
     ("Прибавь громкости.", "change_volume", 10),
     ("Прибавь мне громкости на десять", "change_volume", 10),
     ("Убавь громкости на пять", "change_volume", -5),
+    ("Убавь в громкость.", "change_volume", -10),
+    ("Убавь, громкость на 10.", "change_volume", -10),
+    ("Убавь в громкость на десять.", "change_volume", -10),
+    ("Давай, убавь громкость", "change_volume", -10),
     ("Добавь мне громкости", "change_volume", 10),
     ("Прибавь громкость на 10", "change_volume", 10),
     ("Убавь громкость на десять процентов", "change_volume", -10),
@@ -66,6 +70,7 @@ def test_only_whole_unquoted_user_utterances_are_commands(text):
 @pytest.mark.parametrize("text, delta", [
     ("Припав кромкость", 10), ("Припав громкость на 10", 10),
     ("Уайли, припай громкость на пятнадцать", 15), ("Убавь кромкость", -10),
+    ("Упавь, громкость на 10.", -10), ("Упавь в громкость на 10.", -10),
 ])
 def test_garbled_volume_is_only_a_confirmation_suggestion(text, delta):
     assert resolve(text) is None
@@ -176,6 +181,38 @@ def test_garbled_volume_requires_confirmation_and_can_be_cancelled(audio):
     assert "60%" in audio_chat(api, "Прибавь громкость на 10")
     assert "не изменена" in audio_chat(api, "Припай фиг громкость")
     assert device.calls == [("volume", 50), ("volume", 60)]
+
+
+def test_screenshot_volume_typos_offer_one_specific_correction(audio):
+    api, store, device = audio
+    for phrase in ("Упавь, громкость на 10.", "Упавь в громкость на 10."):
+        answer = audio_chat(api, phrase, mode="conversation")
+        assert "«убавь громкость на 10»" in answer and "Выполнить?" in answer
+        before = list(device.calls)
+        assert "Windows" in audio_chat(api, "да, выполни")
+        assert device.calls == before + [("volume", 40 - 10 * (len(before) + 1))]
+    assert device.volume == 20
+
+
+@pytest.mark.parametrize("phrase,action", [("Протоже музыку.", "play"), ("И Края Музыку.", "play"), ("Приостонови музыку", "pause")])
+def test_unclear_music_is_proposed_and_requires_confirmation(audio, monkeypatch, phrase, action):
+    api, store, device = audio
+    calls = []
+    monkeypatch.setattr("core.windows_media.perform", lambda command="read": calls.append(command) or {"available": False})
+    answer = audio_chat(api, phrase, mode="conversation")
+    assert "Выполнить?" in answer and "Команда ещё не выполнялась" in answer
+    assert not calls
+    audio_chat(api, "да")
+    assert calls == [action] and not device.calls
+
+
+@pytest.mark.parametrize("phrase", [
+    "Не протоже музыку", "Яндекс Музыка, не продолжи музыку", "Он сказал протоже музыку",
+    "Протоже музыку и открой блокнот", "Создай музыку", "Сочини музыку", "Про музыку",
+    "Протоже песню Linkin Park", 'Яндекс Музыка, «протоже музыку»', "Если протоже музыку", "Протоже музыку?",
+])
+def test_music_correction_does_not_guess_other_requests(phrase):
+    assert audio_intents.suggest(phrase, player="yandex") is None
 
 
 def test_confirmation_rechecks_permission_and_expires(audio, monkeypatch):

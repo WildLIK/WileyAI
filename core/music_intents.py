@@ -2,7 +2,7 @@
 import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .device_audio import percentage, resolve as audio_command, music_help
+from .device_audio import percentage, resolve as audio_command, music_help, request_form
 
 
 class MusicAction(BaseModel):
@@ -26,15 +26,26 @@ class MusicAction(BaseModel):
         return self
 
 
-def resolve(text, *, preferred=False, name="Уайли"):
+def request(text, name="Уайли"):
+    """Extract a player qualifier at the edges, preserving song names as data."""
     if len(text) > 300 or any(ord(c) < 32 for c in text):
+        return None, False
+    value = request_form(text, name)
+    player = r"(?:яндекс[. ]*музык[аеуы]?|yandex\s*music)"
+    value, prefix = re.subn(r"^(?:(?:в|на) )?" + player + r"[, ]+", "", value, count=1, flags=re.I)
+    value = request_form(value, name)
+    # A song called "Яндекс Музыка" is a query, not a player qualifier. Only
+    # a preposition or comma at the end explicitly selects the application.
+    value, suffix = re.subn(r"(?:\s+(?:в|на)\s+|,\s*)" + player + r"$", "", value, count=1, flags=re.I)
+    return request_form(value, name), bool(prefix or suffix)
+
+
+def resolve(text, *, preferred=False, name="Уайли"):
+    value, explicit = request(text, name)
+    if value is None:
         return None
-    value = re.sub(r"^" + re.escape(name) + r"[,!]?\s+", "", text.strip(), flags=re.I)
-    value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста[.! ]*$", "", value, flags=re.I).strip().rstrip(".! ")
     if re.match(r"^(?:не |как |если |например |напиши |расскажи )", value, re.I) or value.startswith(('"', '«', '“')):
         return None
-    explicit = bool(re.search(r"\b(?:яндекс[. ]*музык\w*|yandex\s*music)\b", value, re.I))
-    value = re.sub(r"\s+(?:в |на )?яндекс[. ]*музык\w*", "", value, flags=re.I).strip()
     search = re.fullmatch(r"(?:найди(?: и (?:включи|поставь))?|включи|поставь|воспроизведи)\s+(?:мне\s+)?(?:песню|трек|композицию)\s+(.+)", value, re.I)
     if search and (preferred or explicit):
         return MusicAction(action="search_play", query=search[1].strip(' "«»'))
@@ -56,7 +67,7 @@ def resolve(text, *, preferred=False, name="Уайли"):
     if volume:
         try: return MusicAction(action="volume", value=percentage(volume[1]))
         except ValueError: return None
-    audio = audio_command(value, name)
+    audio = audio_command(re.sub(r"\bгромкость (?:музыки|плеера)\b", "громкость", value, flags=re.I), name)
     if audio and audio.action in {"play", "pause", "stop", "play_pause", "next", "previous", "media_status", "set_volume", "change_volume"}:
         return MusicAction(action={"media_status": "status", "set_volume": "volume", "stop": "pause"}.get(audio.action, audio.action), value=audio.value)
     if music_help(value, name) is not None:

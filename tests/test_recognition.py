@@ -47,3 +47,4 @@ def test_music_profile_uses_stricter_neural_vad_and_app_vocabulary(tmp_path, mon
     assert voice.transcribe(b"audio", "small", quality="accurate", environment="music") == "Открой Яндекс Браузер."
     assert captured[0]["vad_parameters"] == {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}
     assert "Яндекс Браузер" in captured[0]["initial_prompt"] and "AIMP" in captured[0]["initial_prompt"]
+    assert "продолжи музыку" in captured[0]["initial_prompt"] and "убавь громкость" in captured[0]["initial_prompt"]

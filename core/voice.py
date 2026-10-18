@@ -89,7 +89,7 @@ class Voice:
             try:
                 # A fixed Russian vocabulary helps short device commands. Never use
                 # the previous chat/document as a prompt or rewrite the transcript.
-                vocabulary = "Громкость, прибавь, убавь, увеличь, уменьши, звук, открой, папку, приложение, напомни. Яндекс Браузер, Яндекс Музыка, AIMP, Telegram, Chrome, Firefox, Edge."
+                vocabulary = "Команды: прибавь громкость на десять, убавь громкость, продолжи музыку, играй музыку, поставь на паузу, следующий трек, найди песню. Открой приложение, папку. Напомни. Яндекс Браузер, Яндекс Музыка, AIMP, Telegram, Chrome, Firefox, Edge."
                 options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
                 segments, _ = self.models[model].transcribe(
                     path, language="ru", vad_filter=True,

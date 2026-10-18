@@ -1100,9 +1100,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     answer = await run_audio(audio_tools, audio, audio_progress)
                     yield event("delta", text=answer)
                 elif audio_followup is not None:
-                    answer = await run_audio(audio_tools, audio_followup.action, audio_progress) if audio_followup.action else audio_followup.text
+                    if audio_followup.action and audio_followup.target == "yandex":
+                        yield event("stage", text="Передаю подтверждённую команду Яндекс Музыке и проверяю результат…")
+                        confirmed_music = MusicAction(action=audio_followup.action.action, value=audio_followup.action.value)
+                        answer = (await run_music(music_player, confirmed_music, audio_progress))["text"]
+                    else:
+                        answer = await run_audio(audio_tools, audio_followup.action, audio_progress) if audio_followup.action else audio_followup.text
                     yield event("delta", text=answer)
-                elif (suggestion := audio_intents.suggest(text, current.name)) is not None:
+                elif (suggestion := audio_intents.suggest(text, current.name, player=current.music_player)) is not None:
                     pending_audio = suggestion if suggestion.action else None
                     answer = suggestion.text
                     yield event("delta", text=answer)
