@@ -61,9 +61,7 @@ test("monitor samples idle and a live model request without starting local model
       if (!response.ok) throw new Error(await response.text());
     }, `http://127.0.0.1:${address.port}/v1`);
     await page.reload();
-    await page
-      .getByRole("button", { name: "Открыть мониторинг нагрузки" })
-      .click();
+    await page.getByRole("button", { name: "▥ Нагрузка", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Нагрузка", exact: true }),
     ).toBeVisible();

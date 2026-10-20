@@ -66,7 +66,12 @@ test("recurring reminders: form, weekdays, stop/edit/resume, restart and Russian
     let [task] = await tasks(page);
     const rule = JSON.parse(task.recurrence);
     expect(rule.weekdays).toEqual([0, 2]);
-    expect(rule.timezone).toBeTruthy();
+    // The API omits the default UTC field from its compact stored JSON.
+    expect(rule.timezone ?? "UTC").toBe(
+      await page.evaluate(
+        () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ),
+    );
     await row
       .getByRole("button", { name: "Остановить серию", exact: true })
       .click();

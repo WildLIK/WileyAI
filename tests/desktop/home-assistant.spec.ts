@@ -115,12 +115,19 @@ test("Home Assistant: real REST fixture, review, verification, navigation and lo
     await page
       .getByLabel("Токен Home Assistant", { exact: true })
       .fill("desktop-home-fixture");
+    const connected = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/home-assistant/connection" &&
+        response.request().method() === "PUT",
+    );
     await page
       .getByRole("button", {
         name: "Проверить и сохранить подключение",
         exact: true,
       })
       .click();
+    const connection = await connected;
+    expect(connection.ok(), await connection.text()).toBe(true);
     await expect(
       page.getByText("Тестовый дом", { exact: false }).first(),
     ).toBeVisible();
