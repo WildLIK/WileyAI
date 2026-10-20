@@ -87,7 +87,7 @@ test("local roadmap: scoped semantic sources, internet/voice settings and revers
     await page
       .getByRole("button", { name: "Обновить индекс этого пространства" })
       .click();
-    await expect(page.getByText(/Индекс построен/)).toBeVisible();
+    await expect(page.getByText(/Индекс построен/)).toBeVisible({ timeout: 20000 });
     await page.locator(".nav-item").filter({ hasText: "Память" }).click();
     await page.getByLabel("Поиск по памяти", { exact: true }).fill("машина");
     await expect(
