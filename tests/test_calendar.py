@@ -176,7 +176,7 @@ def test_backup_v4_roundtrip_validation_legacy_and_staleness(tmp_path):
     source = Store(tmp_path / "source")
     event = Calendar(source).save(body())
     archive = Backups(source).export()
-    assert json.loads(archive)["version"] == 8
+    assert json.loads(archive)["version"] == 11
     target = Store(tmp_path / "target")
     manager = Backups(target)
     preview = manager.preview(archive)

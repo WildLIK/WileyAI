@@ -128,7 +128,7 @@ def test_backup_roundtrip_pending_series_and_v7_upgrade(tmp_path, monkeypatch):
     task = store.save_task("Вода", "reminder", "2026-10-17T05:00:00+00:00", recurrence=RULE)
     alert, = store.queue_due_notifications()
     archive = Backups(store).export()
-    assert parse(archive).version == 8
+    assert parse(archive).version == 11
     target = Store(tmp_path / "target")
     manager = Backups(target)
     manager.restore(manager.preview(archive)["ticket"])

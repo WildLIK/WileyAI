@@ -62,7 +62,7 @@ export class SpeechOutput<T> {
   private closed = false;
   private wake = () => {};
   private synthesize: (text: string, signal: AbortSignal) => Promise<T>;
-  private play: (audio: T, signal: AbortSignal) => Promise<void>;
+  private play: (audio: T, signal: AbortSignal, text: string) => Promise<void>;
   private batchCharacters = 0;
   private rendered = 0;
   private firstCharacters: number;
@@ -70,7 +70,7 @@ export class SpeechOutput<T> {
   private firstWaitMs: number;
   constructor(
     synthesize: (text: string, signal: AbortSignal) => Promise<T>,
-    play: (audio: T, signal: AbortSignal) => Promise<void>,
+    play: (audio: T, signal: AbortSignal, text: string) => Promise<void>,
     signal?: AbortSignal,
     options?: {
       batchCharacters?: number;
@@ -177,7 +177,7 @@ export class SpeechOutput<T> {
         signal.throwIfAborted();
         await playing;
         signal.throwIfAborted();
-        playing = this.play(audio, signal);
+        playing = this.play(audio, signal, text);
         void playing.catch((error) => {
           playbackError = error;
           this.cancel();

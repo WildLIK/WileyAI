@@ -24,6 +24,7 @@ const { installBackups } = require("./backups.cjs");
 const { createNotificationDelivery } = require("./notifications.cjs");
 const { APP_ID } = require("./identity.cjs");
 const { CoreConnection, portFromOutput } = require("./core-connection.cjs");
+const { startupPreferences } = require("./startup.cjs");
 
 const root = path.resolve(__dirname, "..");
 const backend = app.isPackaged
@@ -31,6 +32,7 @@ const backend = app.isPackaged
   : root;
 const dev = process.env.WILEYAI_DEV === "1";
 const test = process.env.WILEYAI_TEST === "1";
+const startup = startupPreferences(app, { test });
 if (test && process.env.WILEYAI_DATA_DIR)
   app.setPath("userData", path.join(process.env.WILEYAI_DATA_DIR, "electron"));
 const dataRoot =
@@ -417,6 +419,14 @@ app.whenReady().then(async () => {
     app.relaunch();
     app.quit();
   });
+  ipcMain.handle("startup-get", (event) => {
+    trusted(event);
+    return startup.get();
+  });
+  ipcMain.handle("startup-set", (event, enabled) => {
+    trusted(event);
+    return startup.set(enabled);
+  });
   ipcMain.handle("start-ollama", async (event) => {
     trusted(event);
     await startManagedOllama();
@@ -426,9 +436,168 @@ app.whenReady().then(async () => {
     // Only a fixed repository page can be opened, never a renderer-supplied URL.
     await shell.openExternal("https://github.com/WildLIK/WileyAI/releases");
   });
+  async function googleLogin(event, endpoint) {
+    trusted(event);
+    const connection = await coreConnection.wait();
+    const response = await fetch(connection.url + endpoint, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + connection.token },
+      signal: AbortSignal.timeout(15000),
+      redirect: "error",
+    });
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(data.detail || "Не удалось начать вход Google");
+    const url = new URL(data.url);
+    if (
+      url.origin !== "https://accounts.google.com" ||
+      url.pathname !== "/o/oauth2/v2/auth" ||
+      url.username ||
+      url.password
+    )
+      throw new Error("Недопустимый адрес входа Google");
+    await shell.openExternal(url.href);
+  }
+  ipcMain.handle("google-calendar-login", (event) =>
+    googleLogin(event, "/calendar/google/login"),
+  );
+  ipcMain.handle("gmail-login", (event) =>
+    googleLogin(event, "/mail/gmail/login"),
+  );
+  ipcMain.handle("gmail-send-login", (event) =>
+    googleLogin(event, "/mail/gmail/send-login"),
+  );
+  ipcMain.handle("gmail-drafts-login", (event) => googleLogin(event,"/mail/gmail/drafts-login"));
+  ipcMain.handle("mail-export", async (event, options) => {
+    trusted(event);
+    if (
+      !options ||
+      typeof options.id !== "string" ||
+      typeof options.conversationId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,64}$/.test(options.id) ||
+      !/^[A-Za-z0-9_-]{1,64}$/.test(options.conversationId) ||
+      typeof options.updated !== "string" ||
+      options.updated.length > 100
+    )
+      throw new Error("Некорректный черновик для сохранения");
+    const connection = await coreConnection.wait();
+    const query = new URLSearchParams({
+      conversation_id: options.conversationId,
+      expected_updated: options.updated,
+    });
+    const response = await fetch(
+      connection.url + "/mail/drafts/" + options.id + "/eml?" + query,
+      {
+        headers: { Authorization: "Bearer " + connection.token },
+        signal: AbortSignal.timeout(15000),
+        redirect: "error",
+      },
+    );
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof result.detail === "string"
+          ? result.detail
+          : "Не удалось подготовить файл письма",
+      );
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 16 * 1024 * 1024)
+      throw new Error("Письмо превышает 16 МБ");
+    const result = await dialog.showSaveDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      {
+        title: "Сохранить неотправленный черновик",
+        defaultPath: "WileyAI-draft.eml",
+        filters: [{ name: "Черновик письма", extensions: ["eml"] }],
+      },
+    );
+    if (result.canceled || !result.filePath) return null;
+    if (!result.filePath.toLowerCase().endsWith(".eml"))
+      throw new Error("Выберите имя файла с расширением .eml");
+    const temporary =
+      result.filePath + "." + randomBytes(8).toString("hex") + ".tmp";
+    const handle = await fs.open(temporary, "wx", 0o600);
+    try {
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      // The native dialog confirms replacing an existing destination. Rename
+      // only a completed, flushed file, so a failed write preserves that file.
+      await fs.rename(temporary, result.filePath);
+    } finally {
+      await fs.unlink(temporary).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
+    return { path: result.filePath };
+  });
   ipcMain.handle("conversation-state", (event) => {
     trusted(event);
     return conversation.state(event.sender.id);
+  });
+  ipcMain.handle("mail-attachment-export", async (event, options) => {
+    trusted(event);
+    if (
+      !options ||
+      !/^[a-f0-9]{48}$/.test(options.ticket) ||
+      !/^[A-Za-z0-9_-]{1,64}$/.test(options.conversationId)
+    )
+      throw new Error("Некорректное вложение");
+    const info = await coreConnection.wait();
+    const response = await fetch(
+      info.url +
+        "/mail/attachments/" +
+        options.ticket +
+        "?conversation_id=" +
+        encodeURIComponent(options.conversationId),
+      {
+        headers: { Authorization: "Bearer " + info.token },
+        signal: AbortSignal.timeout(30000),
+        redirect: "error",
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof error.detail === "string"
+          ? error.detail
+          : "Не удалось скачать вложение",
+      );
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 5 * 1024 * 1024)
+      throw new Error("Вложение превышает 5 МБ");
+    const name = String(options.name || "attachment.bin")
+      .split(/[\\/]/)
+      .pop()
+      .replace(/[<>:"|?*\x00-\x1f]/g, "_")
+      .slice(0, 180);
+    const result = await dialog.showSaveDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      { title: "Сохранить вложение", defaultPath: "WileyAI-" + name },
+    );
+    if (result.canceled || !result.filePath) return null;
+    const temporary =
+      result.filePath + "." + randomBytes(8).toString("hex") + ".tmp";
+    const handle = await fs.open(temporary, "wx", 0o600);
+    try {
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(temporary, result.filePath);
+    } finally {
+      await fs.unlink(temporary).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
+    return { path: result.filePath };
   });
   ipcMain.handle("conversation-acquire", (event) => {
     trusted(event);
@@ -512,7 +681,8 @@ app.whenReady().then(async () => {
   try {
     await startCore();
     await startManagedOllama();
-    showWindow("chat");
+    if (!app.isPackaged || !process.argv.includes("--autostart") || test)
+      showWindow("chat");
     if (!test) {
       app.setAppUserModelId(app.isPackaged ? APP_ID : "WileyAI");
       notificationTimer = setInterval(deliverNotifications, 2500);

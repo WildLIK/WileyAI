@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { request, scoped, type Message, type Settings } from "./api";
+import { WeatherSettings } from "./Weather";
 
 export function SearchSources({
   message,
@@ -34,10 +35,24 @@ export function SearchSources({
     <section className="search-sources" aria-label="Источники веб-поиска">
       <strong>Источники · {search.results.length}</strong>
       <p className="help">
-        {search.provider === "brave" ? "Brave Search" : "SearXNG"} ·{" "}
-        {new Date(search.checked_at).toLocaleString("ru-RU")} · {search.query}
+        {(
+          {
+            brave: "Brave Search",
+            searxng: "SearXNG",
+            page: "Текст страницы",
+            "open-meteo": "Open-Meteo / GeoNames",
+            cbr: "Банк России",
+          } as Record<string, string>
+        )[search.provider] || search.provider}{" "}
+        · {new Date(search.checked_at).toLocaleString("ru-RU")} · {search.query}
       </p>
-      <p className="help">Поисковые выдержки. Полные страницы не прочитаны.</p>
+      <p className="help">
+        {search.provider === "page"
+          ? "Загружен статический текст страницы. Для длинного текста обрабатываются все части, для ответа отбираются исходные отрывки. Динамические блоки и страницы с входом недоступны."
+          : ["brave", "searxng"].includes(search.provider)
+            ? "Поисковые выдержки. Полные страницы не прочитаны."
+            : "Данные получены напрямую от указанного сервиса; время проверки показано выше."}
+      </p>
       {search.partial && (
         <p className="search-warning">
           Часть поисковых движков не ответила. Результаты могут быть неполными.
@@ -55,7 +70,17 @@ export function SearchSources({
               {item.title}
             </button>
             <small className="source-address">{item.url}</small>
-            <p>{item.snippet}</p>
+            {search.provider === "page" ? (
+              <details>
+                <summary>
+                  Загруженный текст ·{" "}
+                  {item.snippet.length.toLocaleString("ru-RU")} символов
+                </summary>
+                <p style={{ whiteSpace: "pre-wrap" }}>{item.snippet}</p>
+              </details>
+            ) : (
+              <p>{item.snippet}</p>
+            )}
           </li>
         ))}
       </ol>
@@ -77,6 +102,60 @@ export function SearchSettings({
   return (
     <div className="card">
       <h2>Поиск в интернете</h2>
+      <label>
+        DNS для чтения страниц, погоды и курсов
+        <select
+          value={settings.web_dns}
+          onChange={(event) =>
+            onChange({
+              ...settings,
+              web_dns: event.target.value as Settings["web_dns"],
+            })
+          }
+        >
+          <option value="system">Системный DNS</option>
+          <option value="cloudflare">
+            Публичный DNS Cloudflare через HTTPS
+          </option>
+        </select>
+      </label>
+      <p className="help">
+        Публичный DNS помогает при VPN с fake-IP. Cloudflare получает только имя
+        домена, без пути, запроса и содержимого чата. Локальные и служебные
+        адреса блокируются при любом варианте; для ссылок используется проверка
+        сертификата сайта.
+      </p>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.web_read_enabled}
+          onChange={(event) =>
+            onChange({ ...settings, web_read_enabled: event.target.checked })
+          }
+        />
+        Читать публичные страницы по моей ссылке
+      </label>
+      <p className="help">
+        «Прочитай страницу https://example.com/article». HTML и текст до 2 МБ и
+        120 000 символов. Без входа в аккаунты и доступа к локальной сети.
+        Содержимое передаётся выбранной модели, исходный текст сохраняется с
+        ответом.
+      </p>
+      <WeatherSettings settings={settings} onChange={onChange} />
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.currency_enabled}
+          onChange={(event) =>
+            onChange({ ...settings, currency_enabled: event.target.checked })
+          }
+        />
+        Получать официальные курсы Банка России
+      </label>
+      <p className="help">
+        «Курс доллара», «Курс евро», «Курсы валют». Курс к рублю на дату
+        публикации ЦБ. Погода и курсы работают без поискового сервера и модели.
+      </p>
       <label className="checkbox">
         <input
           type="checkbox"

@@ -141,7 +141,7 @@ class CalendarWorkflows:
                     minutes = self._reminder_minutes(alert[1], now) if alert else None
                 except ValueError as error:
                     return Result(str(error))
-                item = self.calendar.save(EventBody(**{key: item[key] for key in EventBody.model_fields if key != "reminder_minutes"}, reminder_minutes=minutes), item["id"], context["last_updated"])
+                item = self.calendar.save(EventBody.from_item(item, reminder_minutes=minutes), item["id"], context["last_updated"])
                 context.update(last_updated=item["updated"])
                 remember()
                 self.store.audit("calendar", item["id"], "reminder_changed")
@@ -152,6 +152,8 @@ class CalendarWorkflows:
                 remember()
                 self.store.audit("calendar", item["id"], "deleted")
                 return Result(f"Удалил событие «{item['title']}» из локального календаря.", ["calendar"])
+            if item["all_day"] or item["recurrence"]:
+                return Result("События на весь день и серии можно перенести в разделе «Календарь». Там изменяется вся серия.")
             body = re.sub(r"^на\s+(?=завтра|послезавтра|сегодня|\d{1,2}\.)", "", move[1], flags=re.I)
             parts = parse_time(body, now, clock_context=True)
             if parts.error or not parts.found or parts.rest not in {"", "позже", "раньше"}:
@@ -167,8 +169,7 @@ class CalendarWorkflows:
             except ValueError as error:
                 return Result(str(error))
             finish = begin.astimezone(timezone.utc) + (instant(item["ends_at"]) - instant(item["starts_at"]))
-            body = EventBody(**{key: item[key] for key in EventBody.model_fields if key not in {"starts_at", "ends_at", "timezone"}},
-                             starts_at=begin.isoformat(), ends_at=finish.isoformat(), timezone=zone)
+            body = EventBody.from_item(item, starts_at=begin.isoformat(), ends_at=finish.isoformat(), timezone=zone)
             item = self.calendar.save(body, item["id"], context["last_updated"])
             context.update(last_updated=item["updated"])
             remember()

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scopedRequest, type Doc } from "./api";
 import { ProcessStatus } from "./ProcessStatus";
 
-type Page = { items: Doc[]; total: number };
+type Page = {
+  items: (Doc & { match_offset?: number })[];
+  total: number;
+  search_mode?: string;
+  notice?: string;
+};
 type Preview = { document: Doc; text: string; offset: number; total: number };
 
 export function DocumentPanel({
@@ -146,6 +151,11 @@ export function DocumentPanel({
         просмотр работают локально. TXT, MD, CSV, текстовые PDF и DOCX; до 15
         МБ. Сканам нужен OCR, который пока не подключён.
       </p>
+      {data.notice && (
+        <p className="help" role="status">
+          {data.notice}
+        </p>
+      )}
       <form
         className="card document-upload"
         onSubmit={(event) => {
@@ -322,7 +332,10 @@ export function DocumentPanel({
                 </small>
                 <p className="document-excerpt">{doc.preview}</p>
                 <div className="button-row">
-                  <button className="subtle" onClick={() => void read(doc)}>
+                  <button
+                    className="subtle"
+                    onClick={() => void read(doc, doc.match_offset || 0)}
+                  >
                     Просмотреть текст
                   </button>
                   {projectName && doc.scope === "chat" && (

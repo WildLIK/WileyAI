@@ -13,10 +13,13 @@ from .config import Settings
 from .memory import CATEGORIES, fingerprint, infer_category, normalized, search_expression, suggestions
 from .chatspaces import migrate as migrate_chats, LEGACY_CHAT
 from . import notifications
+from . import quiet
 from . import repeats
 from .document_library import migrate as migrate_documents
 from .document_context import DocumentFragment
 from .history import migrate as migrate_history
+from .mail_drafts import migrate as migrate_mail
+from .contacts import migrate as migrate_contacts
 
 
 def now() -> str:
@@ -73,6 +76,8 @@ class Store:
             if "document_context" not in {row["name"] for row in db.execute("PRAGMA table_info(messages)")}:
                 db.execute("ALTER TABLE messages ADD COLUMN document_context TEXT NOT NULL DEFAULT '[]'")
             migrate_history(db)
+            migrate_mail(db)
+            migrate_contacts(db)
             if "details" not in {row["name"] for row in db.execute("PRAGMA table_info(actions)")}:
                 db.execute("ALTER TABLE actions ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
@@ -244,9 +249,9 @@ class Store:
                 item["source_text"] = source[0] if source else None
             return result
 
-    def memory_context(self, text: str, budget: int = 1600) -> list[dict]:
+    def memory_context(self, text: str, budget: int = 1600, ranked: list[dict] | None = None) -> list[dict]:
         recent = self.memories(limit=12)
-        candidates = [item for item in recent if item["pinned"]][:4] + self.memories(text, 8) + recent[:3]
+        candidates = [item for item in recent if item["pinned"]][:4] + (ranked if ranked is not None else self.memories(text, 8)) + recent[:3]
         selected, seen, used = [], set(), 2
         for item in candidates:
             cost = len(json.dumps({"id": item["id"], "content": item["content"], "category": item["category"]}, ensure_ascii=False)) + (2 if selected else 0)
@@ -443,18 +448,20 @@ class Store:
                     db.execute("UPDATE tasks SET due=?,notified=0 WHERE id=?", (next_dt.astimezone(timezone.utc).isoformat(), task["id"]))
                 else:
                     db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task["id"],))
-            pending.extend(notifications.queue_calendar(db, current))
+            pending.extend(notifications.queue_calendar(db, current, quiet.database_active(db, datetime.fromisoformat(current))))
         return pending
 
     def pending_notifications(self):
         with self.db() as db:
             db.execute("BEGIN")
-            return notifications.pending(db, now())
+            current = now()
+            return [] if quiet.database_active(db, datetime.fromisoformat(current)) else notifications.pending(db, current)
 
     def claim_notification(self, item_id):
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            return notifications.claim(db, item_id, now())
+            current = now()
+            return None if quiet.database_active(db, datetime.fromisoformat(current)) else notifications.claim(db, item_id, current)
 
     def acknowledge_notification(self, item_id: str):
         with self.db() as db:

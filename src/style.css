@@ -3132,3 +3132,249 @@ html:has(.pet-window) {
     gap: 8px;
   }
 }
+.google-calendar {
+  margin-top: 20px;
+}
+.google-calendar details {
+  margin: 16px 0;
+}
+.google-calendar summary {
+  cursor: pointer;
+}
+.google-calendar-table {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.google-calendar table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.google-calendar th,
+.google-calendar td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.google-calendar td small {
+  display: block;
+  margin-top: 5px;
+}
+.google-calendar-version {
+  padding: 10px 0;
+  max-width: 640px;
+  overflow-wrap: anywhere;
+}
+.mail-connection,
+.mail-inbox-placeholder {
+  margin-bottom: 20px;
+}
+.mail-page summary {
+  cursor: pointer;
+}
+.mail-page fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.mail-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(340px, 1.5fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.mail-grid > * {
+  min-width: 0;
+}
+.mail-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.mail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-low);
+  line-height: 1.45;
+}
+.mail-item:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: var(--surface-high);
+}
+.mail-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-secondary);
+}
+.mail-item.selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+  background: var(--surface-high);
+}
+.mail-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 16px 0;
+  line-height: 1.6;
+}
+.mail-assistant {
+  margin-top: 22px;
+}
+.mail-send {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.mail-send-review {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--accent-border);
+  border-radius: 14px;
+  background: var(--surface-low);
+  overflow-wrap: anywhere;
+}
+.mail-send-review input[type="checkbox"] {
+  width: auto;
+  margin-right: 8px;
+}
+.mail-progress {
+  position: sticky;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 1100px) {
+  .mail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.home-page > .card {
+  margin-bottom: 20px;
+}
+.home-page > [role="alert"],
+.home-page > [role="status"] {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--surface-mid);
+}
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+.home-filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+.home-entities {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+.home-entity {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-low) 65%, transparent);
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.home-entity > small {
+  display: block;
+}
+.home-preview {
+  border-color: var(--accent);
+}
+.plan-receipt {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.plan-receipt li {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.weather-settings {
+  border-block: 1px solid var(--border);
+  padding-block: 20px;
+  margin-block: 20px;
+}
+.weather-preview-tools {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  align-items: end;
+  gap: 14px;
+  margin-top: 18px;
+}
+.weather-preview-tools label {
+  margin: 0;
+}
+.weather-forecast {
+  margin-top: 18px;
+  padding: 18px;
+  background: var(--surface-low);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.weather-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  margin: 22px 0;
+}
+.weather-current > strong {
+  font-size: 42px;
+  color: var(--accent-text);
+}
+.weather-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 10px;
+}
+.weather-days article {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.weather-days small {
+  display: block;
+  margin-top: 8px;
+}
+.weather-days p {
+  min-height: 40px;
+}
+@media (max-width: 1100px) {
+  .weather-preview-tools {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1000px) {
+  .home-filters {
+    grid-template-columns: 1fr;
+  }
+}

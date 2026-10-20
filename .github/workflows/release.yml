@@ -48,4 +48,9 @@ jobs:
           $tag = '${{ github.ref_name }}'
           $packageVersion = (Get-Content package.json | ConvertFrom-Json).version
           if ($tag -ne "v$packageVersion") { throw 'Tag and package version differ' }
-          gh release create $tag local/releases/WileyAI-Setup-*.exe local/releases/SHA256SUMS.txt --title "WileyAI $packageVersion" --generate-notes
+          $notes = "docs/releases/$packageVersion.ru.md"
+          if (Test-Path -LiteralPath $notes) {
+            gh release create $tag "local/releases/WileyAI-Setup-$packageVersion-x64.exe" local/releases/SHA256SUMS.txt --title "WileyAI $packageVersion" --notes-file $notes
+          } else {
+            gh release create $tag "local/releases/WileyAI-Setup-$packageVersion-x64.exe" local/releases/SHA256SUMS.txt --title "WileyAI $packageVersion" --generate-notes
+          }

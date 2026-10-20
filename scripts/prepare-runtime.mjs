@@ -118,7 +118,7 @@ for (const name of ["react", "react-dom", "three", "@pixiv/three-vrm"]) {
 }
 run(join(pythonRoot, "python.exe"), [
   "-c",
-  "import fastapi,uvicorn,keyring,psutil,docx,pypdf; print('Bundled core dependencies OK')",
+  "import fastapi,uvicorn,keyring,psutil,docx,pypdf,telethon,websockets; from zoneinfo import ZoneInfo; ZoneInfo('Asia/Yekaterinburg'); print('Bundled core dependencies and timezone data OK')",
 ]);
 await writeFile(
   join(staging, "build-info.json"),

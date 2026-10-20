@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -21,6 +21,9 @@ from .routines import Step, RoutineBody
 from .commands import normalize
 from .tools import ACCESS_FIELDS
 from .calendar import EventBody
+from .calendar_repeats import occurrences
+from .mail_drafts import DraftBody, DraftSource
+from .contacts import ContactBody
 from .notifications import reminder_time
 from . import repeats
 from .document_library import rebuild_index as rebuild_document_index
@@ -139,12 +142,30 @@ class CalendarEvent(Dated):
     reminder_minutes: Annotated[int, Field(strict=True, ge=0, le=10080)] | None = None
     reminder_at: CalendarTimestamp | None = None
     reminder_sent: Bit = 0
+    all_day: Bit = 0
+    recurrence: str | None = Field(default=None, max_length=32000)
+    reminder_cursor: CalendarTimestamp | None = None
+    parent_id: Id | None = None
+    original_start: CalendarTimestamp | None = None
 
 
 class CalendarAlert(Dated):
     event_id: Id
     scheduled_for: CalendarTimestamp
     delivered: Bit
+    deferred: Bit = 0
+    occurrence_start: CalendarTimestamp | None = None
+    occurrence_end: CalendarTimestamp | None = None
+
+
+class MailDraft(Dated, DraftBody, DraftSource):
+    scope_id: ScopeId = ""
+    updated: Timestamp
+
+
+class Contact(Dated,ContactBody):
+    scope_id: ScopeId=""
+    updated: Timestamp
 
 
 class Project(Dated):
@@ -183,13 +204,13 @@ def valid_source_url(value: str) -> str:
 class WebResult(Record):
     title: str = Field(min_length=1, max_length=180)
     url: Annotated[str, AfterValidator(valid_source_url)]
-    snippet: str = Field(max_length=600)
+    snippet: str = Field(max_length=120000)
 
 
 class WebSearch(Record):
     message_id: Id
     query: str = Field(min_length=2, max_length=500)
-    provider: Literal["brave", "searxng"]
+    provider: Literal["brave", "searxng", "page", "open-meteo", "cbr"]
     checked_at: Timestamp
     results: list[WebResult] = Field(max_length=5)
     partial: Bit
@@ -204,6 +225,8 @@ TABLES = {
     "routines": Routine,
     "calendar_events": CalendarEvent,
     "calendar_alerts": CalendarAlert,
+    "mail_drafts": MailDraft,
+    "contacts": Contact,
     "project_documents": ProjectDocument,
 }
 
@@ -224,12 +247,14 @@ class Data(Record):
     routines: list[Routine] = Field(default_factory=list)
     calendar_events: list[CalendarEvent] = Field(default_factory=list)
     calendar_alerts: list[CalendarAlert] = Field(default_factory=list)
+    mail_drafts: list[MailDraft] = Field(default_factory=list)
+    contacts: list[Contact] = Field(default_factory=list)
     project_documents: list[ProjectDocument] = Field(default_factory=list)
 
 
 class Bundle(Record):
     format: Literal["wileyai.backup"]
-    version: Literal[1, 2, 3, 4, 5, 6, 7, 8]
+    version: Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     created: Timestamp
     settings: dict
     data: Data
@@ -260,6 +285,22 @@ def parse(data: bytes) -> Bundle:
         if not isinstance(raw, dict) or type(raw.get("version")) is not int:
             raise ValueError("Неверная версия")
         bundle = Bundle.model_validate(raw)
+        if bundle.version < 11 and any(row.parent_id or (row.recurrence and (json.loads(row.recurrence).get("excluded") or json.loads(row.recurrence).get("rule") == "monthly")) for row in bundle.data.calendar_events):
+            raise ValueError("Месячные повторы и исключения требуют формат 11")
+        if bundle.version < 11 and any(row.attachments for row in bundle.data.mail_drafts):
+            raise ValueError("Вложения требуют формат 11")
+        if bundle.version < 11 and bundle.data.contacts:
+            raise ValueError("Контакты требуют формат 11")
+        event_map = {row.id: row for row in bundle.data.calendar_events}
+        for row in bundle.data.calendar_events:
+            parent = event_map.get(row.parent_id) if row.parent_id else None
+            if bool(row.parent_id) != bool(row.original_start) or (row.parent_id and (not parent or parent.scope_id != row.scope_id or parent.parent_id or not parent.recurrence)):
+                raise ValueError("Некорректная связь перенесённого вхождения календаря")
+        if bundle.version < 10 and bundle.data.mail_drafts:
+            raise ValueError("Почтовые черновики требуют формат 10")
+        if bundle.version < 9 and (any(row.all_day or row.recurrence or row.reminder_cursor for row in bundle.data.calendar_events)
+                                  or any(row.occurrence_start or row.occurrence_end for row in bundle.data.calendar_alerts)):
+            raise ValueError("События на весь день и повторы календаря требуют формат 9")
         if bundle.version < 8 and (any(row.recurrence for row in bundle.data.tasks) or any(row.scheduled_for for row in bundle.data.notifications)):
             raise ValueError("Повторы и сроки уведомлений требуют формат 8")
         if bundle.version < 7 and any(row.document_context for row in bundle.data.messages):
@@ -304,17 +345,29 @@ def parse(data: bytes) -> Bundle:
         for table in ("messages", "documents"):
             if any(row["conversation_id"] not in chats for row in tables[table]):
                 raise ValueError("Запись без чата")
-        for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events"):
+        for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events", "mail_drafts", "contacts"):
             if any(row["scope_id"] and row["scope_id"] not in projects for row in tables[table]):
                 raise ValueError("Запись без проекта")
+        if any(count > 200 for count in Counter(row["scope_id"] for row in tables["mail_drafts"]).values()):
+            raise ValueError("Слишком много почтовых черновиков в пространстве")
+        if any(count > 500 for count in Counter(row["scope_id"] for row in tables["contacts"]).values()):
+            raise ValueError("Слишком много контактов")
         for row in tables["calendar_events"]:
-            body = EventBody.model_validate({key: row[key] for key in EventBody.model_fields})
+            body = EventBody.from_item(row)
             # Keep lexically sortable canonical UTC times after importing any offset.
             row.update(body.model_dump())
+            row.update(all_day=int(body.all_day), recurrence=body.recurrence.model_dump_json() if body.recurrence else None)
             actual = reminder_time(row["starts_at"], row["reminder_minutes"])
             if actual != (reminder_time(row["reminder_at"], 0) if row["reminder_at"] else None) or (actual is None and row["reminder_sent"]):
                 raise ValueError("Неверное время напоминания события")
             row["reminder_at"] = actual
+            if row["reminder_cursor"]:
+                cursor = datetime.fromisoformat(row["reminder_cursor"])
+                if not body.recurrence or body.reminder_minutes is None:
+                    raise ValueError("Курсор напоминания без повтора")
+                begin = cursor + timedelta(minutes=body.reminder_minutes)
+                if not any(start == begin for start, _ in occurrences(row, begin, begin + timedelta(seconds=1))):
+                    raise ValueError("Курсор вне серии событий")
         bundle.data.calendar_events = [CalendarEvent.model_validate(row) for row in tables["calendar_events"]]
         events = {row["id"]: row for row in tables["calendar_events"]}
         pending_alerts = set()
@@ -324,8 +377,17 @@ def parse(data: bytes) -> Bundle:
             parent = events.get(alert["event_id"])
             if parent is None:
                 raise ValueError("Уведомление без события")
+            if bool(alert["occurrence_start"]) != bool(alert["occurrence_end"]):
+                raise ValueError("Неполный интервал уведомления")
+            if alert["occurrence_start"]:
+                begin, end = datetime.fromisoformat(alert["occurrence_start"]), datetime.fromisoformat(alert["occurrence_end"])
+                if end <= begin or (not alert["delivered"] and (not parent["recurrence"] or not any(start == begin and stop == end for start, stop in occurrences(parent, begin, begin + timedelta(seconds=1))))):
+                    raise ValueError("Уведомление вне серии событий")
             if not alert["delivered"]:
-                if alert["event_id"] in pending_alerts or not parent["reminder_sent"] or reminder_time(alert["scheduled_for"], 0) != parent["reminder_at"]:
+                valid = (parent["reminder_cursor"] == reminder_time(alert["scheduled_for"], 0)
+                         and alert["occurrence_start"] and reminder_time(alert["occurrence_start"], parent["reminder_minutes"]) == parent["reminder_cursor"]) if parent["recurrence"] else (
+                             parent["reminder_sent"] and reminder_time(alert["scheduled_for"], 0) == parent["reminder_at"])
+                if alert["event_id"] in pending_alerts or not valid:
                     raise ValueError("Неверное ожидающее уведомление")
                 pending_alerts.add(alert["event_id"])
         routine_keys = set()
@@ -408,7 +470,11 @@ def snapshot(db) -> dict:
         if name == "routines":
             for item in tables[name]:
                 item["steps"] = json.loads(item["steps"])
-    return {"format": "wileyai.backup", "version": 8, "created": now(), "settings": settings.model_dump(), "data": tables}
+        if name == "mail_drafts":
+            for item in tables[name]:
+                for key in ("to_addresses", "cc_addresses", "bcc_addresses", "attachments"):
+                    item[key] = json.loads(item[key])
+    return {"format": "wileyai.backup", "version": 11, "created": now(), "settings": settings.model_dump(), "data": tables}
 
 
 def state_digest(db, value: dict) -> str:
@@ -500,6 +566,8 @@ class Backups:
                              for fragment in row["document_context"]], ensure_ascii=False)} for row in rows]
                 if name == "routines":
                     rows = [{**row, "steps": json.dumps(row["steps"], ensure_ascii=False)} for row in rows]
+                if name == "mail_drafts":
+                    rows = [{**row, **{key: json.dumps(row[key], ensure_ascii=False) for key in ("to_addresses", "cc_addresses", "bcc_addresses", "attachments")}} for row in rows]
                 if rows:
                     db.executemany(f"INSERT INTO {name} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [tuple(row[column] for column in columns) for row in rows])
             db.execute("DELETE FROM memories_fts")
@@ -508,8 +576,12 @@ class Backups:
             db.executemany("INSERT INTO memories_fts VALUES (?,?)", [(row["id"], normalized(row["content"])) for row in tables["memories"]])
             db.execute("DELETE FROM dialogue_state")
             db.execute("DELETE FROM chat_dialogue")
-            settings = {**bundle.settings, "search_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions")}}
-            settings.update({field: previous["settings"][field] for field in (*ACCESS_FIELDS, "command_understanding", "task_understanding")})
+            # Restoring local data must never retain authority to overwrite a remote calendar.
+            for table in ("google_calendar_links", "google_calendar_bindings", "google_calendar_auto", "mail_bindings", "mail_remote_drafts", "home_bindings"):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                    db.execute(f"DELETE FROM {table}")
+            settings = {**bundle.settings, "search_enabled": False, "web_read_enabled": False, "weather_enabled": False, "currency_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions")}}
+            settings.update({field: previous["settings"][field] for field in (*ACCESS_FIELDS, "command_understanding", "task_understanding", "plan_understanding", "embedding_enabled", "embedding_model", "embedding_base_url")})
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
             db.execute("INSERT INTO actions (id,kind,target,status,created) VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
         return {"recovery_path": str(path.resolve()), "counts": {name: len(rows) for name, rows in tables.items()}, "connections": connections, "aliases": aliases}

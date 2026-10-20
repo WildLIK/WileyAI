@@ -33,14 +33,22 @@ import { ComponentPanel } from "./Components";
 import { UpdateNotice, UpdatesPanel } from "./Updates";
 import { SetupWizard, type SetupProgress } from "./Setup";
 import { SearchSettings, SearchSources } from "./WebSearch";
+import { SemanticSearch } from "./SemanticSearch";
+import { BackgroundSettings } from "./BackgroundSettings";
+import { activated, playbackEcho } from "./voice/activation";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
 import { Applications } from "./Applications";
 import { YandexMusic } from "./YandexMusic";
 import { ActionLog } from "./ActionLog";
+import { PlanHistory } from "./PlanHistory";
 import { NebulaBackground } from "./NebulaBackground";
 import { CalendarPanel } from "./Calendar";
+import { MailPanel } from "./Mail";
+import { ContactsPanel } from "./Contacts";
+import { TelegramPanel } from "./Telegram";
+import { HomeAssistantPanel } from "./HomeAssistant";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
@@ -75,10 +83,14 @@ const tabs = [
   { id: "models", icon: "⬡", label: "Модели" },
   { id: "tasks", icon: "◷", label: "Задачи" },
   { id: "calendar", icon: "▦", label: "Календарь" },
+  { id: "mail", icon: "✉", label: "Почта" },
+  { id: "contacts", icon: "♧", label: "Контакты" },
+  { id: "telegram", icon: "➤", label: "Telegram" },
   { id: "notes", icon: "▤", label: "Заметки" },
   { id: "documents", icon: "▧", label: "Документы" },
   { id: "memory", icon: "◎", label: "Память" },
   { id: "commands", icon: "⌘", label: "Команды" },
+  { id: "integrations", icon: "⌁", label: "Интеграции" },
   { id: "capabilities", icon: "✳", label: "Возможности" },
   { id: "monitor", icon: "▥", label: "Нагрузка" },
   { id: "settings", icon: "⚙", label: "Настройки" },
@@ -309,6 +321,9 @@ export function App() {
   const modelRefreshEpoch = useRef(0);
   const dataEpoch = useRef(0);
   const [restoredVersion, setRestoredVersion] = useState(0);
+  // Workspace siblings share one key namespace, including the cached panels.
+  const pageKey = (page: string) =>
+    JSON.stringify([page, restoredVersion, activeChatId, scopeName]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [modelCategory, setModelCategory] = useState("llm");
   const [installed, setInstalled] = useState<{ id: string; size: number }[]>(
@@ -911,7 +926,7 @@ export function App() {
   function startSpeech(
     config: Settings,
     signal?: AbortSignal,
-    onSpeaking?: () => void | Promise<void>,
+    onSpeaking?: (text: string) => void | Promise<void>,
   ) {
     channel.current?.postMessage({ type: "interrupt-speech" });
     stopAudio();
@@ -944,8 +959,8 @@ export function App() {
             openvoice_voice: config.openvoice_voice,
           },
         ),
-      async (blob, signal) => {
-        await onSpeaking?.();
+      async (blob, signal, text) => {
+        await onSpeaking?.(text);
         if (generation === speechGeneration.current) setSpeechPhase("playing");
         try {
           await playAudio(blob, config.audio_output_device_id || "", signal);
@@ -1008,7 +1023,7 @@ export function App() {
       signal?: AbortSignal;
       conversation?: boolean;
       speechConfig?: Settings;
-      onSpeaking?: () => void | Promise<void>;
+      onSpeaking?: (text: string) => void | Promise<void>;
       fullDocument?: boolean;
       webSearch?: boolean;
     } = {},
@@ -1196,6 +1211,29 @@ export function App() {
           config.stt_environment === "music",
         ),
         listenWhileThinking: config.conversation_listen_while_thinking,
+        onBarge: config.conversation_barge_in
+          ? async (audio, signal, playback) => {
+              const began = performance.now();
+              const data = new FormData();
+              data.append("file", audio, "barge.wav");
+              const result = await request<{ text: string }>(
+                "/voice/transcribe",
+                "POST",
+                data,
+                signal,
+              );
+              if (
+                activated(result.text, config.conversation_wake_word) ===
+                  null ||
+                playbackEcho(result.text, playback)
+              )
+                return null;
+              setNotice(
+                `Обращение распознано за ${Math.round(performance.now() - began)} мс. Прерываю текущий ответ.`,
+              );
+              return result.text;
+            }
+          : undefined,
         onPending: (count, full) => {
           if (count)
             setNotice(
@@ -1214,6 +1252,7 @@ export function App() {
           threshold: config.conversation_threshold,
           silenceMs: config.conversation_silence_ms,
           noiseCalibrationMs: config.stt_environment === "music" ? 600 : 0,
+          maximumSpeechMs: config.conversation_max_seconds * 1000,
         },
         prepare: async (signal) => {
           await request("/voice/prepare", "POST", undefined, signal);
@@ -1227,19 +1266,31 @@ export function App() {
             conversationRef.current = null;
           fail(error);
         },
-        onTurn: async (audio, signal, phase) => {
+        onTurn: async (audio, signal, phase, verifiedText) => {
           const data = new FormData();
           data.append("file", audio, "utterance.wav");
-          const result = await request<{ text: string }>(
-            "/voice/transcribe",
-            "POST",
-            data,
-            signal,
-          );
+          const result = verifiedText
+            ? { text: verifiedText }
+            : await request<{ text: string }>(
+                "/voice/transcribe",
+                "POST",
+                data,
+                signal,
+              );
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
-          const text = result.text.trim();
+          const text = activated(
+            result.text,
+            config.conversation_wake_word,
+            config.conversation_wake_required || config.conversation_barge_in,
+          );
           if (!text) return;
+          if (
+            ["стоп", "замолчи", "хватит", "остановись"].includes(
+              text.toLowerCase().replace(/[.!?]+$/, ""),
+            )
+          )
+            return;
           if (
             ["заверши разговор", "выключи режим разговора"].includes(
               text.toLowerCase().replace(/[.!?]+$/, ""),
@@ -1260,9 +1311,10 @@ export function App() {
             signal,
             conversation: true,
             speechConfig: turnConfig,
-            onSpeaking: async () => {
+            onSpeaking: async (text) => {
               await session?.waitForPhrase(signal);
               signal.throwIfAborted();
+              session?.setPlayback(text);
               phase("speaking");
             },
           });
@@ -1596,6 +1648,13 @@ export function App() {
               aria-label={item.icon + " " + item.label}
               title={item.label}
               onClick={() => {
+                if (
+                  item.id !== tab &&
+                  !window.dispatchEvent(
+                    new Event("wiley-before-navigation", { cancelable: true }),
+                  )
+                )
+                  return;
                 setTab(item.id);
                 setError("");
               }}
@@ -2295,6 +2354,11 @@ export function App() {
               {[
                 { id: "llm", name: "Мозг", hint: "Общение и понимание команд" },
                 {
+                  id: "embeddings",
+                  name: "Семантический поиск",
+                  hint: "Память и документы по смыслу",
+                },
+                {
                   id: "tts",
                   name: "Озвучка",
                   hint: "Модель и голос ассистента",
@@ -2320,9 +2384,12 @@ export function App() {
             <div className="section-label">
               КАТАЛОГ ·{" "}
               {
-                { llm: "МОЗГ", tts: "ОЗВУЧКА", stt: "РАСПОЗНАВАНИЕ ГОЛОСА" }[
-                  modelCategory
-                ]
+                {
+                  llm: "МОЗГ",
+                  tts: "ОЗВУЧКА",
+                  stt: "РАСПОЗНАВАНИЕ ГОЛОСА",
+                  embeddings: "ПОИСК ПО СМЫСЛУ",
+                }[modelCategory]
               }
             </div>
             <div className="model-grid">
@@ -2433,6 +2500,14 @@ export function App() {
                   );
                 })}
             </div>
+            {modelCategory === "embeddings" && activeChatId && (
+              <SemanticSearch
+                settings={settings}
+                conversationId={activeChatId}
+                onSave={save}
+                onError={fail}
+              />
+            )}
             {jobs.length > 0 && (
               <div className="card">
                 <h2>Загрузки</h2>
@@ -2532,7 +2607,7 @@ export function App() {
 
         {(tab === "tasks" || tab === "notes") && (
           <Productivity
-            key={tab + restoredVersion + activeChatId}
+            key={pageKey(tab)}
             mode={tab}
             conversationId={activeChatId}
             onError={fail}
@@ -2540,7 +2615,7 @@ export function App() {
         )}
         {tab === "documents" && activeChatId && !chatLoading && (
           <DocumentPanel
-            key={restoredVersion + activeChatId + scopeName}
+            key={pageKey("documents")}
             conversationId={activeChatId}
             projectName={currentProject?.name}
             selected={selectedDocs}
@@ -2559,17 +2634,45 @@ export function App() {
         )}
         {tab === "calendar" && activeChatId && !chatLoading && (
           <CalendarPanel
-            key={restoredVersion + activeChatId + scopeName}
+            key={pageKey("calendar")}
             conversationId={activeChatId}
             scopeName={scopeName}
             onError={fail}
           />
         )}
         {tab === "capabilities" && <Capabilities onError={fail} />}
+        {tab === "integrations" && activeChatId && !chatLoading && (
+          <HomeAssistantPanel
+            key={pageKey("integrations")}
+            conversationId={activeChatId}
+            scopeName={scopeName}
+          />
+        )}
+        {activeChatId && !chatLoading && (
+          <TelegramPanel
+            key={pageKey("telegram")}
+            conversationId={activeChatId}
+            visible={tab === "telegram"}
+          />
+        )}
+        {tab === "contacts" && activeChatId && !chatLoading && (
+          <ContactsPanel
+            key={pageKey("contacts")}
+            conversationId={activeChatId}
+          />
+        )}
+        {activeChatId && !chatLoading && (
+          <MailPanel
+            key={pageKey("mail")}
+            conversationId={activeChatId}
+            scopeName={scopeName}
+            visible={tab === "mail"}
+          />
+        )}
 
         {tab === "memory" && (
           <MemoryPanel
-            key={restoredVersion + activeChatId + scopeName}
+            key={pageKey("memory")}
             memories={memories}
             conversationId={activeChatId}
             scopeName={scopeName}
@@ -2623,6 +2726,13 @@ export function App() {
               }}
             />
             <ActionLog />
+            {activeChatId && (
+              <PlanHistory
+                key={pageKey("plan-history")}
+                conversationId={activeChatId}
+                scopeName={scopeName}
+              />
+            )}
             <RoutinePanel
               key={activeChatId + ":" + restoredVersion}
               conversationId={activeChatId}
@@ -2825,6 +2935,25 @@ export function App() {
                       Используется выбранная модель. Перед изменением
                       показываются задача и точный срок. Подтвердите план словом
                       «да» или отмените.
+                    </p>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.plan_understanding}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            plan_understanding: event.target.checked,
+                          })
+                        }
+                      />
+                      Понимать составные просьбы, заметки и календарь
+                    </label>
+                    <p className="help">
+                      Выбранная модель составляет план до шести локальных
+                      действий. WileyAI уточняет запись и время, показывает все
+                      изменения и ждёт «выполни план» или «да». Условия и
+                      внешние действия задайте отдельно.
                     </p>
                     <label className="checkbox">
                       <input
@@ -3303,11 +3432,85 @@ export function App() {
                     </label>
                     <p className="help">
                       Следующие фразы сохраняются в очередь (до трёх) и
-                      обрабатываются после текущего ответа. Во время собственной
+                      обрабатываются после текущего ответа. Без
+                      экспериментального перебивания во время собственной
                       озвучки и короткой паузы после неё приём фраз
                       приостановлен. Завершение разговора или «Перебить» очищает
                       очередь. Изменения применятся после сохранения и нового
                       включения разговора.
+                    </p>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={settings.conversation_wake_required}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_wake_required: event.target.checked,
+                          })
+                        }
+                      />
+                      Принимать фразы только после обращения по имени
+                    </label>
+                    <label>
+                      Активационная фраза
+                      <input
+                        value={settings.conversation_wake_word}
+                        maxLength={40}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_wake_word: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={settings.conversation_barge_in}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_barge_in: event.target.checked,
+                          })
+                        }
+                      />
+                      Экспериментально: перебивать озвучку обращением по имени
+                    </label>
+                    <p className="help">
+                      При перебивании все команды должны начинаться с
+                      активационной фразы, например «Уайли, пауза» или «Уайли,
+                      стоп». Микрофон работает и во время озвучки; совпадения с
+                      произносимым текстом отбрасываются. Сначала проверяется
+                      обращение, затем отменяются ответ и очередь. Проверка
+                      Whisper добавляет задержку и нагрузку. Распознавание через
+                      колонки зависит от эхоподавления устройства; режим можно
+                      выключить. Это не фоновое прослушивание при закрытом
+                      разговоре.
+                    </p>
+                    <label>
+                      Максимальная длина реплики, секунд
+                      <input
+                        type="number"
+                        min={25}
+                        max={120}
+                        value={settings.conversation_max_seconds}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            conversation_max_seconds: Number(
+                              event.target.value,
+                            ),
+                          })
+                        }
+                      />
+                    </label>
+                    <p className="help">
+                      От 25 до 120 секунд одной записи. Более длинная
+                      непрерывная речь делится на части. Без активационной фразы
+                      команды принимаются как раньше, если перебивание
+                      выключено.
                     </p>
                     <label>
                       Модель распознавания
@@ -3543,6 +3746,11 @@ export function App() {
                     onNotice={setNotice}
                   />
                   <UpdatesPanel />
+                  <BackgroundSettings
+                    settings={settings}
+                    onChange={setSettings}
+                    onError={fail}
+                  />
                   <div className="card setup-launcher">
                     <h2>Первоначальная настройка</h2>
                     <p className="help">

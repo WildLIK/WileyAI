@@ -144,7 +144,14 @@ class Spaces:
             db.execute("DELETE FROM notifications WHERE task_id IN (SELECT id FROM tasks WHERE scope_id=?)", (project_id,))
             db.execute("DELETE FROM calendar_alerts WHERE event_id IN (SELECT id FROM calendar_events WHERE scope_id=?)", (project_id,))
             db.execute("DELETE FROM project_documents WHERE project_id=?", (project_id,))
-            for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events"):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='mail_remote_drafts'").fetchone():
+                db.execute("DELETE FROM mail_remote_drafts WHERE scope_id=?",(project_id,))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='telegram_outbox'").fetchone():
+                db.execute("DELETE FROM telegram_outbox WHERE scope_id=?",(project_id,))
+            for table in ("home_bindings", "home_actions"):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name=?", (table,)).fetchone():
+                    db.execute(f"DELETE FROM {table} WHERE scope_id=?", (project_id,))
+            for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events", "mail_drafts", "mail_bindings", "mail_deliveries", "contacts"):
                 db.execute(f"DELETE FROM {table} WHERE scope_id=?", (project_id,))
             db.execute("DELETE FROM projects WHERE id=?", (project_id,))
             self._ensure_chat(db)

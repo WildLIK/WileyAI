@@ -65,6 +65,14 @@ class ModelJobs:
                         endpoint = "api/create"
                         body["files"] = {Path(path).name: digest}
                     async with http.stream("POST", endpoint, json=body) as response:
+                        if response.is_error:
+                            detail = bytearray()
+                            async for part in response.aiter_bytes(chunk_size=1024):
+                                detail.extend(part)
+                                if len(detail) >= 8192:
+                                    break
+                            if b"resolves to non-public" in detail:
+                                raise ValueError("Ollama заблокировал адрес хранилища из DNS/VPN. Для загрузки модели нужен real-IP или исключение домена хранилища в VPN. DNS в настройках чтения страниц WileyAI не меняет загрузчик Ollama. Модель не установлена.")
                         response.raise_for_status()
                         async for line in response.aiter_lines():
                             if not line:

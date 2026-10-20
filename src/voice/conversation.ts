@@ -37,6 +37,7 @@ type Options = {
     audio: Blob,
     signal: AbortSignal,
     phase: (phase: Phase) => void,
+    verifiedText?: string,
   ) => Promise<void>;
   onPhase: (phase: Phase) => void;
   onError: (error: unknown) => void;
@@ -44,6 +45,11 @@ type Options = {
   cooldownMs?: number;
   listenWhileThinking?: boolean;
   onPending?: (count: number, full: boolean) => void;
+  onBarge?: (
+    audio: Blob,
+    signal: AbortSignal,
+    playback: string,
+  ) => Promise<string | null>;
 };
 
 export class Conversation {
@@ -56,6 +62,14 @@ export class Conversation {
   private working = false;
   private cooling = false;
   private pending: Float32Array[] = [];
+  private bargeSegmenter: SpeechSegmenter | null = null;
+  private bargeController: AbortController | null = null;
+  private playback = "";
+  private verified = new WeakMap<Float32Array, string>();
+
+  setPlayback(text: string) {
+    this.playback = (this.playback + " " + text).slice(-2400);
+  }
 
   constructor(options: Options) {
     this.options = options;
@@ -65,6 +79,7 @@ export class Conversation {
       phase = this.pending.length ? "queued" : "thinking_listening";
     // Never retain a partial microphone phrase across our own audio playback.
     if (phase === "speaking") this.segmenter?.reset();
+    if (phase !== "speaking") this.bargeSegmenter?.reset();
     this.phase = phase;
     this.options.onPhase(phase);
   }
@@ -89,6 +104,15 @@ export class Conversation {
         this.options.capture.sampleRate,
         this.options.speech,
       );
+      this.bargeSegmenter = this.options.onBarge
+        ? new SpeechSegmenter(this.options.capture.sampleRate, {
+            threshold: (this.options.speech?.threshold ?? 0.015) * 1.4,
+            silenceMs: 450,
+            minimumSpeechMs: 300,
+            maximumSpeechMs: 6000,
+            preRollMs: 320,
+          })
+        : null;
       this.transition(this.segmenter.calibrating ? "calibrating" : "listening");
     } catch (error) {
       if (this.active && version === this.version)
@@ -96,6 +120,13 @@ export class Conversation {
     }
   }
   private receive(frame: Float32Array) {
+    if (this.active && !this.cooling && this.phase === "speaking" && this.bargeSegmenter) {
+      if (!this.bargeController) {
+        const samples = this.bargeSegmenter.push(frame);
+        if (samples) void this.checkBarge(samples);
+      }
+      return;
+    }
     if (
       !this.active ||
       !this.segmenter ||
@@ -126,6 +157,7 @@ export class Conversation {
     const controller = new AbortController();
     this.controller = controller;
     this.working = true;
+    this.playback = "";
     this.transition("transcribing");
     try {
       await this.options.onTurn(
@@ -141,6 +173,7 @@ export class Conversation {
           )
             this.transition(phase);
         },
+        this.verified.get(samples),
       );
       if (!this.active || version !== this.version) return;
       if (this.phase === "speaking") {
@@ -167,10 +200,41 @@ export class Conversation {
       }
     }
   }
+  private async checkBarge(samples: Float32Array) {
+    const controller = new AbortController(),
+      version = this.version;
+    this.bargeController = controller;
+    try {
+      const accepted = await this.options.onBarge!(
+        new Blob([wav(samples, this.options.capture.sampleRate)], {
+          type: "audio/wav",
+        }),
+        controller.signal,
+        this.playback,
+      );
+      if (
+        accepted &&
+        this.active &&
+        version === this.version &&
+        this.phase === "speaking" &&
+        !controller.signal.aborted
+      ) {
+        this.verified.set(samples, accepted);
+        this.controller?.abort();
+        this.pending = [samples];
+        this.options.onPending?.(0, false);
+      }
+    } catch {
+      // An unavailable verifier never stops playback or executes an unverified phrase.
+    } finally {
+      if (this.bargeController === controller) this.bargeController = null;
+      this.bargeSegmenter?.reset();
+    }
+  }
   /** Delay playback until a microphone phrase already in progress is complete. */
   async waitForPhrase(signal: AbortSignal) {
     // Let a phrase already started during thinking finish before playing TTS.
-    // SpeechSegmenter bounds it to 25 seconds; stop/interrupt aborts this wait.
+    // SpeechSegmenter bounds it to the configured duration; stop aborts this wait.
     while (
       this.active &&
       this.options.listenWhileThinking &&
@@ -197,6 +261,7 @@ export class Conversation {
   interrupt() {
     if (!this.active || this.phase === "preparing") return;
     this.controller?.abort();
+    this.bargeController?.abort();
     this.pending = [];
     this.options.onPending?.(0, false);
     this.segmenter?.reset();
@@ -213,6 +278,9 @@ export class Conversation {
     this.active = false;
     this.version++;
     this.controller?.abort();
+    this.bargeController?.abort();
+    this.bargeController = null;
+    this.bargeSegmenter = null;
     this.controller = null;
     this.pending = [];
     this.working = this.cooling = false;

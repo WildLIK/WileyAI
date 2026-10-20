@@ -43,16 +43,37 @@ export interface Settings {
   music_player: "auto" | "yandex";
   command_understanding: boolean;
   task_understanding: boolean;
+  plan_understanding: boolean;
   search_enabled: boolean;
   search_provider: "searxng" | "brave";
   search_base_url: string;
   search_filter: "off" | "moderate" | "strict";
+  web_read_enabled: boolean;
+  web_dns: "system" | "cloudflare";
+  weather_enabled: boolean;
+  weather_city: string;
+  currency_enabled: boolean;
+  embedding_enabled: boolean;
+  embedding_base_url: string;
+  embedding_model: string;
+  background_timezone: string;
+  quiet_enabled: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  backup_schedule: "off" | "daily" | "weekly";
+  backup_time: string;
+  backup_weekday: number;
+  backup_keep: number;
   audio_input_device_id: string;
   audio_output_device_id: string;
   conversation_silence_ms: number;
   conversation_threshold: number;
   stt_environment: "normal" | "music";
   conversation_listen_while_thinking: boolean;
+  conversation_barge_in: boolean;
+  conversation_wake_required: boolean;
+  conversation_wake_word: string;
+  conversation_max_seconds: number;
   avatar_path: string;
   has_api_key?: boolean;
   api_key?: string;
@@ -250,8 +271,26 @@ declare global {
       clickThrough(enabled: boolean): Promise<void>;
       quit(): Promise<void>;
       restart(): Promise<void>;
+      startup(): Promise<{ available: boolean; enabled: boolean }>;
+      setStartup(
+        enabled: boolean,
+      ): Promise<{ available: boolean; enabled: boolean }>;
       startOllama(): Promise<void>;
       openUpdate(): Promise<void>;
+      googleCalendarLogin(): Promise<void>;
+      gmailLogin(): Promise<void>;
+      gmailSendLogin(): Promise<void>;
+      gmailDraftsLogin(): Promise<void>;
+      exportAttachment(options: {
+        ticket: string;
+        conversationId: string;
+        name: string;
+      }): Promise<{ path: string } | null>;
+      exportMail(options: {
+        id: string;
+        conversationId: string;
+        updated: string;
+      }): Promise<{ path: string } | null>;
       exportBackup(): Promise<{ path: string; bytes: number } | null>;
       previewBackup(): Promise<BackupPreview | null>;
       restoreBackup(options: {

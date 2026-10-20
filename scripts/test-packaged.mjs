@@ -71,9 +71,50 @@ async function verifyPackaged(data) {
       throw new Error("Unexpected base runtime state");
     const recognition = await api("/settings");
     const music = await api("/music/yandex");
-    if (recognition.music_player !== "auto" || music.connected || music.selected)
-      throw new Error("Unexpected music connection in a clean packaged profile");
-    console.log("Standalone Yandex adapter loaded: no connection or personal player touched.");
+    if (
+      recognition.music_player !== "auto" ||
+      music.connected ||
+      music.selected
+    )
+      throw new Error(
+        "Unexpected music connection in a clean packaged profile",
+      );
+    console.log(
+      "Standalone Yandex adapter loaded: no connection or personal player touched.",
+    );
+    const [mail, telegram, google, home, contacts, plans, background] =
+      await Promise.all(
+        [
+          "/mail/status",
+          "/telegram/status",
+          "/calendar/google/status",
+          "/home-assistant/status",
+          "/contacts",
+          "/plans/history",
+          "/background",
+        ].map((route) => api(route)),
+      );
+    if (
+      mail.connected ||
+      telegram.connected ||
+      google.connected ||
+      home.configured ||
+      home.binding.enabled ||
+      !Array.isArray(contacts) ||
+      contacts.length ||
+      !Array.isArray(plans) ||
+      plans.length ||
+      typeof background.quiet_now !== "boolean" ||
+      recognition.weather_enabled ||
+      recognition.web_read_enabled ||
+      !recognition.plan_understanding
+    )
+      throw new Error(
+        "Unexpected integration defaults in clean packaged profile",
+      );
+    console.log(
+      "Standalone Calendar/Gmail/Telegram/Home Assistant/plans/background adapters loaded with clean defaults.",
+    );
     if (
       recognition.stt_environment !== "normal" ||
       recognition.conversation_listen_while_thinking !== true

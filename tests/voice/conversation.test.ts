@@ -27,6 +27,39 @@ class FakeCapture implements Capture {
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+test("verified voice interruption cancels playback, discards queued speech and uses exactly one verified transcript", async () => {
+  const capture = new FakeCapture();
+  let turns = 0, checks = 0, cancelled = false;
+  const session = new Conversation({capture, prepare: async () => {}, onPhase: () => {}, onError: error => {throw error;},
+    onBarge: async (_audio, _signal, playback) => {checks++; assert.equal(playback, " Ответ о погоде"); return "Уайли, пауза";},
+    onTurn: async (_audio, signal, phase, verified) => {
+      turns++;
+      if (turns === 1) {
+        session.setPlayback("Ответ о погоде");
+        phase("speaking");
+        await new Promise<void>(resolve => signal.addEventListener("abort", () => {cancelled = true; resolve();}, {once: true}));
+        signal.throwIfAborted();
+      } else assert.equal(verified, "Уайли, пауза");
+    }});
+  await session.start(); capture.utterance(); await tick();
+  capture.utterance(); await tick(); await tick();
+  assert.equal(checks, 1); assert.equal(turns, 2); assert.equal(cancelled, true);
+  assert.equal(session.active, true); assert.equal(session.phase, "listening");
+  await session.stop();
+});
+
+test("unverified playback does not interrupt; a late verifier cannot revive a stopped session", async () => {
+  const capture = new FakeCapture();
+  let verify: (value: string | null) => void = () => {}, aborted = false;
+  const session = new Conversation({capture, prepare: async () => {}, onPhase: () => {}, onError: error => {throw error;},
+    onBarge: async () => new Promise(resolve => { verify = resolve; }),
+    onTurn: async (_audio, signal, phase) => {phase("speaking"); await new Promise<void>(resolve => signal.addEventListener("abort", () => {aborted = true; resolve();}, {once: true})); signal.throwIfAborted();}});
+  await session.start(); capture.utterance(); await tick(); capture.utterance(); await tick();
+  verify(null); await tick(); assert.equal(aborted, false);
+  capture.utterance(); await tick(); await session.stop(); verify("Уайли, открой блокнот"); await tick();
+  assert.equal(session.active, false); assert.equal(session.phase, "idle"); assert.equal(aborted, true);
+});
+
 test("TTS waits for an in-progress follow-up phrase; cancellation releases the wait", async () => {
   const capture = new FakeCapture();
   let finish: () => void = () => {};

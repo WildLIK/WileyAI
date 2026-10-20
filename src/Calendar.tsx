@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scopedRequest } from "./api";
+import { GoogleCalendarPanel } from "./GoogleCalendar";
 
 type Event = {
   id: string;
@@ -12,6 +13,17 @@ type Event = {
   reminder_minutes: number | null;
   updated: string;
   conflict: boolean;
+  all_day: boolean;
+  recurrence: string | null;
+};
+type Repeat = {
+  rule: "daily" | "weekdays" | "weekly" | "monthly";
+  monthday?: number | null;
+  excluded?: string[];
+  weekdays: number[];
+  weekday?: number | null;
+  until: string | null;
+  timezone: string;
 };
 type Schedule = { events: Event[]; total: number };
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -20,6 +32,22 @@ const local = (date: Date) =>
     .toISOString()
     .slice(0, 16);
 const today = () => local(new Date()).slice(0, 10);
+const civil = (value: string, timezone: string) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date(value))
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+};
 const shift = (day: string, count: number) => {
   const date = new Date(day + "T12:00");
   date.setDate(date.getDate() + count);
@@ -55,6 +83,7 @@ export function CalendarPanel({
   const [day, setDay] = useState(today);
   const [schedule, setSchedule] = useState<Schedule>({ events: [], total: 0 });
   const [editing, setEditing] = useState<Event | null>(null);
+  const [occurrenceStart, setOccurrenceStart] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(today() + "T10:00");
   const [end, setEnd] = useState(today() + "T11:00");
@@ -62,6 +91,11 @@ export function CalendarPanel({
   const [description, setDescription] = useState("");
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderMinutes, setReminderMinutes] = useState("15");
+  const [allDay, setAllDay] = useState(false);
+  const [repeat, setRepeat] = useState("none");
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [until, setUntil] = useState("");
+  const [eventZone, setEventZone] = useState(zone);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
@@ -114,6 +148,15 @@ export function CalendarPanel({
     void load();
   }, [load]);
   useEffect(() => {
+    const refresh = () => void load();
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [load]);
+  useEffect(() => {
     const changed = () => {
       void load();
     };
@@ -132,11 +175,17 @@ export function CalendarPanel({
 
   function clear(resetDay = day) {
     setEditing(null);
+    setOccurrenceStart(null);
     setTitle("");
     setPlace("");
     setDescription("");
     setReminderEnabled(false);
     setReminderMinutes("15");
+    setAllDay(false);
+    setRepeat("none");
+    setWeekdays([]);
+    setUntil("");
+    setEventZone(zone);
     setStart(resetDay + "T10:00");
     setEnd(resetDay + "T11:00");
   }
@@ -163,21 +212,55 @@ export function CalendarPanel({
         encodeURIComponent(editing.updated)
       : "/calendar/events";
     // Send wall-clock time and IANA zone. The core rejects DST gaps and folds.
-    await request(route, editing ? "PUT" : "POST", {
+    const body = {
       title,
       starts_at:
-        editing && start === local(new Date(editing.starts_at))
+        editing &&
+        !allDay &&
+        start === civil(editing.starts_at, editing.timezone) &&
+        eventZone === editing.timezone
           ? editing.starts_at
           : start,
       ends_at:
-        editing && end === local(new Date(editing.ends_at))
+        editing &&
+        !allDay &&
+        end === civil(editing.ends_at, editing.timezone) &&
+        eventZone === editing.timezone
           ? editing.ends_at
           : end,
-      timezone: zone,
+      timezone: eventZone,
       location: place,
       description,
       reminder_minutes: reminderEnabled ? Number(reminderMinutes) : null,
-    });
+      all_day: allDay,
+      recurrence:
+        repeat === "none" || occurrenceStart
+          ? null
+          : {
+              rule: repeat.startsWith("monthly") ? "monthly" : repeat,
+              ...(repeat.startsWith("monthly")
+                ? {
+                    monthday:
+                      repeat === "monthly_last"
+                        ? -1
+                        : Number(start.slice(8, 10)),
+                  }
+                : {}),
+              excluded: editing?.recurrence
+                ? JSON.parse(editing.recurrence).excluded || []
+                : [],
+              weekdays: repeat === "weekly" ? weekdays : [],
+              timezone: eventZone,
+              until: until || null,
+            },
+    };
+    if (occurrenceStart && editing)
+      await request("/calendar/events/" + editing.id + "/occurrence", "POST", {
+        original_start: occurrenceStart,
+        expected_updated: editing.updated,
+        replacement: body,
+      });
+    else await request(route, editing ? "PUT" : "POST", body);
     if (mounted.current) {
       clear(start.slice(0, 10));
       setNotice(editing ? "Событие изменено" : "Событие добавлено");
@@ -198,7 +281,8 @@ export function CalendarPanel({
             · {zone}
           </p>
           <p className="help">
-            Локальные события и напоминания. Google и Outlook не подключены.
+            События, повторы и напоминания. Обмен с Google — после подключения и
+            просмотра изменений.
           </p>
         </div>
       </div>
@@ -211,6 +295,13 @@ export function CalendarPanel({
           }}
         >
           <h2>{editing ? "Изменить событие" : "Новое событие"}</h2>
+          {editing?.recurrence && (
+            <p className="help">
+              {occurrenceStart
+                ? "Изменяется только выбранное вхождение."
+                : "Изменяется вся серия, начиная с её первого события."}
+            </p>
+          )}
           <fieldset disabled={working}>
             <label>
               Название события
@@ -223,23 +314,109 @@ export function CalendarPanel({
               />
             </label>
             <label>
+              Часовой пояс события
+              <input
+                required
+                maxLength={100}
+                value={eventZone}
+                onChange={(event) => setEventZone(event.target.value)}
+                placeholder="Asia/Yekaterinburg"
+              />
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={allDay}
+                onChange={(event) => {
+                  setAllDay(event.target.checked);
+                  setStart(
+                    start.slice(0, 10) + (event.target.checked ? "" : "T10:00"),
+                  );
+                  setEnd(
+                    (event.target.checked &&
+                    end.slice(0, 10) <= start.slice(0, 10)
+                      ? shift(start.slice(0, 10), 1)
+                      : end.slice(0, 10)) +
+                      (event.target.checked ? "" : "T11:00"),
+                  );
+                }}
+              />
+              Весь день
+            </label>
+            <label>
               Начало
               <input
-                type="datetime-local"
+                type={allDay ? "date" : "datetime-local"}
                 required
                 value={start}
                 onChange={(event) => setStart(event.target.value)}
               />
             </label>
             <label>
-              Окончание
+              {allDay ? "До даты (не включая этот день)" : "Окончание"}
               <input
-                type="datetime-local"
+                type={allDay ? "date" : "datetime-local"}
                 required
                 value={end}
                 onChange={(event) => setEnd(event.target.value)}
               />
             </label>
+            <label>
+              Повтор
+              <select
+                aria-label="Повтор"
+                disabled={Boolean(occurrenceStart)}
+                value={repeat}
+                onChange={(event) => {
+                  setRepeat(event.target.value);
+                  if (!weekdays.length)
+                    setWeekdays([
+                      (new Date(start.slice(0, 10) + "T12:00").getDay() + 6) %
+                        7,
+                    ]);
+                }}
+              >
+                <option value="none">Без повтора</option>
+                <option value="daily">Каждый день</option>
+                <option value="weekdays">По будням</option>
+                <option value="weekly">По дням недели</option>
+                <option value="monthly">Ежемесячно в это число</option>
+                <option value="monthly_last">В последний день месяца</option>
+              </select>
+            </label>
+            {repeat === "weekly" && (
+              <div className="button-row" aria-label="Дни повтора">
+                {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map(
+                  (label, index) => (
+                    <label className="checkbox" key={label}>
+                      <input
+                        type="checkbox"
+                        checked={weekdays.includes(index)}
+                        onChange={(event) =>
+                          setWeekdays(
+                            event.target.checked
+                              ? [...weekdays, index].sort()
+                              : weekdays.filter((day) => day !== index),
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  ),
+                )}
+              </div>
+            )}
+            {repeat !== "none" && (
+              <label>
+                Последний день повтора (необязательно)
+                <input
+                  type="date"
+                  min={start.slice(0, 10)}
+                  value={until}
+                  onChange={(event) => setUntil(event.target.value)}
+                />
+              </label>
+            )}
             <label>
               Место
               <input
@@ -362,7 +539,11 @@ export function CalendarPanel({
               )}
               {days.map((date) => {
                 const items = schedule.events.filter((item) => {
-                  const beginDay = local(new Date(item.starts_at)).slice(0, 10);
+                  const beginDay = (
+                    item.all_day
+                      ? civil(item.starts_at, item.timezone)
+                      : local(new Date(item.starts_at))
+                  ).slice(0, 10);
                   return beginDay === date || (date === day && beginDay < day);
                 });
                 return (
@@ -379,13 +560,37 @@ export function CalendarPanel({
                       <p className="help">Нет начинающихся событий</p>
                     )}
                     {items.map((item) => (
-                      <article className="calendar-event" key={item.id}>
+                      <article
+                        className="calendar-event"
+                        key={item.id + item.starts_at}
+                      >
                         <div>
                           <strong>{item.title}</strong>
                           <small>
-                            {timeLabel(item.starts_at)} —{" "}
-                            {timeLabel(item.ends_at)}
+                            {item.all_day
+                              ? "Весь день · " +
+                                civil(item.starts_at, item.timezone).slice(
+                                  0,
+                                  10,
+                                ) +
+                                " — " +
+                                shift(
+                                  civil(item.ends_at, item.timezone).slice(
+                                    0,
+                                    10,
+                                  ),
+                                  -1,
+                                )
+                              : timeLabel(item.starts_at) +
+                                " — " +
+                                timeLabel(item.ends_at)}
                           </small>
+                          {item.recurrence && (
+                            <small>
+                              Повторяющееся событие · можно изменить серию или
+                              отдельное вхождение
+                            </small>
+                          )}
                           {item.reminder_minutes !== null && (
                             <small>
                               {item.reminder_minutes === 0
@@ -410,24 +615,119 @@ export function CalendarPanel({
                             className="subtle"
                             disabled={working}
                             aria-label={"Изменить событие «" + item.title + "»"}
-                            onClick={() => {
-                              setEditing(item);
-                              setTitle(item.title);
-                              setStart(local(new Date(item.starts_at)));
-                              setEnd(local(new Date(item.ends_at)));
-                              setPlace(item.location);
-                              setDescription(item.description);
-                              setReminderEnabled(
-                                item.reminder_minutes !== null,
-                              );
-                              setReminderMinutes(
-                                String(item.reminder_minutes ?? 15),
-                              );
-                              setNotice("");
-                            }}
+                            onClick={() =>
+                              void run(async () => {
+                                item = await request<Event>(
+                                  "/calendar/events/" + item.id,
+                                );
+                                if (!mounted.current) return;
+                                setEditing(item);
+                                setOccurrenceStart(null);
+                                setAllDay(!!item.all_day);
+                                setEventZone(item.timezone);
+                                const rule: Repeat | null = item.recurrence
+                                  ? JSON.parse(item.recurrence)
+                                  : null;
+                                setRepeat(
+                                  rule?.rule === "monthly" &&
+                                    rule.monthday === -1
+                                    ? "monthly_last"
+                                    : (rule?.rule ?? "none"),
+                                );
+                                setWeekdays(
+                                  rule?.weekdays.length
+                                    ? rule.weekdays
+                                    : rule?.weekday != null
+                                      ? [rule.weekday]
+                                      : [],
+                                );
+                                setUntil(rule?.until ?? "");
+                                setTitle(item.title);
+                                setStart(
+                                  civil(item.starts_at, item.timezone).slice(
+                                    0,
+                                    item.all_day ? 10 : 16,
+                                  ),
+                                );
+                                setEnd(
+                                  civil(item.ends_at, item.timezone).slice(
+                                    0,
+                                    item.all_day ? 10 : 16,
+                                  ),
+                                );
+                                setPlace(item.location);
+                                setDescription(item.description);
+                                setReminderEnabled(
+                                  item.reminder_minutes !== null,
+                                );
+                                setReminderMinutes(
+                                  String(item.reminder_minutes ?? 15),
+                                );
+                                setNotice("");
+                              })
+                            }
                           >
                             Изменить
                           </button>
+                          {item.recurrence && (
+                            <>
+                              <button
+                                className="subtle"
+                                disabled={working}
+                                onClick={() => {
+                                  setEditing(item);
+                                  setOccurrenceStart(item.starts_at);
+                                  setTitle(item.title);
+                                  setAllDay(!!item.all_day);
+                                  setEventZone(item.timezone);
+                                  setStart(
+                                    civil(item.starts_at, item.timezone).slice(
+                                      0,
+                                      item.all_day ? 10 : 16,
+                                    ),
+                                  );
+                                  setEnd(
+                                    civil(item.ends_at, item.timezone).slice(
+                                      0,
+                                      item.all_day ? 10 : 16,
+                                    ),
+                                  );
+                                  setPlace(item.location);
+                                  setDescription(item.description);
+                                  setReminderEnabled(
+                                    item.reminder_minutes !== null,
+                                  );
+                                  setReminderMinutes(
+                                    String(item.reminder_minutes ?? 15),
+                                  );
+                                  setRepeat("none");
+                                }}
+                              >
+                                Перенести это вхождение
+                              </button>
+                              <button
+                                className="subtle danger"
+                                disabled={working}
+                                onClick={() =>
+                                  void run(async () => {
+                                    await request(
+                                      "/calendar/events/" +
+                                        item.id +
+                                        "/occurrence",
+                                      "POST",
+                                      {
+                                        original_start: item.starts_at,
+                                        expected_updated: item.updated,
+                                      },
+                                    );
+                                    setNotice("Выбранное вхождение пропущено");
+                                  })
+                                }
+                              >
+                                Пропустить это вхождение
+                              </button>
+                            </>
+                          )}
                           <button
                             className="subtle danger"
                             disabled={working}
@@ -448,7 +748,7 @@ export function CalendarPanel({
                               })
                             }
                           >
-                            Удалить
+                            {item.recurrence ? "Удалить серию" : "Удалить"}
                           </button>
                         </div>
                       </article>
@@ -460,6 +760,15 @@ export function CalendarPanel({
           )}
         </div>
       </div>
+      <GoogleCalendarPanel
+        conversationId={conversationId}
+        start={new Date(day + "T00:00").toISOString()}
+        end={new Date(shift(day, 7) + "T00:00").toISOString()}
+        onChanged={() => {
+          channel.current?.postMessage({ type: "calendar-changed" });
+          void load();
+        }}
+      />
     </section>
   );
 }

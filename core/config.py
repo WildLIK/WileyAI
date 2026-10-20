@@ -60,6 +60,10 @@ class Settings(BaseModel):
     stt_quality: Literal["fast", "balanced", "accurate"] = "accurate"
     stt_environment: Literal["normal", "music"] = "normal"
     conversation_listen_while_thinking: bool = True
+    conversation_barge_in: bool = False
+    conversation_wake_required: bool = False
+    conversation_wake_word: str = Field(default="Уайли", min_length=2, max_length=40, pattern=r"^[А-Яа-яЁёA-Za-z ]+$")
+    conversation_max_seconds: int = Field(default=60, ge=25, le=120)
     tts_engine: Literal["silero", "silero_v5_6", "piper", "sapi", "qwen3", "cloud"] = "silero"
     tts_service: Literal["openrouter", "routerai", "compatible"] = "openrouter"
     tts_base_url: str = "https://openrouter.ai/api/v1"
@@ -83,10 +87,27 @@ class Settings(BaseModel):
     music_player: Literal["auto", "yandex"] = "auto"
     command_understanding: bool = False
     task_understanding: bool = True
+    plan_understanding: bool = True
     search_enabled: bool = False
     search_provider: Literal["searxng", "brave"] = "searxng"
     search_base_url: str = "http://127.0.0.1:8080"
     search_filter: Literal["off", "moderate", "strict"] = "off"
+    web_read_enabled: bool = False
+    web_dns: Literal["system", "cloudflare"] = "system"
+    weather_enabled: bool = False
+    weather_city: str = Field(default="", max_length=100)
+    currency_enabled: bool = False
+    embedding_enabled: bool = False
+    embedding_model: str = Field(default="embeddinggemma:300m", min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_./:-]*$")
+    embedding_base_url: str = "http://127.0.0.1:11434"
+    background_timezone: str = "UTC"
+    quiet_enabled: bool = False
+    quiet_start: str = Field(default="23:00", pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    quiet_end: str = Field(default="08:00", pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    backup_schedule: Literal["off", "daily", "weekly"] = "off"
+    backup_time: str = Field(default="18:00", pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    backup_weekday: int = Field(default=6, ge=0, le=6)
+    backup_keep: int = Field(default=7, ge=1, le=30)
     audio_input_device_id: str = Field(default="", max_length=512)
     audio_output_device_id: str = Field(default="", max_length=512)
     conversation_silence_ms: int = Field(default=1000, ge=500, le=2500)
@@ -112,6 +133,33 @@ class Settings(BaseModel):
         if parsed.port is not None and not 1 <= parsed.port <= 65535:
             raise ValueError("Укажите корректный порт SearXNG")
         return cls.valid_endpoint(value)
+
+    @field_validator("embedding_base_url")
+    @classmethod
+    def local_embeddings(cls, value):
+        value = cls.valid_search_endpoint(value)
+        parsed = urlparse(value)
+        if parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or parsed.path not in {"", "/"}:
+            raise ValueError("Укажите корневой адрес локального Ollama для embeddings")
+        return value
+
+    @field_validator("background_timezone")
+    @classmethod
+    def known_background_timezone(cls, value):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("Неизвестный часовой пояс фоновых задач")
+        return value
+
+    @field_validator("conversation_wake_word")
+    @classmethod
+    def real_wake_word(cls, value):
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Введите активационную фразу из букв")
+        return value
 
     @field_validator("tts_base_url")
     @classmethod

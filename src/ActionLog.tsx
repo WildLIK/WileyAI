@@ -27,7 +27,11 @@ export function ActionLog() {
   const [error, setError] = useState("");
   const load = async () => {
     try {
-      setItems(await request<Entry[]>("/actions"));
+      setItems(
+        (await request<Entry[]>("/actions")).filter(
+          (item) => item.kind !== "plan",
+        ),
+      );
       setError("");
     } catch (reason) {
       setError(String(reason));

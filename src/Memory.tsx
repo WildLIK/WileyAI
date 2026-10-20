@@ -282,21 +282,31 @@ export function MemoryPanel(
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState(props.memories);
+  const [searchNotice, setSearchNotice] = useState("");
   const [pending, setPending] = useState(false);
   useEffect(() => {
     if (!query.trim()) {
       setMatches(props.memories);
+      setSearchNotice("");
       return;
     }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      request<Memory[]>(
-        "/memories?q=" + encodeURIComponent(query),
+      request<{ items: Memory[]; mode: string; notice: string }>(
+        "/memory-search?q=" + encodeURIComponent(query),
         "GET",
         undefined,
         controller.signal,
       )
-        .then(setMatches)
+        .then((result) => {
+          setMatches(result.items);
+          setSearchNotice(
+            result.notice ||
+              (result.mode === "semantic"
+                ? "Результаты поиска по смыслу"
+                : "Результаты поиска по словам"),
+          );
+        })
         .catch(props.onError);
     }, 200);
     return () => {
@@ -352,6 +362,11 @@ export function MemoryPanel(
           Запомнить
         </button>
       </form>
+      {searchNotice && (
+        <p className="help" role="status">
+          {searchNotice}
+        </p>
+      )}
       <label className="memory-search">
         Поиск по памяти
         <input

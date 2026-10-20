@@ -274,6 +274,21 @@ test("setup: first launch, model download/cancel, resume after restart, voice/de
     await expect(
       page.getByRole("meter", { name: "Уровень микрофона" }),
     ).toBeVisible();
+    // The meter appears while getUserMedia is still acquiring its stream.
+    // Wait for real live tracks so the following check exercises their cleanup.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const tracks = (
+            window as unknown as { setupTracks?: MediaStreamTrack[] }
+          ).setupTracks;
+          return Boolean(
+            tracks?.length &&
+            tracks.every((track) => track.readyState === "live"),
+          );
+        }),
+      )
+      .toBe(true);
     await page.getByRole("button", { name: "Сохранить и продолжить" }).click();
     await expect(
       page.getByRole("heading", { name: "Можно начинать общение" }),
