@@ -614,6 +614,10 @@ function MailContent({
         <div className="mail-grid">
           <section className="card">
             <h2>Письма Gmail</h2>
+            <p className="hint">
+              В чате или голосом: «Прочитай последнее письмо из Gmail» или
+              «Прочитай последнее непрочитанное письмо».
+            </p>
             <form
               onSubmit={(event) => {
                 event.preventDefault();

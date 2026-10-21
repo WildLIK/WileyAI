@@ -40,9 +40,24 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     ).toBeVisible();
     await api(page, "/settings", "PUT", {
       ...(await api(page, "/settings")),
-      weather_city: "Сургут, ХМАО",
+      weather_city: "Москва, Россия",
       weather_enabled: true,
     });
+    await page.route("**/weather/current", (route) =>
+      route.fulfill({
+        json: {
+          place: "Москва, Россия",
+          timezone: "Europe/Moscow",
+          checked_at: new Date().toISOString(),
+          current: {
+            temperature: 3,
+            feels_like: 1,
+            condition: "пасмурно",
+            time: "2026-10-21T15:30",
+          },
+        },
+      }),
+    );
     await page.reload();
     const requests: { city: string; day: number; days: number }[] = [];
     let release: (() => void) | undefined;
@@ -90,11 +105,11 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     await panel
       .getByRole("button", { name: "Проверить погоду", exact: true })
       .click();
-    await expect(forecast).toContainText("Сургут, ХМАО");
+    await expect(forecast).toContainText("Москва, Россия");
     await expect(forecast).toContainText("−3,5".replace("−", "-"));
     await panel
       .getByLabel("Другой город для проверки", { exact: true })
-      .fill("Нижнесортымский, ХМАО");
+      .fill("Санкт-Петербург, Россия");
     await expect(forecast).toHaveCount(0);
     await panel
       .getByLabel("Период прогноза", { exact: true })
@@ -102,9 +117,9 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     await panel
       .getByRole("button", { name: "Проверить погоду", exact: true })
       .click();
-    await expect(forecast).toContainText("Нижнесортымский");
+    await expect(forecast).toContainText("Санкт-Петербург");
     await expect(forecast.locator("article")).toHaveCount(7);
-    expect((await api(page, "/settings")).weather_city).toBe("Сургут, ХМАО");
+    expect((await api(page, "/settings")).weather_city).toBe("Москва, Россия");
     await mkdir("local/review", { recursive: true });
     await forecast.screenshot({ path: "local/review/weather-week.png" });
     held = new Promise<void>((resolve) => {
@@ -112,14 +127,14 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     });
     await panel
       .getByLabel("Другой город для проверки", { exact: true })
-      .fill("Сургут, ХМАО");
+      .fill("Москва, Россия");
     await panel
       .getByRole("button", { name: "Проверить погоду", exact: true })
       .click();
     await expect.poll(() => requests.length).toBe(3);
     await panel
       .getByLabel("Другой город для проверки", { exact: true })
-      .fill("Нижнесортымский, ХМАО");
+      .fill("Санкт-Петербург, Россия");
     release!();
     held = undefined;
     await expect(forecast).toHaveCount(0);
@@ -129,10 +144,10 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     await panel
       .getByRole("button", { name: "Проверить погоду", exact: true })
       .click();
-    await expect(forecast).toContainText("Нижнесортымский");
+    await expect(forecast).toContainText("Санкт-Петербург");
     await expect(forecast.locator("article")).toHaveCount(1);
     expect(requests.at(-1)?.day).toBe(2);
-    expect((await api(page, "/settings")).weather_city).toBe("Сургут, ХМАО");
+    expect((await api(page, "/settings")).weather_city).toBe("Москва, Россия");
     await page.getByRole("button", { name: "◈ Общение", exact: true }).click();
     await page
       .getByRole("button", { name: "⚙ Настройки", exact: true })
@@ -140,7 +155,7 @@ test("weather: explicit preview, another town, seven days, cancellation and save
     await page.getByRole("tab", { name: /Поиск/ }).click();
     await expect(
       page.getByLabel("Город для погоды", { exact: true }),
-    ).toHaveValue("Сургут, ХМАО");
+    ).toHaveValue("Москва, Россия");
   } finally {
     await app.close();
   }

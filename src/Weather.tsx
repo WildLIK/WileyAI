@@ -112,7 +112,7 @@ export function WeatherSettings({
         <input
           value={settings.weather_city}
           maxLength={100}
-          placeholder="Сургут, ХМАО"
+          placeholder="Москва, Россия"
           onChange={(event) => {
             clear();
             onChange({ ...settings, weather_city: event.target.value });
@@ -122,8 +122,8 @@ export function WeatherSettings({
       <p className="help">
         Для запросов в чате сохраните город и разрешение общей кнопкой
         «Сохранить». Можно сказать «Какая сейчас погода?», «Погода завтра в
-        Нижнесортымском, ХМАО» или «Прогноз на неделю». Модель и поисковый
-        сервер не нужны.
+        Москве» или «Прогноз на неделю». Модель и поисковый сервер не нужны. В
+        верхней панели погода сохранённого города обновляется раз в 30 минут.
       </p>
       <div className="weather-preview-tools">
         <label>
@@ -131,7 +131,7 @@ export function WeatherSettings({
           <input
             value={city}
             maxLength={100}
-            placeholder="Необязательно: Нижнесортымский, ХМАО"
+            placeholder="Необязательно: Москва, Россия"
             onChange={(event) => {
               clear();
               setCity(event.target.value);

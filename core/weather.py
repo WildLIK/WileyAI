@@ -1,8 +1,10 @@
 """Direct weather forecasts. Explicit place, no location inference or LLM."""
 from datetime import datetime, timedelta, timezone
+import asyncio
 import json
 import math
 import re
+import time
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -100,7 +102,7 @@ class ForecastQuery(BaseModel):
 
 async def forecast(settings, city, day=0, days=1):
     if not settings.weather_enabled: raise websearch.SearchError("Погода выключена. Включите её в «Настройки → Интернет»")
-    if not city: raise websearch.SearchError("Укажите город: «Погода в Сургуте, ХМАО» или сохраните его в настройках")
+    if not city: raise websearch.SearchError("Укажите город: «Погода в Москве, Россия» или сохраните его в настройках")
     query = ForecastQuery(city=city, day=day, days=days)
     parts = city_name(query.city)
     geo_url = GEOCODER + "?" + urlencode({"name": ", ".join(parts[:2]), "count": 100, "language": "ru", "format": "json"})
@@ -156,3 +158,24 @@ async def forecast(settings, city, day=0, days=1):
         text += f"\nПрогноз на {datetime.fromisoformat(row['date']):%d.%m.%Y}: {row['condition']}. Температура {row['low']:g}…{row['high']:g} °C, вероятность осадков {row['rain']:g}%."
     text += "\nOpen-Meteo: модельный прогноз, не показание личного датчика. Местоположение: GeoNames."
     return {"place": label, "timezone": zone, "current": current, "days": selected, "checked_at": datetime.now(timezone.utc).isoformat(), "text": text, "sources": [{"title": "Open-Meteo · " + label[:160], "url": url, "snippet": text[:600]}, {"title": "GeoNames через Open-Meteo · найденное место", "url": geo_url, "snippet": label}]}
+
+
+class CurrentWeather:
+    """One saved-city forecast shared by application windows for 30 minutes."""
+    def __init__(self, clock=time.monotonic):
+        self.clock, self.lock = clock, asyncio.Lock()
+        self.key, self.value, self.expires, self.day = None, None, 0, None
+
+    async def read(self, settings):
+        if not settings.weather_enabled: raise websearch.SearchError("Погода выключена. Включите её в «Настройки → Поиск»")
+        city = settings.weather_city.strip()
+        if not city: raise websearch.SearchError("Сохраните город для погоды в настройках, например «Москва, Россия»")
+        key = (city, settings.web_dns)
+        async with self.lock:
+            if self.value and self.key == key and self.clock() < self.expires and self.day == datetime.now(ZoneInfo(self.value["timezone"])).date():
+                return self.value
+            value = await forecast(settings, city)
+            self.key, self.value = key, value
+            self.expires = self.clock() + 30 * 60
+            self.day = datetime.now(ZoneInfo(value["timezone"])).date()
+            return value

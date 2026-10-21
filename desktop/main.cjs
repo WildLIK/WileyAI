@@ -12,6 +12,8 @@ const {
   session,
   Notification,
   shell,
+  screen,
+  powerMonitor,
 } = require("electron");
 const { spawn } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
@@ -25,6 +27,12 @@ const { createNotificationDelivery } = require("./notifications.cjs");
 const { APP_ID } = require("./identity.cjs");
 const { CoreConnection, portFromOutput } = require("./core-connection.cjs");
 const { startupPreferences } = require("./startup.cjs");
+const { installAvatar } = require("./avatar.cjs");
+const { installAvatarLayout } = require("./avatar-layout.cjs");
+const {
+  avatarTrayItems,
+  installAvatarControls,
+} = require("./avatar-controls.cjs");
 
 const root = path.resolve(__dirname, "..");
 const backend = app.isPackaged
@@ -62,6 +70,9 @@ const serviceEnv = {
     : {}),
 };
 const windows = new Map();
+let avatarDesktop;
+let avatarLayout;
+let avatarControls;
 let core;
 let connection;
 const coreConnection = new CoreConnection();
@@ -288,31 +299,52 @@ async function startCore() {
   });
 }
 
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Чат", click: () => showWindow("chat") },
+      { label: "Настройки", click: () => showWindow("settings") },
+      ...avatarTrayItems(avatarControls, () => showWindow("avatar")),
+      { type: "separator" },
+      { label: "Выйти", click: () => app.quit() },
+    ]),
+  );
+}
+
 function showWindow(view = "chat") {
-  if (!["chat", "settings", "avatar"].includes(view))
+  if (!["chat", "settings", "avatar", "avatar-test"].includes(view))
     throw new Error("Неизвестное окно");
+  if (view === "avatar-test") showWindow("avatar");
+  if (view === "avatar") avatarControls?.setClickThrough(false);
   const existing = windows.get(view);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
     existing.show();
     existing.focus();
+    if (view === "avatar-test") avatarLayout.arrange();
     return;
   }
   const avatar = view === "avatar";
+  const tool = view === "avatar-test";
   const window = new BrowserWindow({
     title: avatar
       ? "WileyAI · Аватар"
-      : view === "settings"
-        ? "WileyAI · Настройки"
-        : "WileyAI",
-    width: avatar ? 360 : 1220,
-    height: avatar ? 570 : 820,
-    minWidth: avatar ? 300 : 900,
-    minHeight: avatar ? 420 : 650,
+      : tool
+        ? "WileyAI · Эмоции и позы"
+        : view === "settings"
+          ? "WileyAI · Настройки"
+          : "WileyAI",
+    width: avatar ? 480 : tool ? 340 : 1220,
+    height: avatar ? 740 : tool ? 540 : 820,
+    ...(avatar ? avatarLayout.initial() : {}),
+    minWidth: avatar || tool ? 300 : 900,
+    minHeight: avatar || tool ? 420 : 650,
+    resizable: true,
     backgroundColor: avatar ? "#00000000" : "#101218",
     transparent: avatar,
     frame: !avatar,
-    alwaysOnTop: avatar,
+    alwaysOnTop: avatar || tool,
     autoHideMenuBar: true,
     show: false,
     icon: path.join(__dirname, "icon.png"),
@@ -326,6 +358,9 @@ function showWindow(view = "chat") {
     },
   });
   windows.set(view, window);
+  avatarDesktop?.watch(window);
+  avatarLayout.watch(window, view);
+  avatarControls.watch(window, view);
   const reportActivity = () =>
     sendToWindow(window, "window-activity", windowActivity(window));
   for (const event of ["show", "hide", "minimize", "restore", "focus", "blur"])
@@ -340,16 +375,22 @@ function showWindow(view = "chat") {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.on("close", (event) => {
-    if (!quitting && !test) {
+    if (!quitting && !test && !tool) {
       event.preventDefault();
-      window.hide();
+      if (avatar) avatarControls.hide();
+      else window.hide();
     }
   });
   window.on("closed", () => {
     conversation.releaseSender(contentsId);
     windows.delete(view);
+    const toolWindow = windows.get("avatar-test");
+    if (avatar && toolWindow && !toolWindow.isDestroyed()) toolWindow.close();
   });
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (tool) avatarLayout.arrange();
+    window.show();
+  });
   window.loadURL(
     (dev ? "http://127.0.0.1:5173/" : "app://wileyai/") + "?view=" + view,
   );
@@ -360,6 +401,7 @@ function windowActivity(window) {
   return {
     visible: Boolean(
       window &&
+      !avatarDesktop?.paused &&
       !window.isDestroyed() &&
       window.isVisible() &&
       !window.isMinimized(),
@@ -369,6 +411,40 @@ function windowActivity(window) {
 }
 app.whenReady().then(async () => {
   if (!primary) return;
+  avatarControls = installAvatarControls({
+    ipcMain,
+    BrowserWindow,
+    windows,
+    screen,
+    trusted,
+    sendToWindow,
+    changed: refreshTrayMenu,
+    paused: () => Boolean(avatarDesktop?.paused),
+  });
+  avatarLayout = installAvatarLayout({
+    ipcMain,
+    BrowserWindow,
+    screen,
+    windows,
+    trusted,
+    sendToWindow,
+    dataRoot,
+  });
+  avatarDesktop = installAvatar({
+    ipcMain,
+    BrowserWindow,
+    windows,
+    trusted,
+    sendToWindow,
+    screen,
+    powerMonitor,
+    activity: (window) =>
+      sendToWindow(window, "window-activity", windowActivity(window)),
+    stop: () => {
+      conversation.stop();
+      for (const window of windows.values()) sendToWindow(window, "stop-all");
+    },
+  });
   protocol.handle("app", (request) => {
     const url = new URL(request.url);
     if (url.host !== "wileyai")
@@ -467,7 +543,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("gmail-send-login", (event) =>
     googleLogin(event, "/mail/gmail/send-login"),
   );
-  ipcMain.handle("gmail-drafts-login", (event) => googleLogin(event,"/mail/gmail/drafts-login"));
+  ipcMain.handle("gmail-drafts-login", (event) =>
+    googleLogin(event, "/mail/gmail/drafts-login"),
+  );
   ipcMain.handle("mail-export", async (event, options) => {
     trusted(event);
     if (
@@ -656,12 +734,6 @@ app.whenReady().then(async () => {
       throw new Error("Для первого прототипа выберите VRM до 64 МБ");
     return new Uint8Array(await fs.readFile(file));
   });
-  ipcMain.handle("avatar-clickthrough", (event, enabled) => {
-    trusted(event);
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (windows.get("avatar") === window)
-      window.setIgnoreMouseEvents(Boolean(enabled), { forward: true });
-  });
   ipcMain.handle("quit", (event) => {
     trusted(event);
     app.quit();
@@ -721,21 +793,7 @@ app.whenReady().then(async () => {
         nativeImage.createFromPath(path.join(__dirname, "icon.png")),
       );
       tray.setToolTip("WileyAI");
-      tray.setContextMenu(
-        Menu.buildFromTemplate([
-          { label: "Чат", click: () => showWindow("chat") },
-          { label: "Настройки", click: () => showWindow("settings") },
-          {
-            label: "Аватар",
-            click: () => {
-              windows.get("avatar")?.setIgnoreMouseEvents(false);
-              showWindow("avatar");
-            },
-          },
-          { type: "separator" },
-          { label: "Выйти", click: () => app.quit() },
-        ]),
-      );
+      refreshTrayMenu();
       tray.on("double-click", () => showWindow("chat"));
       globalShortcut.register("CommandOrControl+Shift+Space", () =>
         showWindow("chat"),
@@ -743,8 +801,11 @@ app.whenReady().then(async () => {
       globalShortcut.register("CommandOrControl+Shift+Escape", () => {
         conversation.stop();
         for (const window of windows.values()) sendToWindow(window, "stop-all");
-        windows.get("avatar")?.setIgnoreMouseEvents(false);
+        avatarControls.setClickThrough(false);
       });
+      globalShortcut.register("CommandOrControl+Alt+A", () =>
+        avatarControls.setClickThrough(!avatarControls.state().clickThrough),
+      );
     }
   } catch (error) {
     coreConnection.fail(error);

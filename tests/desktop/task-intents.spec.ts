@@ -30,7 +30,7 @@ async function records(page: Page) {
 
 test("natural tasks: structured preview, restart, one confirmation and a persistent off switch", async () => {
   let structured = 0;
-  const day = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  let day = "";
   const model = createServer(async (request, response) => {
     if (request.method === "GET") {
       response.setHeader("Content-Type", "application/json");
@@ -78,6 +78,11 @@ test("natural tasks: structured preview, restart, one confirmation and a persist
   let app = await launch();
   try {
     let page = await app.firstWindow();
+    day = await page.evaluate(() => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow.toLocaleDateString("sv-SE");
+    });
     await expect(
       page.getByRole("heading", { name: "Привет, я Уайли." }),
     ).toBeVisible();

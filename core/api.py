@@ -35,8 +35,8 @@ from .telegram_client import Telegram
 from .telegram_api import install_telegram
 from .home_assistant import HomeAssistant
 from .home_assistant_api import install_home_assistant
-from . import home_assistant_chat
-from .weather import ForecastQuery, forecast as weather_forecast
+from . import home_assistant_chat, mail_chat
+from .weather import CurrentWeather, ForecastQuery, forecast as weather_forecast
 from .google_calendar import GoogleCalendar, GoogleClientBody, GoogleBindingBody, GooglePreviewBody, GoogleApplyBody
 from .mail import Mail
 from .mail_api import install_mail
@@ -219,6 +219,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     spaces = Spaces(store)
     semantic = SemanticIndex(store)
     background = Background(store)
+    current_weather = CurrentWeather()
     google = GoogleCalendar(store)
     telegram = Telegram(store)
     home = HomeAssistant(store)
@@ -818,6 +819,10 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     class WeatherPreview(ForecastQuery):
         dns_mode: Literal["system", "cloudflare"] = "system"
 
+    @app.get("/weather/current")
+    async def saved_city_weather():
+        return await current_weather.read(store.settings())
+
     @app.post("/weather/preview")
     async def preview_weather(body: WeatherPreview):
         # Explicit settings-panel probe. It neither enables weather in chat
@@ -1207,6 +1212,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         chat_store = store.for_chat(body.conversation_id)
         Library(chat_store).selected(body.document_ids, content=False)
         text = body.text.strip()
+        mail_request = mail_chat.request(text, chat_store.list("messages", 6), current.name) if not body.full_document and not body.web_search and not body.document_ids else None
         if body.full_document and (not body.document_ids or body.web_search):
             raise HTTPException(400, "Для полного пересказа прикрепите файлы и выключите веб-поиск")
         music_request = None if body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
@@ -1216,7 +1222,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         info_request = information.request(text, current.name) if not body.full_document and not body.web_search and not music_request else None
         full_document = body.full_document
         home_request = home_assistant_chat.request(text, current.name) if not full_document and not body.web_search and not body.document_ids else None
-        plan_allowed = not full_document and not body.web_search and not body.document_ids and home_request is None
+        plan_allowed = not full_document and not body.web_search and not body.document_ids and home_request is None and mail_request is None
         plan_requested = plan_allowed and action_plans.eligible(text, current.name, bool(chat_store.dialogue().get("last_plan_target")))
         routine_name = requested_name(text) if search_query is None and info_request is None else None
         opening_text = intents.opening_request(text, current.name)
@@ -1268,7 +1274,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 audio_followup = audio_intents.consume(chat_store, text, current.name)
                 followup = None if full_document else intents.consume(chat_store, text, open_tools, current.name)
                 task_reply = await task_intents.consume(chat_store, current, text, body.timezone,
-                    allow=plan_reply is None and not plan_requested and home_request is None and not full_document and search_query is None and info_request is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
+                    allow=plan_reply is None and not plan_requested and home_request is None and mail_request is None and not full_document and search_query is None and info_request is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
                 if task_reply and task_reply.changed:
                     task_progress.append(task_reply.text)
                 if current.memory_suggestions and not full_document and search_query is None and info_request is None and not text.casefold().startswith("запомни:"):
@@ -1286,6 +1292,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         pending_action_plan = proposal if proposal.plan else None
                     else:
                         answer = "Понимание составных просьб выключено в настройках. Включите его или отправьте поручения отдельно. Ничего не изменено."
+                    yield event("delta", text=answer)
+                elif mail_request is not None:
+                    yield event("stage", text="Получаю письмо из Gmail…" if mail_request["kind"] == "latest" else "Проверяю команду почты…")
+                    try:
+                        answer = await mail_chat.handle(mail, chat_store, mail_request)
+                    except ValueError as error:
+                        answer = "Не удалось прочитать Gmail: " + str(error)
                     yield event("delta", text=answer)
                 elif home_reply is not None:
                     answer = home_reply
@@ -1530,7 +1543,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     history = []
                     used = len(system) + len(question)
                     for item in ([] if full_document else reversed(chat_store.list("messages", 40)[:-1])):
-                        content = item["content"]
+                        content = mail_chat.model_history(item["content"])
                         allowance = budget - used
                         if len(content) > allowance:
                             if len(history) < 2 and allowance >= 250:

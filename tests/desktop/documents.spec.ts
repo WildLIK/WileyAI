@@ -3,6 +3,7 @@ import {
   expect,
   _electron as electron,
   type Page,
+  type Route,
 } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdtemp } from "node:fs/promises";
@@ -326,18 +327,19 @@ test("documents: local search, preview, explicit project copy, model selection, 
     const second = await opened;
     await docs(second);
     await expect(second.locator(".document-entry")).toHaveCount(1);
-    await page.route(
-      "**/chat",
-      (route) =>
-        route.fulfill({
-          status: 400,
-          contentType: "application/json",
-          body: JSON.stringify({
-            detail: "Выбранный документ удалён. Выберите документы заново",
-          }),
+    const deletedDocument = async (route: Route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({
+          detail: "Выбранный документ удалён. Выберите документы заново",
         }),
-      { times: 1 },
-    );
+      });
+      await page.unroute("**/chat", deletedDocument);
+    };
+    await page.route("**/chat", deletedDocument);
     await page
       .getByLabel("Сообщение", { exact: true })
       .fill("Сохрани этот вопрос при ошибке выбора файла");

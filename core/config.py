@@ -113,6 +113,11 @@ class Settings(BaseModel):
     conversation_silence_ms: int = Field(default=1000, ge=500, le=2500)
     conversation_threshold: float = Field(default=0.015, ge=0.003, le=0.1)
     avatar_path: str = Field(default="", max_length=4096)
+    avatar_motion: bool = True
+    avatar_gaze: bool = True
+    avatar_expressions: bool = True
+    avatar_expression_strength: float = Field(default=0.65, ge=0, le=1)
+    avatar_fps: Literal[15, 30, 60] = 30
 
     @field_validator("base_url")
     @classmethod

@@ -50,6 +50,7 @@ def test_task_timezone_validation_and_capability_status(tmp_path):
         task=api.post('/tasks',json={'title':'Встреча','kind':'reminder','due':'2026-10-16T10:00:00+05:00'}).json()
         assert task['due'] == '2026-10-16T05:00:00+00:00'
         items={item['id']:item for item in api.get('/capabilities').json()}
-        assert len(items) == 14
+        assert len(items) == 15
+        assert items['avatar']['status'] == 'partial'
         assert items['calendar']['status'] == 'partial'
         assert items['tasks']['status'] == 'available'

@@ -115,6 +115,51 @@ async function verifyPackaged(data) {
     console.log(
       "Standalone Calendar/Gmail/Telegram/Home Assistant/plans/background adapters loaded with clean defaults.",
     );
+    const mailRead = await fetch(connection.url + "/chat", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + connection.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text: "Прочитай последнее письмо из Gmail" }),
+    });
+    const mailResult = await mailRead.text();
+    if (
+      !mailRead.ok ||
+      !mailResult.includes("Gmail") ||
+      !mailResult.toLowerCase().includes("подключ")
+    )
+      throw new Error(
+        "Packaged Gmail read command did not report the missing connection",
+      );
+    console.log(
+      "Standalone Gmail chat read reports clean connection state without a model.",
+    );
+    const openedAvatar = app.waitForEvent("window");
+    await page.evaluate(() => window.wiley.showWindow("avatar"));
+    const avatar = await openedAvatar;
+    await avatar
+      .getByRole("button", { name: "Пропуск кликов", exact: true })
+      .waitFor();
+    const clickMode = await avatar.evaluate(() =>
+      window.wiley.clickThrough(true),
+    );
+    if (!clickMode.visible || !clickMode.clickThrough)
+      throw new Error("Packaged click-through did not enable");
+    const normalMode = await avatar.evaluate(() =>
+      window.wiley.clickThrough(false),
+    );
+    if (normalMode.clickThrough)
+      throw new Error("Packaged click-through did not disable");
+    await avatar
+      .getByRole("button", { name: "Закрыть окно аватара", exact: true })
+      .click();
+    const hidden = await avatar.evaluate(() => window.wiley.avatarControls());
+    if (hidden.visible || hidden.clickThrough || page.isClosed())
+      throw new Error("Packaged avatar close affected the chat");
+    console.log(
+      "Standalone avatar controls loaded, click-through toggled and avatar hidden without closing chat.",
+    );
     if (
       recognition.stt_environment !== "normal" ||
       recognition.conversation_listen_while_thinking !== true

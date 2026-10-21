@@ -6,6 +6,7 @@ import "./style.css";
 import "./themes.css";
 import { restoreAppearance } from "./appearance";
 import { ProcessStatus } from "./ProcessStatus";
+import { AvatarTestWindow } from "./AvatarTestWindow";
 restoreAppearance();
 
 const root = createRoot(document.getElementById("root")!);
@@ -39,4 +40,6 @@ function start() {
       ),
     );
 }
-start();
+if (new URLSearchParams(location.search).get("view") === "avatar-test")
+  root.render(<AvatarTestWindow />);
+else start();

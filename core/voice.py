@@ -17,6 +17,7 @@ import gc
 import httpx
 from .piper import Piper
 from .speech_text import plain_speech, speech_chunks
+from .speech_numbers import silero_numbers
 from .qwen import QwenSpeech
 from .cloud_speech import CloudSpeech
 from .openvoice import OpenVoice, LOCAL_ENGINES
@@ -182,6 +183,7 @@ class Voice:
 
     def synthesize(self, text: str, speaker: str, cancel=None, engine="silero") -> bytes:
         text = plain_speech(text)
+        if engine != "piper": text = silero_numbers(text)
         version = "v5_6_ru" if engine == "silero_v5_6" else "v5_ru"
         if engine != "piper" and (not self.tts_available() or not self.tts_installed(version)):
             raise ValueError("Сначала установите Silero в категории «Озвучка»")

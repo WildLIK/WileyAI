@@ -124,3 +124,44 @@ def test_preview_is_authenticated_explicit_and_never_changes_saved_settings(tmp_
         message = next(row["message"] for row in events if row["type"] == "done")
         assert "Сейчас:" in message["content"] and "-3.5" in message["content"]
         assert message["web_search"]["provider"] == "open-meteo" and not api.get("/memory-candidates").json()
+
+
+def test_current_weather_shares_cache_and_obeys_saved_permission(tmp_path, remote):
+    _, _, calls = remote
+    def weather_calls(): return [row for row in calls if row.headers.get("host", "").endswith("open-meteo.com")]
+    with TestClient(create_app(tmp_path, "weather-cache-test-token-123456")) as api:
+        assert api.get("/weather/current").status_code == 401
+        api.headers["Authorization"] = "Bearer weather-cache-test-token-123456"
+        config = api.get("/settings").json()
+        assert api.get("/weather/current").status_code == 400 and not weather_calls()
+        api.put("/settings", json={**config, "weather_enabled": True, "weather_city": "Сургут, ХМАО"})
+        first = api.get("/weather/current")
+        assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
+        assert api.get("/weather/current").json() == first.json() and len(weather_calls()) == 2
+        api.put("/settings", json={**config, "weather_enabled": True, "weather_city": "Нижнесортымский, ХМАО"})
+        assert "Нижнесортымский" in api.get("/weather/current").json()["place"] and len(weather_calls()) == 4
+        api.put("/settings", json={**config, "weather_enabled": False, "weather_city": "Нижнесортымский, ХМАО"})
+        assert api.get("/weather/current").status_code == 400 and len(weather_calls()) == 4
+
+
+def test_current_weather_deduplicates_windows_and_refreshes_expired_result(monkeypatch):
+    async def scenario():
+        now, count = [0], 0
+        cache = weather.CurrentWeather(clock=lambda: now[0])
+        started, release = asyncio.Event(), asyncio.Event()
+        async def fetch(settings, city):
+            nonlocal count
+            count += 1
+            started.set()
+            await release.wait()
+            return {"place": city, "timezone": "Europe/Moscow", "sequence": count}
+        monkeypatch.setattr(weather, "forecast", fetch)
+        config = Settings(weather_enabled=True, weather_city="Москва, Россия")
+        first = asyncio.create_task(cache.read(config))
+        await started.wait()
+        second = asyncio.create_task(cache.read(config))
+        release.set()
+        assert (await first) == (await second) and count == 1
+        now[0] = 1801
+        assert (await cache.read(config))["sequence"] == 2
+    asyncio.run(scenario())

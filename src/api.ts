@@ -75,6 +75,11 @@ export interface Settings {
   conversation_wake_word: string;
   conversation_max_seconds: number;
   avatar_path: string;
+  avatar_motion: boolean;
+  avatar_gaze: boolean;
+  avatar_expressions: boolean;
+  avatar_expression_strength: number;
+  avatar_fps: 15 | 30 | 60;
   has_api_key?: boolean;
   api_key?: string;
   has_search_api_key?: boolean;
@@ -268,7 +273,64 @@ declare global {
       showWindow(view: string): Promise<void>;
       pickFile(kind: string): Promise<string | null>;
       avatarBytes(): Promise<Uint8Array | null>;
-      clickThrough(enabled: boolean): Promise<void>;
+      avatarSize(): Promise<{ width: number; height: number }>;
+      resizeAvatar(
+        size:
+          | { width: number; height: number }
+          | { scale: number }
+          | { deltaWidth: number; deltaHeight: number },
+      ): Promise<{ width: number; height: number }>;
+      onAvatarSize(
+        callback: (size: { width: number; height: number }) => void,
+      ): () => void;
+      closeAvatarTest(): Promise<void>;
+      avatarCapabilities(): Promise<
+        import("./avatarBehavior").AvatarCapabilities | null
+      >;
+      reportAvatarCapabilities(
+        value: import("./avatarBehavior").AvatarCapabilities | null,
+      ): Promise<void>;
+      onAvatarCapabilities(
+        callback: (
+          value: import("./avatarBehavior").AvatarCapabilities | null,
+        ) => void,
+      ): () => void;
+      watchAvatarPointer(enabled: boolean): Promise<void>;
+      onAvatarPointer(
+        callback: (value: { x: number; y: number }) => void,
+      ): () => void;
+      avatarDemo(): Promise<import("./avatarBehavior").AvatarDemoState>;
+      updateAvatarDemo(
+        value: import("./avatarBehavior").AvatarDemo | null,
+        renew?: boolean,
+      ): Promise<import("./avatarBehavior").AvatarDemoState>;
+      releaseAvatarDemo(): Promise<void>;
+      onAvatarDemo(
+        callback: (value: import("./avatarBehavior").AvatarDemoState) => void,
+      ): () => void;
+      avatarState(): Promise<
+        import("./avatarBehavior").AvatarSignal & { revision: number }
+      >;
+      updateAvatar(
+        value: import("./avatarBehavior").AvatarSignal,
+      ): Promise<void>;
+      onAvatarState(
+        callback: (
+          value: import("./avatarBehavior").AvatarSignal & { revision: number },
+        ) => void,
+      ): () => void;
+      nextAvatarDisplay(): Promise<void>;
+      clickThrough(
+        enabled: boolean,
+      ): Promise<import("./avatarBehavior").AvatarWindowState>;
+      avatarControls(): Promise<import("./avatarBehavior").AvatarWindowState>;
+      onAvatarControls(
+        callback: (value: import("./avatarBehavior").AvatarWindowState) => void,
+      ): () => void;
+      hideAvatar(): Promise<void>;
+      setAvatarControlRegions(
+        regions: { x: number; y: number; width: number; height: number }[],
+      ): Promise<void>;
       quit(): Promise<void>;
       restart(): Promise<void>;
       startup(): Promise<{ available: boolean; enabled: boolean }>;

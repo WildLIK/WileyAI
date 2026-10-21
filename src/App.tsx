@@ -35,6 +35,7 @@ import { SetupWizard, type SetupProgress } from "./Setup";
 import { SearchSettings, SearchSources } from "./WebSearch";
 import { SemanticSearch } from "./SemanticSearch";
 import { BackgroundSettings } from "./BackgroundSettings";
+import { WeatherBar } from "./WeatherBar";
 import { activated, playbackEcho } from "./voice/activation";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
@@ -72,6 +73,17 @@ import { Microphone } from "./voice/microphone";
 import { ConversationControl } from "./voice/ConversationControl";
 import { AudioDevices } from "./voice/AudioDevices";
 import { SpeechOutput } from "./voice/output";
+import {
+  avatarPhase,
+  avatarReaction,
+  AvatarActivity,
+  avatarPresets,
+  idleAvatar,
+  type AvatarSignal,
+} from "./avatarBehavior";
+import { useAvatarState } from "./useAvatarState";
+import { AvatarWindowSize } from "./AvatarWindowSize";
+import { AvatarClickThrough, AvatarClose } from "./AvatarWindowControls";
 import {
   microphoneConstraints,
   microphoneError,
@@ -121,7 +133,17 @@ function readAttachments(chat: string): string[] {
 const ModelAvatar = lazy(() =>
   import("./Avatar").then((module) => ({ default: module.Avatar })),
 );
-function Avatar({ path, speaking }: { path: string; speaking?: boolean }) {
+function Avatar({
+  path,
+  speaking,
+  signal,
+  settings,
+}: {
+  path: string;
+  speaking?: boolean;
+  signal: AvatarSignal;
+  settings: Settings;
+}) {
   if (!path)
     return (
       <div className="avatar-stage">
@@ -144,7 +166,7 @@ function Avatar({ path, speaking }: { path: string; speaking?: boolean }) {
         </div>
       }
     >
-      <ModelAvatar path={path} speaking={speaking} />
+      <ModelAvatar path={path} signal={signal} settings={settings} />
     </Suspense>
   );
 }
@@ -275,7 +297,7 @@ export function App() {
   const [stage, setStage] = useState("");
   const [readingProgress, setReadingProgress] =
     useState<ReadingProgress | null>(null);
-  const [speaking, setSpeaking] = useState(false);
+  const [legacySpeaking, setSpeaking] = useState(false);
   const [speechPhase, setSpeechPhase] = useState<
     "preparing" | "playing" | null
   >(null);
@@ -284,6 +306,56 @@ export function App() {
     owner: false,
     phase: "idle",
   });
+  const [avatarCue, setAvatarCue] = useState({ ...idleAvatar });
+  const avatarCueRef = useRef(avatarCue);
+  avatarCueRef.current = avatarCue;
+  const avatarActivity = useRef(new AvatarActivity());
+  const [avatarEnergy, setAvatarEnergy] = useState(0);
+  const avatarReactedAt = useRef(0);
+  useEffect(() => {
+    if (!avatarEnergy) return;
+    const timer = setInterval(
+      () => setAvatarEnergy(avatarActivity.current.value(performance.now())),
+      2000,
+    );
+    return () => clearInterval(timer);
+  }, [Boolean(avatarEnergy)]);
+  useEffect(() => {
+    if (!avatarCue.cue) return;
+    const timer = setTimeout(() => setAvatarCue({ ...idleAvatar }), 12000);
+    return () => clearTimeout(timer);
+  }, [avatarCue.cue]);
+  function reactToTurn(text: string, reset = false) {
+    const now = performance.now();
+    if (reset) setAvatarEnergy(avatarActivity.current.mark(now));
+    if (
+      !reset &&
+      avatarCueRef.current.gesture !== "none" &&
+      now - avatarReactedAt.current < 5000
+    )
+      return;
+    const reaction = avatarReaction(text);
+    if (
+      !reset &&
+      reaction.emotion === "neutral" &&
+      reaction.gesture === "none" &&
+      text.length > 160
+    )
+      reaction.gesture = "explain";
+    if (
+      reset ||
+      reaction.emotion !== "neutral" ||
+      reaction.gesture !== "none"
+    ) {
+      avatarReactedAt.current = now;
+      avatarCueRef.current = {
+        ...idleAvatar,
+        ...reaction,
+        cue: crypto.randomUUID(),
+      };
+      setAvatarCue(avatarCueRef.current);
+    }
+  }
   conversationEnabled.current = conversation.active;
   const currentChat = chats.find((item) => item.id === activeChatId);
   const currentProject = projects.find(
@@ -348,6 +420,35 @@ export function App() {
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadKind, setUploadKind] = useState<"speech" | "document">("speech");
+  const character = useAvatarState({
+    ...avatarCue,
+    energy: avatarEnergy,
+    voice: Boolean(speechPhase),
+    phase: avatarPhase({
+      playing: speechPhase === "playing",
+      thinking:
+        busy ||
+        speechPhase === "preparing" ||
+        (uploading && uploadKind === "speech") ||
+        (conversation.owner &&
+          [
+            "preparing",
+            "transcribing",
+            "thinking",
+            "thinking_listening",
+            "queued",
+          ].includes(conversation.phase)),
+      listening:
+        recording ||
+        (conversation.owner &&
+          ["calibrating", "listening", "hearing"].includes(conversation.phase)),
+    }),
+  });
+  const speaking =
+    Boolean(speechPhase) ||
+    (typeof window.wiley.onAvatarState === "function"
+      ? Boolean(character.voice)
+      : legacySpeaking);
   const [voiceDownloading, setVoiceDownloading] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [searchKey, setSearchKey] = useState("");
@@ -686,6 +787,7 @@ export function App() {
     }
   }, [stopAudio]);
   const stop = useCallback(() => {
+    setAvatarCue({ ...idleAvatar });
     abort.current?.abort();
     manualAbort.current?.abort();
     manualGeneration.current++;
@@ -703,7 +805,7 @@ export function App() {
     channel.current.onmessage = (event) => {
       if (event.data.type === "settings") {
         const epoch = dataEpoch.current;
-        const configEpoch = settingsEpoch.current;
+        const configEpoch = ++settingsEpoch.current;
         void request<Settings>("/settings")
           .then((config) => {
             if (epoch === dataEpoch.current) {
@@ -961,9 +1063,16 @@ export function App() {
         ),
       async (blob, signal, text) => {
         await onSpeaking?.(text);
-        if (generation === speechGeneration.current) setSpeechPhase("playing");
         try {
-          await playAudio(blob, config.audio_output_device_id || "", signal);
+          await playAudio(
+            blob,
+            config.audio_output_device_id || "",
+            signal,
+            () => {
+              if (generation === speechGeneration.current && !signal.aborted)
+                setSpeechPhase("playing");
+            },
+          );
         } finally {
           if (generation === speechGeneration.current && !signal.aborted)
             setSpeechPhase("preparing");
@@ -1048,6 +1157,7 @@ export function App() {
     setReplyLimit("");
     stopAudio();
     setBusy(true);
+    reactToTurn(text, true);
     setStage("Отвечает…");
     setReadingProgress(null);
     const useSearch =
@@ -1116,6 +1226,7 @@ export function App() {
           }
           if (event.type === "done" && event.message) {
             completed = event.message.content;
+            reactToTurn(completed);
             setMessages((items) => [...items, event.message!]);
             setAnswer("");
           }
@@ -1480,13 +1591,19 @@ export function App() {
   if (speaking)
     activity.push({
       id: "voice",
-      kind: speechPhase === "playing" ? "voice" : "brain",
+      kind:
+        speechPhase === "playing" ||
+        (!speechPhase && character.phase === "speaking")
+          ? "voice"
+          : "brain",
       label:
         speechPhase === "playing"
           ? "Озвучиваю ответ"
           : speechPhase === "preparing"
             ? "Готовлю озвучку…"
-            : "Озвучка в другом окне",
+            : character.phase === "speaking"
+              ? "Озвучка в другом окне"
+              : "Готовлю озвучку в другом окне…",
       detail:
         speechPhase === "preparing"
           ? "Ожидаю готовую фразу и звук"
@@ -1553,8 +1670,23 @@ export function App() {
       <div className="pet-window">
         <div className="pet-drag">
           <span>◈ {settings.name}</span>
+          <AvatarWindowSize />
+          <button
+            className="pet-monitor"
+            title="Переместить на другой экран"
+            aria-label="Переместить аватара на другой экран"
+            onClick={() => window.wiley.nextAvatarDisplay?.()}
+          >
+            ▣
+          </button>
+          <AvatarClose />
         </div>
-        <Avatar path={settings.avatar_path} speaking={speaking} />
+        <Avatar
+          path={settings.avatar_path}
+          speaking={speaking}
+          signal={character}
+          settings={settings}
+        />
         {activity.slice(0, 2).map((item) => (
           <ProcessStatus key={item.id} {...item} compact />
         ))}
@@ -1573,12 +1705,7 @@ export function App() {
           >
             {recording ? "■ Стоп" : "● Голос"}
           </button>
-          <button
-            title="Вернуть управление можно через иконку в трее или Ctrl+Shift+Esc"
-            onClick={() => window.wiley.clickThrough(true)}
-          >
-            Пропуск кликов
-          </button>
+          <AvatarClickThrough />
           <button
             className="pet-settings"
             title="Настройки"
@@ -1619,7 +1746,7 @@ export function App() {
               {draft}
             </button>
           ) : (
-            "Перетащите за верхнюю панель"
+            "Перемещение — за верхнюю панель · размер — за нижний угол"
           )}
         </p>
       </div>
@@ -1719,6 +1846,13 @@ export function App() {
             {tab === "chat" ? currentProject?.name || "Общие чаты" : "WileyAI"}{" "}
             <span>/</span> {tabs.find((item) => item.id === tab)?.label}
           </div>
+          <WeatherBar
+            settings={savedSettings.current}
+            onOpen={() => {
+              setSettingsSection("search");
+              setTab("settings");
+            }}
+          />
           {activity.filter(
             (item) =>
               item.id !== "listen" &&
@@ -2258,7 +2392,12 @@ export function App() {
                     ×
                   </button>
                 </div>
-                <Avatar path={settings.avatar_path} speaking={speaking} />
+                <Avatar
+                  path={settings.avatar_path}
+                  speaking={speaking}
+                  signal={character}
+                  settings={settings}
+                />
                 <h2>{settings.name}</h2>
                 <p>
                   {speaking
@@ -3718,7 +3857,131 @@ export function App() {
                       >
                         Показать
                       </button>
+                      <button
+                        className="outline"
+                        disabled={!settings.avatar_path}
+                        onClick={() =>
+                          run(() => window.wiley.showWindow("avatar-test"))
+                        }
+                      >
+                        Тест эмоций и поз
+                      </button>
                     </div>
+                    <p className="help">
+                      Колесо над аватаром — приблизить или отдалить,
+                      перетаскивание — слегка повернуть. Кнопка «Сбросить вид»
+                      возвращает полный рост. Масштаб запоминается отдельно для
+                      панели и отдельного окна. Окно феи можно растянуть за
+                      нижний правый угол или увеличить кнопками в его верхней
+                      полосе. Размер запоминается.
+                    </p>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.avatar_motion}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_motion: e.target.checked,
+                          })
+                        }
+                      />
+                      Дыхание, движения в покое и жесты
+                    </label>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.avatar_gaze}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_gaze: e.target.checked,
+                          })
+                        }
+                      />
+                      Следить взглядом за указателем на экране
+                    </label>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.avatar_expressions}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_expressions: e.target.checked,
+                          })
+                        }
+                      />
+                      Выражения по тексту разговора
+                    </label>
+                    <label>
+                      Выразительность:{" "}
+                      {Math.round(
+                        (settings.avatar_expression_strength ?? 0.65) * 100,
+                      )}
+                      %
+                      <input
+                        aria-label="Выразительность аватара"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={Math.round(
+                          (settings.avatar_expression_strength ?? 0.65) * 100,
+                        )}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_expression_strength:
+                              Number(e.target.value) / 100,
+                          })
+                        }
+                      />
+                    </label>
+                    <p className="help">
+                      Нажмите «Тест эмоций и поз» здесь: отдельная панель
+                      откроется рядом с феей и не перекроет её. Можно удерживать
+                      радость, грусть, злость, удивление и спокойствие,
+                      повторять жесты и проверять движение рта без озвучки.
+                    </p>
+                    <details>
+                      <summary>Какие фразы вызывают позы и эмоции</summary>
+                      <p className="help">
+                        Реакции появляются по текущей реплике. Частые новые
+                        сообщения усиливают движения, затем активность плавно
+                        стихает. Просмотр старой переписки на неё не влияет.
+                      </p>
+                      {avatarPresets.map((preset) => (
+                        <p className="help" key={preset.gesture}>
+                          <strong>{preset.label}:</strong> «{preset.example}»
+                        </p>
+                      ))}
+                    </details>
+                    <label>
+                      Частота кадров аватара
+                      <select
+                        aria-label="Частота кадров аватара"
+                        value={settings.avatar_fps}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_fps: Number(e.target.value) as 15 | 30 | 60,
+                          })
+                        }
+                      >
+                        <option value={15}>15 FPS · экономия</option>
+                        <option value={30}>30 FPS · обычно</option>
+                        <option value={60}>60 FPS · плавно</option>
+                      </select>
+                    </label>
+                    <p className="help">
+                      Эмоции — сдержанная реакция на слова текущей реплики.
+                      Камера и анализ лица не используются. Режим уменьшения
+                      движения отключает жесты и покачивание. В скрытом окне 3D
+                      приостанавливается; после сна разговор запускается
+                      вручную. Кнопка FPS рядом с аватаром показывает
+                      фактические кадры и время рендера.
+                    </p>
                     <p className="help">
                       Ctrl + Shift + Space — открыть чат.
                       <br />

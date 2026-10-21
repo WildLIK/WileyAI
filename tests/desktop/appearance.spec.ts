@@ -432,7 +432,24 @@ test("avatar: transparent drag area and settings beside click-through fit the sm
       exact: true,
     });
     await expect(settings).toBeVisible();
-    await expect(avatar.locator(".pet-drag button")).toHaveCount(0);
+    await expect(
+      avatar.getByRole("button", { name: "Закрыть окно аватара", exact: true }),
+    ).toBeVisible();
+    expect(
+      await avatar
+        .locator(".pet-drag")
+        .evaluate((node) =>
+          getComputedStyle(node).getPropertyValue("-webkit-app-region"),
+        ),
+    ).toBe("drag");
+    const controls = await avatar
+      .locator(".pet-close, .pet-monitor, .pet-size-controls, .pet-resize")
+      .evaluateAll((nodes) =>
+        nodes.map((node) =>
+          getComputedStyle(node).getPropertyValue("-webkit-app-region"),
+        ),
+      );
+    expect(controls).toEqual(["no-drag", "no-drag", "no-drag", "no-drag"]);
     expect(
       await avatar
         .locator(".pet-drag")

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { avatarZoom } from "./avatarBehavior.ts";
 
 /** Neutral studio illumination avoids a blue/grey cast on pale anime avatars. */
 export function addAvatarLighting(scene: THREE.Scene) {
@@ -16,6 +17,8 @@ export function addAvatarLighting(scene: THREE.Scene) {
 export function fitAvatarCamera(
   camera: THREE.PerspectiveCamera,
   bounds: THREE.Box3,
+  zoom = 1,
+  head?: THREE.Vector3,
 ) {
   if (bounds.isEmpty()) return;
   const size = bounds.getSize(new THREE.Vector3());
@@ -29,10 +32,17 @@ export function fitAvatarCamera(
     ) *
       1.1 +
     size.z / 2;
-  camera.position.copy(center).add(new THREE.Vector3(0, 0, distance));
+  camera.zoom = avatarZoom(zoom);
+  const face =
+    head?.clone() || center.clone().add(new THREE.Vector3(0, size.y * 0.36, 0));
+  if (head) face.y += size.y * 0.04;
+  const focus = center
+    .clone()
+    .lerp(face, Math.min(1, Math.max(0, (camera.zoom - 1) / 2.5)));
+  camera.position.copy(focus).add(new THREE.Vector3(0, 0, distance));
   camera.near = Math.max(0.001, distance / 1000);
   camera.far = Math.max(20, distance + size.length() * 3);
-  camera.lookAt(center);
+  camera.lookAt(focus);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
 }

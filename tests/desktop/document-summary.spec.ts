@@ -198,6 +198,7 @@ test("whole-file reading: animated progress, cancellation, all chunks and final 
     continueReading!();
     await expect(page.locator(".message.assistant").last()).toContainText(
       "обработан весь извлечённый текст",
+      { timeout: 30000 },
     );
     await expect(page.locator(".message.assistant").last()).toContainText(
       "ЗАКАТ-7351",

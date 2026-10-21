@@ -54,6 +54,7 @@ export async function playAudio(
   blob: Blob,
   deviceId: string,
   signal: AbortSignal,
+  onPlaying?: () => void,
 ) {
   signal.throwIfAborted();
   const url = URL.createObjectURL(blob);
@@ -64,11 +65,13 @@ export async function playAudio(
     await selectOutput(audio, deviceId);
     signal.throwIfAborted();
     await new Promise<void>((resolve, reject) => {
+      let finished = false;
       const cancel = () => {
         cleanup();
         reject(new DOMException("Воспроизведение остановлено", "AbortError"));
       };
       const cleanup = () => {
+        finished = true;
         audio.onended = null;
         audio.onerror = null;
         signal.removeEventListener("abort", cancel);
@@ -82,10 +85,15 @@ export async function playAudio(
         reject(new Error("Не удалось воспроизвести озвучку"));
       };
       signal.addEventListener("abort", cancel, { once: true });
-      void audio.play().catch((error) => {
-        cleanup();
-        reject(error);
-      });
+      void audio
+        .play()
+        .then(() => {
+          if (!finished && !signal.aborted) onPlaying?.();
+        })
+        .catch((error) => {
+          cleanup();
+          reject(error);
+        });
     });
   } finally {
     signal.removeEventListener("abort", stop);

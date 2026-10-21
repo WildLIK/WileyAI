@@ -37,6 +37,7 @@ async function say(page: Page, text: string, answer: string) {
 
 test("local plans: mixed review, restart, clarification, saved results and off switch", async () => {
   let requests = 0;
+  let timezone = "UTC";
   const model = createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json");
     if (request.method === "GET") {
@@ -51,7 +52,7 @@ test("local plans: mixed review, restart, clarification, saved results and off s
     expect(body.response_format).toBeTruthy();
     const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString(
       "sv-SE",
-      { timeZone: "Asia/Yekaterinburg" },
+      { timeZone: timezone },
     );
     const content = text.includes("Обзор")
       ? {
@@ -114,6 +115,9 @@ test("local plans: mixed review, restart, clarification, saved results and off s
   let app = await launch();
   try {
     let page = await app.firstWindow();
+    timezone = await page.evaluate(
+      () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
     await expect(
       page.getByRole("heading", { name: "Привет, я Уайли." }),
     ).toBeVisible();
