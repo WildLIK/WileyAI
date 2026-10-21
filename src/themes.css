@@ -664,6 +664,9 @@ progress:indeterminate::-webkit-progress-bar {
   flex-shrink: 1;
   overflow: hidden;
 }
+.activity-dock[data-active="false"] {
+  visibility: hidden;
+}
 .topbar {
   flex-shrink: 0;
 }
@@ -709,6 +712,7 @@ progress:indeterminate::-webkit-progress-bar {
 }
 .conversation-control.toolbar {
   display: flex;
+  width: 216px;
   gap: 6px;
   flex-wrap: nowrap;
 }

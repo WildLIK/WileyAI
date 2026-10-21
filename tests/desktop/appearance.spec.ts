@@ -286,7 +286,7 @@ test("process animations follow real pending reply and speech states, and disapp
   try {
     const page = await app.firstWindow();
     // The compact layout intentionally hides the header's speech status.
-    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.setViewportSize({ width: 1920, height: 1000 });
     await expect(
       page.getByRole("heading", { name: "Привет, я Уайли." }),
     ).toBeVisible();

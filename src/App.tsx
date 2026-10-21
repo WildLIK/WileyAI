@@ -1752,6 +1752,10 @@ export function App() {
       </div>
     );
 
+  const headerActivity = activity.find(
+    (item) =>
+      item.id !== "listen" && (!conversation.active || item.id !== "voice"),
+  );
   return (
     <div
       className={"app-shell " + (sidebarCollapsed ? "sidebar-collapsed" : "")}
@@ -1853,29 +1857,23 @@ export function App() {
               setTab("settings");
             }}
           />
-          {activity.filter(
-            (item) =>
-              item.id !== "listen" &&
-              (!conversation.active || item.id !== "voice"),
-          ).length > 0 && (
-            <div
-              className="activity-dock"
-              aria-label="Текущие процессы"
-              title={activity.map((item) => item.label).join(" · ")}
-            >
-              <ProcessStatus
-                {...activity.find(
-                  (item) =>
-                    item.id !== "listen" &&
-                    (!conversation.active || item.id !== "voice"),
-                )!}
-                compact
-              />
-              {activity.length > 1 && (
-                <small className="activity-count">+{activity.length - 1}</small>
-              )}
-            </div>
-          )}
+          <div
+            className="activity-dock"
+            data-active={Boolean(headerActivity)}
+            aria-label="Текущие процессы"
+            title={activity.map((item) => item.label).join(" · ")}
+          >
+            {headerActivity && (
+              <>
+                <ProcessStatus {...headerActivity} compact />
+                {activity.length > 1 && (
+                  <small className="activity-count">
+                    +{activity.length - 1}
+                  </small>
+                )}
+              </>
+            )}
+          </div>
           {tab === "chat" && (
             <button
               className="panel-toggle"

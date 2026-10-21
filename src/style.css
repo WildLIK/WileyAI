@@ -3582,6 +3582,19 @@ html:has(.pet-window) {
   color: var(--text-muted);
 }
 @container workspace-header (max-width: 1300px) {
+  .topbar .activity-dock {
+    width: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    flex-shrink: 0;
+  }
+  .topbar .activity-dock .process-copy,
+  .topbar .activity-count {
+    display: none;
+  }
+  .topbar .activity-dock .process-status {
+    padding: 2px;
+  }
   .connection,
   .resource-badge {
     display: none;

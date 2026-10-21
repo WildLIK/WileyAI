@@ -159,6 +159,7 @@ async function expectStableLayout(page: Page) {
 test("conversation: real AudioWorklet, automatic turns, playback, cross-window stop", async () => {
   const { app, page } = await launch();
   try {
+    await page.setViewportSize({ width: 1100, height: 700 });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const history: object[] = [];
