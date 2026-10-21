@@ -1046,7 +1046,7 @@ wheels = [
 
 [[package]]
 name = "wileyai-core"
-version = "0.13.0"
+version = "0.13.1"
 source = { virtual = "." }
 dependencies = [
     { name = "anyio" },
@@ -1067,6 +1067,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "numpy" },
     { name = "pytest" },
 ]
 piper = [
@@ -1092,6 +1093,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "keyring", specifier = ">=25,<26" },
     { name = "num2words", specifier = ">=0.5.14,<0.6" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=2,<3" },
     { name = "numpy", marker = "extra == 'tts'", specifier = ">=2,<3" },
     { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8,<2" },
     { name = "psutil", specifier = ">=6,<8" },

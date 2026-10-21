@@ -1,6 +1,6 @@
 [project]
 name = "wileyai-core"
-version = "0.13.0"
+version = "0.13.1"
 description = "Local-first WileyAI runtime"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -24,7 +24,7 @@ dependencies = [
 voice = ["faster-whisper>=1.1,<2", "av>=11,<17"]
 tts = ["torch>=2.6,<3", "scipy>=1.15,<2", "numpy>=2,<3"]
 piper = ["piper-tts>=1.8,<2"]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "numpy>=2,<3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
