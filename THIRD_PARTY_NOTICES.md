@@ -21,4 +21,12 @@ package license files are included with its Python distribution metadata.
 
 Optional engines and model weights are downloaded separately at the user's
 request and are governed by their respective licenses. They are not included
-in the installer. No user documents, API keys or model weights are bundled.
+in the installer. No user documents, API keys or AI model weights are bundled.
+
+The Fairy Assistant - Crystal VRM avatar (model version 0.15) is included in
+resources/avatars/Fairy_Assistant.vrm. It was authored by the FairyAssistant
+project with a locally created VRoid Studio base and original Blender costume,
+hair and wing refinements. The embedded VRM 1.0 license and use permissions
+apply: https://vrm.dev/licenses/1.0/. Avatar use by everyone and redistribution
+are permitted; the remaining permissions are recorded in the VRM metadata.
+This is a character asset, separate from optional AI model weights.

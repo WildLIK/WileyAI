@@ -12,14 +12,26 @@ test("fairy poses: real chat cues, shared hover poses and global pointer includi
     "Requires the local VRM fixture",
   );
   test.setTimeout(90000);
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     if (req.method === "GET")
       res.end(JSON.stringify({ models: [{ name: "fixture" }] }));
     else {
-      req.resume();
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      const semantic = body.messages
+        ?.at(-1)
+        ?.content?.includes("северное сияние");
       res.end(
-        JSON.stringify({ message: { content: "Хорошо." }, done: true }) + "\n",
+        JSON.stringify({
+          message: {
+            content: semantic
+              ? "[[avatar:surprised:joy]]\nОбсудим это подробнее."
+              : "Хорошо.",
+          },
+          done: true,
+        }) + "\n",
       );
     }
   });
@@ -102,6 +114,24 @@ test("fairy poses: real chat cues, shared hover poses and global pointer includi
     expect(Number(await stage.getAttribute("data-energy"))).toBeGreaterThan(
       0.5,
     );
+    await page.locator("textarea").fill("Что скажешь про северное сияние?");
+    await page.getByRole("button", { name: "Отправить", exact: true }).click();
+    await expect(stage).toHaveAttribute("data-emotion", "surprised");
+    await expect(stage).toHaveAttribute("data-pose", "joy");
+    await expect(
+      page.locator(".message.assistant .message-text").last(),
+    ).toHaveText("Обсудим это подробнее.");
+    expect(
+      await page.evaluate(async () => {
+        const { url, token } = await window.wiley.connection();
+        const messages = await (
+          await fetch(url + "/messages", {
+            headers: { Authorization: "Bearer " + token },
+          })
+        ).json();
+        return messages.at(-1).content;
+      }),
+    ).toBe("Обсудим это подробнее.");
     const tool = await openAvatarTest(app, page);
     tool.on("pageerror", (error) => errors.push(error.message));
     const panel = tool.getByRole("region", {
@@ -127,7 +157,7 @@ test("fairy poses: real chat cues, shared hover poses and global pointer includi
         omitBackground: true,
       });
       if (
-        ["think", "cute", "listen", "tired", "thumbsup"].includes(
+        ["think", "surprise", "shy", "listen", "tired", "thumbsup"].includes(
           preset.gesture,
         )
       ) {
@@ -155,9 +185,14 @@ test("fairy poses: real chat cues, shared hover poses and global pointer includi
       .getByRole("button", { name: "Крупный план лица", exact: true })
       .click();
     // Mock only the test Electron's cursor provider; do not move the real cursor.
+    const gaze: number[] = [];
+    const heads: number[] = [];
+    const eyes: number[] = [];
     for (const [side, offset] of [
-      ["left", -800],
-      ["right", 800],
+      ["left", -4000],
+      ["right", 4000],
+      ["near-right", 600],
+      ["far-right", 1000],
     ] as const) {
       await app.evaluate(({ screen, BrowserWindow }, offset) => {
         const window = BrowserWindow.getAllWindows().find((row) =>
@@ -169,16 +204,26 @@ test("fairy poses: real chat cues, shared hover poses and global pointer includi
           y: bounds.y + 300,
         });
       }, offset);
-      await expect(stage).toHaveAttribute(
-        "data-gaze-x",
-        side === "left" ? "-1.00" : "1.00",
-      );
-      await avatar.waitForTimeout(600);
+      await avatar.waitForTimeout(1100);
+      gaze.push(Number(await stage.getAttribute("data-gaze-x")));
+      heads.push(Number(await stage.getAttribute("data-head-yaw")));
+      eyes.push(Number(await stage.getAttribute("data-eye-yaw")));
       await stage.locator("canvas").screenshot({
         path: `local/review/avatar-gaze-${side}.png`,
         omitBackground: true,
       });
     }
+    expect(gaze[0]).toBe(-1);
+    expect(gaze[1]).toBe(1);
+    expect(gaze[2]).toBeLessThan(gaze[3]);
+    expect(gaze[3]).toBeLessThan(1);
+    expect(heads[1] - heads[0]).toBeGreaterThan(0.7);
+    expect(Math.abs(eyes[1] - eyes[0])).toBeGreaterThan(5);
+    expect(heads[3] - heads[2]).toBeGreaterThan(0.03);
+    await writeFile(
+      "local/review/avatar-gaze-verified.json",
+      JSON.stringify({ gaze, heads, eyes }),
+    );
     await avatar.evaluate(() => window.wiley.clickThrough(true));
     await app.evaluate(({ screen }) => {
       screen.getCursorScreenPoint = () => ({ x: -20000, y: -20000 });

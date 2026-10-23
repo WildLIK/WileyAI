@@ -70,6 +70,10 @@ async function verifyPackaged(data) {
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
     const recognition = await api("/settings");
+    if (recognition.avatar_path !== "builtin:fairy")
+      throw new Error(
+        "Clean installed profile did not select the bundled fairy",
+      );
     const music = await api("/music/yandex");
     if (
       recognition.music_player !== "auto" ||
@@ -138,6 +142,30 @@ async function verifyPackaged(data) {
     const openedAvatar = app.waitForEvent("window");
     await page.evaluate(() => window.wiley.showWindow("avatar"));
     const avatar = await openedAvatar;
+    await avatar.waitForFunction(async () => {
+      const bytes = await window.wiley.avatarBytes();
+      return bytes && bytes.byteLength > 1000000;
+    });
+    await avatar.waitForFunction(async () => {
+      await new Promise(requestAnimationFrame);
+      const canvas = document.querySelector(".avatar-stage canvas");
+      const gl = canvas?.getContext("webgl2");
+      if (!gl) return false;
+      const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+      gl.readPixels(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        pixels,
+      );
+      let visible = 0;
+      for (let i = 3; i < pixels.length; i += 16) if (pixels[i]) visible++;
+      return visible > 1000;
+    });
+    await avatar.screenshot({ path: "local/review/packaged-fairy.png" });
     await avatar
       .getByRole("button", { name: "Пропуск кликов", exact: true })
       .waitFor();

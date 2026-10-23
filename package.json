@@ -1,6 +1,6 @@
 {
   "name": "wileyai",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "private": true,
   "description": "Р›РѕРєР°Р»СЊРЅС‹Р№ РїРµСЂСЃРѕРЅР°Р»СЊРЅС‹Р№ Р°СЃСЃРёСЃС‚РµРЅС‚ РґР»СЏ Windows",
   "type": "module",
@@ -14,6 +14,7 @@
     "test": "node scripts/python.mjs -m pytest",
     "test:voice": "node --experimental-strip-types --test tests/voice/*.test.ts tests/voice/*.test.cjs",
     "test:avatar": "node scripts/test-avatar.mjs",
+    "test:avatar-cloth": "node scripts/check-avatar-cloth.mjs",
     "test:desktop": "playwright test",
     "check": "npm run build && npm test && npm run test:voice && npm run test:avatar",
     "format": "prettier --write src desktop scripts/*.mjs tests/desktop/*.ts",

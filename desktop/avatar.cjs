@@ -21,6 +21,7 @@ function checkedSignal(value) {
       "comfort",
       "joy",
       "cute",
+      "surprise",
       "explain",
       "think",
       "praise",
@@ -29,6 +30,9 @@ function checkedSignal(value) {
       "thumbsup",
       "shy",
       "tired",
+      "dance",
+      "dance2",
+      "dance3",
     ].includes(value.gesture) ||
     typeof value.cue !== "string" ||
     value.cue.length > 80 ||
@@ -330,9 +334,12 @@ function installAvatar({
       if (!window.isVisible() || window.isMinimized()) continue;
       point ||= screen.getCursorScreenPoint();
       const bounds = window.getContentBounds();
+      const display = screen.getDisplayMatching(bounds).workArea;
       sendToWindow(window, "avatar-pointer", {
         x: point.x - bounds.x,
         y: point.y - bounds.y,
+        width: display.width,
+        height: display.height,
       });
     }
   }, 100).unref();

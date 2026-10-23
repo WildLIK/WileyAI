@@ -4,12 +4,91 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("repeating model output is stopped without offering to continue the loop", async () => {
+  const sentence =
+    "Я готова, чтобы вы увидели, как я могу быть той, кто делает ваш день ярким через свои эмоции. ";
+  const model = createServer((req, res) => {
+    req.resume();
+    res.end(
+      JSON.stringify({
+        message: { content: sentence.repeat(100) },
+        done: true,
+      }) + "\n",
+    );
+  });
+  await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
+  const address = model.address();
+  if (!address || typeof address === "string")
+    throw new Error("Fixture port missing");
+  const data = await mkdtemp(join(tmpdir(), "wiley-repeat-"));
+  const app = await electron.launch({
+    args: ["--mute-audio", "."],
+    env: { ...process.env, WILEYAI_TEST: "1", WILEYAI_DATA_DIR: data },
+  });
+  try {
+    const page = await app.firstWindow();
+    await expect(
+      page.getByRole("heading", { name: "Привет, я Уайли." }),
+    ).toBeVisible();
+    await page.evaluate(async (port) => {
+      const { url, token } = await window.wiley.connection();
+      const headers = {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      };
+      const settings = await (
+        await fetch(url + "/settings", { headers })
+      ).json();
+      const response = await fetch(url + "/settings", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          ...settings,
+          model: "loop-test",
+          provider: "ollama",
+          base_url: `http://127.0.0.1:${port}`,
+          speak_answers: false,
+        }),
+      });
+      if (!response.ok) throw new Error("Fixture settings failed");
+    }, address.port);
+    await page.reload();
+    await page
+      .getByLabel("Сообщение", { exact: true })
+      .fill("Как ты сегодня себя чувствуешь?");
+    await page.getByRole("button", { name: "Отправить", exact: true }).click();
+    await expect(
+      page.getByText("Остановила ответ: модель начала повторяться.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Отправить", exact: true }),
+    ).toBeVisible();
+    const content = await page
+      .locator(".message.assistant .message-text")
+      .textContent();
+    expect(content!.length).toBeLessThan(sentence.length * 10);
+    expect(content!.length).toBeGreaterThan(100);
+    await expect(
+      page.getByRole("button", { name: "Продолжить ответ", exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve) => model.close(() => resolve()));
+  }
+});
+
 test("answer length, visible truncation, explicit continuation and independent persona gender", async () => {
   const prompts: {
     messages: { role: string; content: string }[];
     max_tokens: number;
   }[] = [];
-  const partial = "Подробный анализ. ".repeat(400) + "Конец ответа: нужно ли";
+  const partial =
+    Array.from(
+      { length: 200 },
+      (_, i) => `Событие ${i}: параметр ${i * 3}, значение ${i * 7}.`,
+    ).join(" ") + " Конец ответа: нужно ли";
   const model = createServer(async (req, res) => {
     if (req.method === "GET") {
       res.end('{"data":[]}');

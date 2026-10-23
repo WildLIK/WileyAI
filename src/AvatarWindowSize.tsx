@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 export function AvatarWindowSize() {
   const [size, setSize] = useState({ width: innerWidth, height: innerHeight });
   const [error, setError] = useState("");
+  const [resizing, setResizing] = useState(false);
   const dragging = useRef<{
     x: number;
     y: number;
@@ -28,10 +29,17 @@ export function AvatarWindowSize() {
     };
   }, []);
   function resize(value: Parameters<Window["wiley"]["resizeAvatar"]>[0]) {
-    void window.wiley
+    return window.wiley
       .resizeAvatar(value)
       .then(setSize)
       .catch((reason: Error) => setError(reason.message));
+  }
+  function finishResize() {
+    if (!dragging.current) return;
+    dragging.current = null;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    void resize(pending.current).finally(() => setResizing(false));
   }
   return (
     <>
@@ -60,6 +68,7 @@ export function AvatarWindowSize() {
       </div>
       <button
         className="pet-resize"
+        data-resizing={resizing}
         aria-label="Изменить размер окна феи"
         title={
           error ||
@@ -68,6 +77,8 @@ export function AvatarWindowSize() {
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           dragging.current = { x: event.screenX, y: event.screenY, ...size };
+          pending.current = size;
+          setResizing(true);
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
@@ -84,13 +95,11 @@ export function AvatarWindowSize() {
             });
         }}
         onPointerUp={(event) => {
-          dragging.current = null;
+          finishResize();
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
         }}
-        onLostPointerCapture={() => {
-          dragging.current = null;
-        }}
+        onLostPointerCapture={finishResize}
         onKeyDown={(event) => {
           const delta = {
             ArrowLeft: [-32, 0],

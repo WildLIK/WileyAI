@@ -117,6 +117,7 @@ test("click-through toggles off through reachable controls, and closing the avat
       await expect.poll(ignored).toBe(false);
     }
     const tool = await openAvatarTest(app, page);
+    await tool.getByRole("button", { name: "Нейтрально", exact: true }).click();
     await expect(stage).toHaveAttribute("data-testing", "true");
     await button.click();
     const close = avatar.getByRole("button", {
@@ -130,13 +131,13 @@ test("click-through toggles off through reachable controls, and closing the avat
     await expect.poll(() => tool.isClosed()).toBe(true);
     await expect
       .poll(() => avatar.evaluate(() => window.wiley.avatarControls()))
-      .toEqual({ visible: false, clickThrough: false });
+      .toEqual({ visible: false, clickThrough: false, minimal: false });
     await expect(page.locator("textarea")).toBeVisible();
     expect(page.isClosed()).toBe(false);
     await page.evaluate(() => window.wiley.showWindow("avatar"));
     await expect
       .poll(() => avatar.evaluate(() => window.wiley.avatarControls()))
-      .toEqual({ visible: true, clickThrough: false });
+      .toEqual({ visible: true, clickThrough: false, minimal: false });
     await expect(button).toHaveAttribute("aria-pressed", "false");
     await expect(stage).toHaveAttribute("data-testing", "false");
     await expect(stage).toHaveAttribute("data-render", "running");

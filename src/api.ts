@@ -77,6 +77,7 @@ export interface Settings {
   avatar_path: string;
   avatar_motion: boolean;
   avatar_gaze: boolean;
+  avatar_music: boolean;
   avatar_expressions: boolean;
   avatar_expression_strength: number;
   avatar_fps: 15 | 30 | 60;
@@ -297,7 +298,12 @@ declare global {
       ): () => void;
       watchAvatarPointer(enabled: boolean): Promise<void>;
       onAvatarPointer(
-        callback: (value: { x: number; y: number }) => void,
+        callback: (value: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }) => void,
       ): () => void;
       avatarDemo(): Promise<import("./avatarBehavior").AvatarDemoState>;
       updateAvatarDemo(
@@ -328,6 +334,9 @@ declare global {
         callback: (value: import("./avatarBehavior").AvatarWindowState) => void,
       ): () => void;
       hideAvatar(): Promise<void>;
+      minimalAvatar(
+        enabled: boolean,
+      ): Promise<import("./avatarBehavior").AvatarWindowState>;
       setAvatarControlRegions(
         regions: { x: number; y: number; width: number; height: number }[],
       ): Promise<void>;
@@ -475,6 +484,8 @@ export async function stream(
   signal: AbortSignal,
   onEvent: (event: {
     type: string;
+    emotion?: import("./avatarBehavior").AvatarEmotion;
+    gesture?: import("./avatarBehavior").AvatarGesture;
     text?: string;
     message?: Message;
     seconds?: number;

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("wiley", {
   clickThrough: (enabled) => ipcRenderer.invoke("avatar-clickthrough", enabled),
   avatarControls: () => ipcRenderer.invoke("avatar-controls-get"),
   hideAvatar: () => ipcRenderer.invoke("avatar-hide"),
+  minimalAvatar: (enabled) => ipcRenderer.invoke("avatar-minimal", enabled),
   setAvatarControlRegions: (regions) =>
     ipcRenderer.invoke("avatar-control-regions", regions),
   onAvatarControls: (callback) => {

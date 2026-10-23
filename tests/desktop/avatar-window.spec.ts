@@ -94,6 +94,7 @@ test("fairy window resizes by buttons, keyboard and corner drag, persists across
     await avatar.mouse.down();
     await avatar.mouse.move(box.x + 90, box.y + 70, { steps: 8 });
     await avatar.mouse.up();
+    await expect(grip).toHaveAttribute("data-resizing", "false");
     await expect
       .poll(async () => (await size()).width)
       .toBeGreaterThan(before.width + 40);
@@ -101,6 +102,21 @@ test("fairy window resizes by buttons, keyboard and corner drag, persists across
       .poll(async () => (await size()).height)
       .toBeGreaterThan(before.height + 30);
     let resized = await size();
+    const contentHeight = await app.evaluate(
+      ({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL().endsWith("view=avatar"))!
+          .getContentBounds().height,
+    );
+    await expect
+      .poll(() => avatar.evaluate(() => innerHeight))
+      .toBe(contentHeight);
+    await avatar.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     const height = (await avatar.locator("canvas").boundingBox())!.height;
     const tool = await openAvatarTest(app, page);
     await expect(

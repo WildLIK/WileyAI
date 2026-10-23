@@ -17,6 +17,8 @@ permissions:
 jobs:
   installer:
     runs-on: windows-latest
+    env:
+      WILEYAI_VRM_TEST_PATH: ${{ github.workspace }}/assets/avatars/Fairy_Assistant.vrm
     steps:
       - uses: actions/checkout@v4
         with:

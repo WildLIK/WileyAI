@@ -113,6 +113,10 @@ test("VRM expressions: manual controls visibly deform every face, repeat gesture
       exact: true,
     });
     await expect(panel).toContainText("Костей крыльев: 6");
+    await expect(stage).toHaveAttribute("data-testing", "false");
+    await panel
+      .getByRole("button", { name: "Нейтрально", exact: true })
+      .click();
     await expect(stage).toHaveAttribute("data-testing", "true");
     expect((await stage.locator("canvas").boundingBox())!.height).toBe(
       oldHeight,
@@ -229,6 +233,9 @@ test("VRM expressions: manual controls visibly deform every face, repeat gesture
     ).toHaveAttribute("data-testing", "false");
     expect(errors).toEqual([]);
     const toolAgain = await openAvatarTest(app, page);
+    await toolAgain
+      .getByRole("button", { name: "Нейтрально", exact: true })
+      .click();
     await expect(other).toHaveAttribute("data-testing", "true");
     await toolAgain.close();
     await expect(other).toHaveAttribute("data-testing", "false");

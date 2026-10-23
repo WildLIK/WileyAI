@@ -87,16 +87,24 @@ test("click-through keeps control regions interactive and fails open after rende
   controls.setClickThrough(true);
   publish();
   controls.hide();
-  assert.deepEqual(controls.state(), { visible: false, clickThrough: false });
+  assert.deepEqual(controls.state(), {
+    visible: false,
+    clickThrough: false,
+    minimal: false,
+  });
   assert.equal(ignored, false);
 });
 
 test("tray actions expose the real click-through state and hide only the avatar", () => {
   let visible = true,
     clickThrough = true,
+    minimal = false,
     shown = false;
   const controls = {
-    state: () => ({ visible, clickThrough }),
+    state: () => ({ visible, clickThrough, minimal }),
+    setMinimal: (value: boolean) => {
+      minimal = value;
+    },
     setClickThrough: (value: boolean) => {
       clickThrough = value;
     },
@@ -115,6 +123,9 @@ test("tray actions expose the real click-through state and hide only the avatar"
     shown = true;
   });
   assert.equal(menu[1].checked, false);
+  menu[3].click();
+  assert.equal(minimal, true);
+  assert.equal(avatarTrayItems(controls, () => {})[3].checked, true);
   menu[0].click();
   assert.equal(shown, true);
   menu[2].click();

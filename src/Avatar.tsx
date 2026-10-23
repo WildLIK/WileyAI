@@ -8,6 +8,10 @@ import { avatarZoom, type AvatarSignal } from "./avatarBehavior";
 import { useAvatarDemo } from "./useAvatarDemo";
 import { AvatarMotion } from "./avatarMotion";
 import { AvatarMeter } from "./avatarMeter";
+import { AvatarMusic } from "./avatarMusic";
+import { avatarPointer } from "./avatarPointer";
+import { avatarCaption } from "./avatarCaption";
+import { AvatarHeadHit } from "./avatarHeadHit";
 
 type Stats = {
   fps: number;
@@ -43,7 +47,11 @@ export function Avatar({
   const [error, setError] = useState("");
   const [showStats, setShowStats] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
-  const { demo } = useAvatarDemo();
+  const { demo, setDemo } = useAvatarDemo();
+  const [caption, setCaption] = useState({
+    name: "В покое",
+    text: "Готова помочь",
+  });
   const effectiveSignal = demo?.signal || signal;
   const config = useRef({ signal: effectiveSignal, settings, zoom, demo });
   config.current = { signal: effectiveSignal, settings, zoom, demo };
@@ -69,9 +77,9 @@ export function Avatar({
   }, [
     zoom,
     settings.avatar_fps,
-    settings.ui_motion,
     settings.avatar_motion,
     settings.avatar_gaze,
+    settings.avatar_music,
     settings.avatar_expressions,
     Boolean(demo),
   ]);
@@ -85,6 +93,7 @@ export function Avatar({
       intersecting = true;
     let frame = 0,
       previous = 0,
+      nextFrame = 0,
       elapsed = 0,
       frames = 0,
       sampleFrames = 0,
@@ -122,7 +131,45 @@ export function Avatar({
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     addAvatarLighting(scene);
     let meter = new AvatarMeter(renderer.getContext());
-    const media = matchMedia("(prefers-reduced-motion: reduce)");
+    const music = new AvatarMusic();
+    let musicStatus = "";
+    let captionKey = "";
+    const facePoint = new THREE.Vector3();
+    const petHead = new THREE.Vector3();
+    let headHit: AvatarHeadHit | undefined;
+    const ray = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let petUntil = 0;
+    let petContext = false;
+    const hitHead = (event: MouseEvent) => {
+      if (!headHit) return false;
+      const box = canvas.getBoundingClientRect();
+      if (!box.width || !box.height) return false;
+      mouse.set(
+        ((event.clientX - box.x) / box.width) * 2 - 1,
+        1 - ((event.clientY - box.y) / box.height) * 2,
+      );
+      ray.setFromCamera(mouse, camera);
+      return headHit.contains(ray.ray);
+    };
+    const pet = (event: MouseEvent) => {
+      if (event.button !== 2) return;
+      const onHead = hitHead(event);
+      const handled = onHead || (event.type === "contextmenu" && petContext);
+      if (event.type === "pointerdown") petContext = onHead;
+      if (event.type === "contextmenu") petContext = false;
+      if (!handled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (onHead) petUntil = performance.now() + 2600;
+    };
+    const stroke = (event: PointerEvent) => {
+      if (event.buttons & 2 && hitHead(event))
+        petUntil = performance.now() + 1800;
+    };
+    canvas.addEventListener("pointerdown", pet);
+    canvas.addEventListener("pointermove", stroke);
+    canvas.addEventListener("contextmenu", pet);
     let watchingPointer = false;
     const watchPointer = (enabled: boolean) => {
       if (enabled === watchingPointer) return;
@@ -133,54 +180,149 @@ export function Avatar({
       if (!watchingPointer || disposed) return;
       const box = canvas.getBoundingClientRect();
       if (!box.width || !box.height) return;
-      pointer.current.x = THREE.MathUtils.clamp(
-        ((point.x - box.x) / box.width) * 2 - 1,
-        -1,
-        1,
+      const headNode = vrm?.humanoid.getNormalizedBoneNode("head");
+      if (headNode) headNode.getWorldPosition(facePoint).project(camera);
+      else facePoint.set(0, 0.55, 0);
+      const target = avatarPointer(
+        point,
+        {
+          x: box.x + ((facePoint.x + 1) * box.width) / 2,
+          y: box.y + ((1 - facePoint.y) * box.height) / 2,
+        },
+        box,
       );
-      pointer.current.y = THREE.MathUtils.clamp(
-        ((point.y - box.y) / box.height) * 2 - 1,
-        -1,
-        1,
-      );
+      pointer.current.x = target.x;
+      pointer.current.y = target.y;
     });
     const stop = () => {
       watchPointer(false);
+      music.setEnabled(false);
       cancelAnimationFrame(frame);
       frame = 0;
       previous = 0;
+      nextFrame = 0;
       sampleStart = 0;
       sampleFrames = 0;
       cpu = 0;
+      petUntil = 0;
     };
     const animate = (milliseconds: number) => {
       if (disposed || container.dataset.render !== "running") return;
       frame = requestAnimationFrame(animate);
       const { signal, settings, demo } = config.current;
-      const reduced = settings.ui_motion === "reduced" || media.matches;
-      const fps = Math.min(settings.avatar_fps || 30, reduced ? 15 : 60);
+      // UI/system animation preferences govern the interface. The avatar has
+      // explicit motion, gaze, music and FPS controls of its own.
+      const fps = settings.avatar_fps || 60;
+      const interval = 1000 / fps;
       container.dataset.targetFps = String(fps);
-      if (previous && milliseconds - previous < 1000 / fps - 0.5) return;
+      if (milliseconds < nextFrame - 0.5) return;
+      // Keep the deadline between refreshes so 30 FPS also works on displays
+      // whose refresh rate is not divisible by 30. Never catch up after a stall.
+      nextFrame =
+        nextFrame && milliseconds - nextFrame < interval
+          ? nextFrame + interval
+          : milliseconds + interval;
       const delta = previous
         ? Math.min((milliseconds - previous) / 1000, 0.1)
         : 1 / fps;
       previous = milliseconds;
       elapsed += delta;
-      if (!sampleStart) sampleStart = milliseconds;
+      if (!sampleStart) sampleStart = milliseconds - delta * 1000;
       const began = performance.now();
       motion?.update(elapsed, delta, signal, {
-        motion: demo
-          ? !demo.still
-          : !reduced && settings.avatar_motion !== false,
-        gaze: !demo && !reduced && settings.avatar_gaze !== false,
+        motion: demo ? !demo.still : settings.avatar_motion !== false,
+        gaze: !demo && settings.avatar_gaze !== false,
         expressions: Boolean(demo) || settings.avatar_expressions !== false,
         strength: demo?.strength ?? settings.avatar_expression_strength ?? 0.65,
         still: demo?.still,
         demo: Boolean(demo),
         pointer: pointer.current,
         yaw: pointer.current.yaw,
+        music: music.value,
+        pet: Math.min(1, Math.max(0, (petUntil - milliseconds) / 650)),
       });
+      const status = demo
+        ? "Ручной тест · «Авто» включает реакции на музыку"
+        : settings.avatar_motion === false
+          ? "Музыка: движения выключены"
+          : settings.avatar_music === false
+            ? "Музыка: выключено в настройках"
+            : music.value.error ||
+              (music.value.active
+                ? `Звук: ${music.value.source}${signal.phase !== "idle" ? " · пауза на время разговора" : music.value.bpm ? ` · ≈${music.value.bpm} уд/мин` : ""}`
+                : music.value.players?.length
+                  ? `Ожидаю звук · ${music.value.players.join(", ")}`
+                  : "Ожидаю звук плеера или браузера");
+      if (status !== musicStatus) {
+        musicStatus = status;
+        container.querySelector(".avatar-music-status")!.textContent = status;
+        container
+          .querySelector(".avatar-music-status")!
+          .setAttribute("title", status);
+      }
+      const nextCaption =
+        motion && motion.petWeight > 0.1
+          ? { name: "Поглаживание", text: "Мне приятно, спасибо" }
+          : avatarCaption(motion?.pose || "none", signal.emotion, signal.phase);
+      const nextKey = nextCaption.name + nextCaption.text;
+      if (captionKey !== nextKey) {
+        captionKey = nextKey;
+        setCaption(nextCaption);
+      }
+      container.style.setProperty("--music-level", String(music.value.level));
+      container.dataset.dancing = String(
+        Boolean(motion?.pose.startsWith("dance")),
+      );
+      container.dataset.musicSource = music.value.source;
+      container.dataset.headYaw = (
+        vrm?.humanoid.getNormalizedBoneNode("head")?.rotation.y || 0
+      ).toFixed(3);
+      container.dataset.eyeYaw = (vrm?.lookAt?.yaw || 0).toFixed(2);
       container.dataset.pose = motion?.pose || "none";
+      container.dataset.petting = String((motion?.petWeight || 0) > 0.1);
+      container.dataset.blush = (motion?.blush || 0).toFixed(3);
+      container.dataset.skirtLeft = (
+        vrm?.expressionManager?.getValue("skirtRaiseLeft") || 0
+      ).toFixed(3);
+      container.dataset.skirtRight = (
+        vrm?.expressionManager?.getValue("skirtRaiseRight") || 0
+      ).toFixed(3);
+      container.dataset.smile = (
+        vrm?.expressionManager?.getValue("happy") || 0
+      ).toFixed(3);
+      if (vrm && bounds) {
+        const h = bounds.getSize(new THREE.Vector3()).y;
+        vrm.humanoid.getNormalizedBoneNode("head")?.getWorldPosition(petHead);
+        petHead.y += h * 0.067;
+        facePoint.copy(petHead);
+        facePoint.x += h * 0.072;
+        facePoint.project(camera);
+        petHead.project(camera);
+        container.dataset.headX = (
+          ((petHead.x + 1) * canvas.clientWidth) /
+          2
+        ).toFixed(1);
+        container.dataset.headY = (
+          ((1 - petHead.y) * canvas.clientHeight) /
+          2
+        ).toFixed(1);
+        const x = ((petHead.x + 1) * canvas.clientWidth) / 2,
+          y = ((1 - petHead.y) * canvas.clientHeight) / 2;
+        const r = (Math.abs(facePoint.x - petHead.x) * canvas.clientWidth) / 2;
+        const region = container.querySelector<HTMLElement>(
+          ".avatar-head-region",
+        )!;
+        const left = Math.max(0, x - r),
+          top = Math.max(0, y - r * 1.1);
+        Object.assign(region.style, {
+          left: left + "px",
+          top: top + "px",
+          width: Math.max(0, Math.min(canvas.clientWidth, x + r) - left) + "px",
+          height:
+            Math.max(0, Math.min(canvas.clientHeight, y + r * 1.1) - top) +
+            "px",
+        });
+      }
       container.dataset.gazeX = pointer.current.x.toFixed(2);
       container.dataset.gazeY = pointer.current.y.toFixed(2);
       container.dataset.energy = (signal.energy || 0).toFixed(2);
@@ -212,7 +354,13 @@ export function Avatar({
     };
     const resize = () => {
       const width = container.clientWidth,
-        height = Math.max(1, container.clientHeight - 36);
+        height = Math.max(
+          1,
+          container.clientHeight -
+            (parseFloat(
+              getComputedStyle(container).getPropertyValue("--avatar-footer"),
+            ) || 86),
+        );
       if (!width || !height || contextLost) return;
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(width, height);
@@ -243,10 +391,12 @@ export function Avatar({
       resize();
       container.dataset.render = "running";
       watchPointer(
+        !config.current.demo && config.current.settings.avatar_gaze !== false,
+      );
+      music.setEnabled(
         !config.current.demo &&
-          config.current.settings.avatar_gaze !== false &&
-          config.current.settings.ui_motion !== "reduced" &&
-          !media.matches,
+          config.current.settings.avatar_motion !== false &&
+          config.current.settings.avatar_music !== false,
       );
       frame = requestAnimationFrame(animate);
     };
@@ -300,7 +450,6 @@ export function Avatar({
     canvas.addEventListener("webglcontextlost", lost);
     canvas.addEventListener("webglcontextrestored", restored);
     document.addEventListener("visibilitychange", resume);
-    media.addEventListener("change", resume);
     resize();
     const manager = new THREE.LoadingManager();
     manager.setURLModifier((url) => {
@@ -367,6 +516,8 @@ export function Avatar({
         head = vrm.humanoid
           .getNormalizedBoneNode("head")
           ?.getWorldPosition(new THREE.Vector3());
+        const headNode = vrm.humanoid.getNormalizedBoneNode("head");
+        if (headNode) headHit = new AvatarHeadHit(headNode, height);
         bounds.max.y += height * 0.1;
         container.dataset.ready = "true";
         resume();
@@ -387,10 +538,12 @@ export function Avatar({
       offActivity();
       offPointer();
       container.removeEventListener("wheel", wheel);
+      canvas.removeEventListener("pointerdown", pet);
+      canvas.removeEventListener("pointermove", stroke);
+      canvas.removeEventListener("contextmenu", pet);
       canvas.removeEventListener("webglcontextlost", lost);
       canvas.removeEventListener("webglcontextrestored", restored);
       document.removeEventListener("visibilitychange", resume);
-      media.removeEventListener("change", resume);
       meter.dispose();
       if (vrm) VRMUtils.deepDispose(vrm.scene);
       renderer.dispose();
@@ -418,17 +571,6 @@ export function Avatar({
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
-        const box = event.currentTarget.getBoundingClientRect();
-        pointer.current.x = THREE.MathUtils.clamp(
-          ((event.clientX - box.x) / box.width) * 2 - 1,
-          -1,
-          1,
-        );
-        pointer.current.y = THREE.MathUtils.clamp(
-          ((event.clientY - box.y) / box.height) * 2 - 1,
-          -1,
-          1,
-        );
         if (dragging.current)
           pointer.current.yaw = THREE.MathUtils.clamp(
             dragging.current.yaw + (event.clientX - dragging.current.x) * 0.005,
@@ -448,6 +590,26 @@ export function Avatar({
         if (event.target instanceof HTMLCanvasElement) resetView();
       }}
     >
+      <div className="avatar-music-status" aria-label="Состояние музыки" />
+      <div
+        className="avatar-head-region"
+        aria-hidden="true"
+        style={{ position: "absolute", pointerEvents: "none" }}
+      />
+      <div className="avatar-caption" aria-label="Текущая анимация">
+        <div>
+          <small>{caption.name}</small>
+          <span>{caption.text}</span>
+        </div>
+        {demo && (
+          <button
+            title="Завершить ручной тест и включить обычные реакции"
+            onClick={() => setDemo(null)}
+          >
+            Авто
+          </button>
+        )}
+      </div>
       {path && (
         <div
           className="avatar-view-controls"
@@ -500,7 +662,9 @@ export function Avatar({
         >
           {stats ? (
             <>
-              {stats.fps.toFixed(0)} FPS · кадр JS {stats.cpu.toFixed(1)} мс
+              {stats.fps.toFixed(0)} FPS · предел {settings.avatar_fps || 60}
+              <br />
+              Кадр JS {stats.cpu.toFixed(1)} мс
               <br />
               GPU{" "}
               {stats.gpu === null

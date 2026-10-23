@@ -19,14 +19,6 @@ export function AvatarTestWindow() {
       .avatarCapabilities()
       .then(accept)
       .catch(() => {});
-    void window.wiley
-      .avatarDemo()
-      .then((state) => {
-        if (live) setDemo(state.demo || initial);
-      })
-      .catch((reason: Error) => {
-        if (live) setError(reason.message);
-      });
     return () => {
       live = false;
       off();
@@ -46,6 +38,7 @@ export function AvatarTestWindow() {
       )}
       <AvatarTests
         value={demo || initial}
+        active={Boolean(demo)}
         expressions={available?.expressions || []}
         wings={available?.wings || 0}
         gestures={available?.gestures || false}

@@ -1,5 +1,42 @@
 import { useEffect, useState } from "react";
 
+export function AvatarMinimal() {
+  useEffect(() => {
+    const host = document.querySelector<HTMLElement>(".pet-window")!;
+    let live = true;
+    const accept = (value: { minimal: boolean }) => {
+      if (live) host.dataset.minimal = String(value.minimal);
+    };
+    const off = window.wiley.onAvatarControls(accept);
+    void window.wiley
+      .avatarControls()
+      .then(accept)
+      .catch(() => {});
+    const context = (event: MouseEvent) => {
+      if (!event.defaultPrevented && host.dataset.minimal === "true") {
+        event.preventDefault();
+        void window.wiley.minimalAvatar(false);
+      }
+    };
+    document.addEventListener("contextmenu", context);
+    return () => {
+      live = false;
+      off();
+      document.removeEventListener("contextmenu", context);
+    };
+  }, []);
+  return (
+    <button
+      className="pet-minimal"
+      aria-label="Только фея"
+      title="Скрыть панели · вернуть правым щелчком вне головы или Ctrl+Alt+H"
+      onClick={() => void window.wiley.minimalAvatar(true)}
+    >
+      ◌
+    </button>
+  );
+}
+
 export function AvatarClose() {
   return (
     <button
@@ -29,7 +66,7 @@ export function AvatarClickThrough() {
       .catch(() => {});
     const host = document.querySelector(".pet-window")!;
     const selector =
-      ".pet-drag, .pet-actions, .avatar-view-controls, .conversation-control, .pet-resize";
+      ".pet-drag, .pet-actions, .avatar-view-controls, .avatar-caption, .avatar-head-region, .conversation-control, .pet-resize";
     const observed = new Set<Element>();
     const publish = () => {
       frame = 0;
@@ -59,6 +96,8 @@ export function AvatarClickThrough() {
     resize.observe(host);
     mutations.observe(host, { childList: true, subtree: true });
     window.addEventListener("resize", schedule);
+    // Keep the moving head reachable while the rest of the model passes clicks.
+    const timer = enabled ? window.setInterval(schedule, 150) : 0;
     schedule();
     return () => {
       live = false;
@@ -67,15 +106,16 @@ export function AvatarClickThrough() {
       mutations.disconnect();
       window.removeEventListener("resize", schedule);
       cancelAnimationFrame(frame);
+      clearInterval(timer);
     };
-  }, []);
+  }, [enabled]);
   return (
     <button
       aria-label="Пропуск кликов"
       aria-pressed={enabled}
       title={
         error ||
-        "Кнопки остаются доступны. Переключить: Ctrl+Alt+A или пункт «Пропуск кликов» в трее."
+        "Голова и кнопки остаются доступны. ПКМ по голове — погладить. Переключить: Ctrl+Alt+A или пункт в трее."
       }
       onClick={() =>
         void window.wiley

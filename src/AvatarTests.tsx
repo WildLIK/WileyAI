@@ -25,6 +25,7 @@ export const neutralDemo = (): AvatarDemo => ({
 
 export function AvatarTests({
   value,
+  active = true,
   expressions,
   wings,
   gestures,
@@ -32,6 +33,7 @@ export function AvatarTests({
   onClose,
 }: {
   value: AvatarDemo;
+  active?: boolean;
   expressions: string[];
   wings: number;
   gestures: boolean;
@@ -92,7 +94,7 @@ export function AvatarTests({
           {faces.map(({ emotion, label }) => (
             <button
               key={emotion}
-              aria-pressed={value.label === label}
+              aria-pressed={active && value.label === label}
               disabled={emotion !== "neutral" && !expressions.includes(emotion)}
               title={
                 emotion === "neutral" || expressions.includes(emotion)
@@ -111,7 +113,7 @@ export function AvatarTests({
             <button
               key={preset.gesture}
               disabled={!gestures}
-              aria-pressed={value.label === preset.label}
+              aria-pressed={active && value.label === preset.label}
               title={preset.example}
               onClick={() =>
                 show(
@@ -131,38 +133,61 @@ export function AvatarTests({
       <div className="avatar-test-buttons gestures">
         <button
           disabled={!gestures}
-          aria-pressed={value.label === "Помахать"}
+          aria-pressed={active && value.label === "Танец"}
+          onClick={() => show("Танец", "happy", "dance", "idle", false)}
+        >
+          Танец
+        </button>
+        <button
+          disabled={!gestures}
+          aria-pressed={active && value.label === "Танец 2"}
+          onClick={() => show("Танец 2", "happy", "dance2", "idle", false)}
+        >
+          Танец 2
+        </button>
+        <button
+          disabled={!gestures}
+          aria-pressed={active && value.label === "Танец 3"}
+          onClick={() => show("Танец 3", "happy", "dance3", "idle", false)}
+        >
+          Танец 3
+        </button>
+        <button
+          disabled={!gestures}
+          aria-pressed={active && value.label === "Помахать"}
           onClick={() => show("Помахать", "happy", "wave", "idle", false)}
         >
           Помахать
         </button>
         <button
           disabled={!gestures}
-          aria-pressed={value.label === "Кивнуть"}
+          aria-pressed={active && value.label === "Кивнуть"}
           onClick={() => show("Кивнуть", "neutral", "nod", "idle", false)}
         >
           Кивнуть
         </button>
         <button
           disabled={!expressions.includes("aa") && !expressions.includes("ou")}
-          aria-pressed={value.label === "Губы"}
+          aria-pressed={active && value.label === "Губы"}
           onClick={() => show("Губы", "neutral", "none", "speaking")}
         >
           Губы
         </button>
         <button
-          aria-pressed={value.label === "Думает"}
+          aria-pressed={active && value.label === "Думает"}
           onClick={() => show("Думает", "neutral", "none", "thinking", false)}
         >
           Думает
         </button>
         <button
-          aria-pressed={value.label === "Движения"}
+          aria-pressed={active && value.label === "Движения"}
           onClick={() => show("Движения", "neutral", "none", "idle", false)}
         >
           Движения
         </button>
-        <button onClick={onClose}>Авто</button>
+        <button aria-pressed={!active} onClick={onClose}>
+          Авто
+        </button>
       </div>
       <label className="avatar-test-strength">
         Сила проверки: {Math.round(value.strength * 100)}%
@@ -182,6 +207,12 @@ export function AvatarTests({
         Без озвучки. В тесте поза держится до следующего выбора. Костей крыльев:{" "}
         {wings}.
       </small>
+      {active && value.still && (
+        <small>
+          Статический тест: взгляд зафиксирован. «Авто» возвращает обычное
+          поведение.
+        </small>
+      )}
       <small>
         {
           avatarPresets.find((item) => item.gesture === value.signal.gesture)

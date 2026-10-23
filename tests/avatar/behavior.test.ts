@@ -10,6 +10,9 @@ import {
   idleAvatar,
 } from "../../src/avatarBehavior.ts";
 import { AvatarMotion } from "../../src/avatarMotion.ts";
+import { avatarPointer } from "../../src/avatarPointer.ts";
+import { dancePose } from "../../src/avatarDance.ts";
+import { avatarCaption } from "../../src/avatarCaption.ts";
 import { fitAvatarCamera } from "../../src/avatarPresentation.ts";
 import {
   AvatarSignals,
@@ -27,7 +30,8 @@ test("the reference poses distinguish praise, joy, attention, explanation and sy
   assert.equal(avatarReaction("Ты не молодец").gesture, "none");
   for (const [phrase, gesture] of [
     ["Ура, у меня получилось!", "joy"],
-    ["Уайли, ты такая милая", "cute"],
+    ["Уайли, ты такая милая", "shy"],
+    ["Вот это неожиданно!", "surprise"],
     ["Привет, Уайли!", "wave"],
     ["Объясни, как это работает", "explain"],
     ["Давай подумаем над этим", "think"],
@@ -50,6 +54,150 @@ test("conversation energy grows with recent turns and settles without replaying 
   assert.ok(activity.value(6000) > first);
   assert.ok(activity.value(40000) < activity.value(6000));
   assert.equal(activity.value(70000), 0);
+});
+
+test("ordinary feelings vary without preset wording; negation and quoted text do not act as mood", () => {
+  for (const [text, emotion] of [
+    ["Сегодня я весела и довольна прогулкой.", "happy"],
+    ["Я рад, что мы снова разговариваем.", "happy"],
+    ["Я устала, хочу спать.", "relaxed"],
+    ["Сейчас мне одиноко и тяжело на душе.", "sad"],
+    ["Я злюсь, меня это раздражает!", "angry"],
+    ["Я удивлена, вот это поворот!", "surprised"],
+    ["Мне не грустно, я радуюсь.", "happy"],
+    ["Мне не грустно.", "neutral"],
+    ["В документе написано «я счастлива».", "neutral"],
+  ])
+    assert.equal(avatarReaction(text).emotion, emotion, text);
+});
+
+test("global pointer keeps moving on the same side outside a small window", () => {
+  const canvas = { width: 350, height: 500 },
+    face = { x: 175, y: 120 };
+  const a = avatarPointer(
+    { x: 500, y: 200, width: 1920, height: 1080 },
+    face,
+    canvas,
+  );
+  const b = avatarPointer(
+    { x: 1100, y: 400, width: 1920, height: 1080 },
+    face,
+    canvas,
+  );
+  assert.ok(a.x > 0 && a.x < b.x && b.x < 1);
+  assert.ok(a.y < b.y);
+  assert.equal(
+    avatarPointer(
+      { x: -20000, y: -20000, width: 1920, height: 1080 },
+      face,
+      canvas,
+    ).x,
+    -1,
+  );
+});
+
+test("dance interpolates continuous finite poses and yields to speech, hidden motion and pause", () => {
+  assert.notDeepEqual(dancePose(0).left, dancePose(6).left);
+  assert.deepEqual(dancePose(0), dancePose(16));
+  for (let phase = 0; phase < 16; phase += 0.1) {
+    const before = dancePose(phase),
+      after = dancePose(phase + 0.01);
+    assert.ok(
+      before.left.every(
+        (value, i) =>
+          Number.isFinite(value) && Math.abs(value - after.left[i]) < 0.01,
+      ),
+    );
+  }
+  const scene = new THREE.Group(),
+    head = new THREE.Object3D();
+  const vrm = {
+    scene,
+    humanoid: {
+      getNormalizedBoneNode: (name: string) => (name === "head" ? head : null),
+    },
+    update: () => {},
+  } as unknown as VRM;
+  const motion = new AvatarMotion(vrm, 1.8);
+  const music = {
+    active: true,
+    source: "AIMP",
+    level: 0.7,
+    beat: 0.9,
+    phase: 3,
+    bpm: 120,
+    error: "",
+  };
+  const options = {
+    motion: true,
+    gaze: true,
+    expressions: true,
+    pointer: { x: 0, y: 0 },
+    yaw: 0,
+    music,
+  };
+  for (let i = 0; i < 30; i++)
+    motion.update(i / 30, 1 / 30, idleAvatar, options);
+  assert.equal(motion.pose, "dance");
+  for (let i = 0; i < 60; i++)
+    motion.update(
+      1 + i / 30,
+      1 / 30,
+      { ...idleAvatar, phase: "speaking" },
+      options,
+    );
+  assert.equal(motion.pose, "explain");
+  for (let i = 0; i < 60; i++)
+    motion.update(3 + i / 30, 1 / 30, idleAvatar, {
+      ...options,
+      music: { ...music, active: false },
+    });
+  assert.equal(motion.pose, "none");
+  motion.update(6, 0.1, idleAvatar, { ...options, motion: false });
+  assert.equal(motion.pose, "none");
+});
+
+test("three dances have distinct limb motion; full turns stay smooth across loop boundaries", () => {
+  assert.notDeepEqual(dancePose(6, 1), dancePose(6, 2));
+  assert.notDeepEqual(dancePose(6, 2), dancePose(6, 3));
+  assert.ok((dancePose(8, 2).turn || 0) > Math.PI);
+  assert.ok(Math.abs(dancePose(3, 3).shift?.[0] || 0) > 0.01);
+  const scene = new THREE.Group();
+  const vrm = {
+    scene,
+    humanoid: { getNormalizedBoneNode: () => null },
+    update: () => {},
+  } as unknown as VRM;
+  const motion = new AvatarMotion(vrm, 1.8);
+  const options = {
+    motion: true,
+    gaze: false,
+    expressions: true,
+    pointer: { x: 0, y: 0 },
+    yaw: 0,
+    demo: true,
+  };
+  let previous = 0;
+  for (let i = 0; i < 600; i++) {
+    motion.update(
+      i / 60,
+      1 / 60,
+      { ...idleAvatar, gesture: "dance2", cue: "spin" },
+      options,
+    );
+    assert.ok(Math.abs(scene.rotation.y - previous) < 0.12);
+    previous = scene.rotation.y;
+  }
+  assert.ok(scene.rotation.y > 6);
+  assert.equal(
+    avatarCaption("thumbsup", "happy", "idle").text,
+    "Всё верно, так и сделаем",
+  );
+  assert.equal(avatarCaption("dance3", "happy", "idle").name, "Танец 3");
+  assert.equal(
+    avatarCaption("surprise", "surprised", "idle").name,
+    "Удивление",
+  );
 });
 
 test("arm reach stays finite and preserves limb lengths when a hand target is out of reach", () => {
@@ -286,4 +434,62 @@ test("display changes preserve relative placement and recover from unplugged / d
     fitWindow({ x: 5000, y: -5000, width: 360, height: 570 }, left),
     { x: -360, y: -120, width: 360, height: 570 },
   );
+});
+
+test("skirt lift tracks blended leg angles even with facial expressions disabled and returns to rest", () => {
+  const scene = new THREE.Group();
+  const left = new THREE.Bone(),
+    right = new THREE.Bone();
+  scene.add(left, right);
+  const values = new Map<string, number>();
+  const vrm = {
+    scene,
+    humanoid: {
+      getNormalizedBoneNode: (name: string) =>
+        name === "leftUpperLeg"
+          ? left
+          : name === "rightUpperLeg"
+            ? right
+            : null,
+    },
+    expressionManager: {
+      getExpression: (name: string) =>
+        name.startsWith("skirtRaise") ? {} : null,
+      setValue: (name: string, value: number) => values.set(name, value),
+    },
+    update: () => {},
+  } as unknown as VRM;
+  const motion = new AvatarMotion(vrm, 1.8);
+  const options = {
+    motion: true,
+    gaze: false,
+    expressions: false,
+    pointer: { x: 0, y: 0 },
+    yaw: 0,
+  };
+  for (let i = 0; i < 90; i++)
+    motion.update(
+      i / 60,
+      1 / 60,
+      { ...idleAvatar, phase: "listening" },
+      options,
+    );
+  assert.ok(values.get("skirtRaiseLeft")! > 0.49);
+  assert.ok(
+    Math.abs(values.get("skirtRaiseLeft")! - -left.rotation.x / 1.1) < 1e-9,
+  );
+  assert.ok(
+    Math.abs(values.get("skirtRaiseRight")! - -right.rotation.x / 1.1) < 1e-9,
+  );
+  for (let i = 0; i < 180; i++)
+    motion.update(2 + i / 60, 1 / 60, idleAvatar, options);
+  assert.ok(values.get("skirtRaiseLeft")! < 0.3);
+  assert.ok(values.get("skirtRaiseRight")! < 0.4);
+  for (let i = 0; i < 180; i++)
+    motion.update(5 + i / 60, 1 / 60, idleAvatar, {
+      ...options,
+      motion: false,
+    });
+  assert.ok(values.get("skirtRaiseLeft")! < 0.001);
+  assert.ok(values.get("skirtRaiseRight")! < 0.001);
 });

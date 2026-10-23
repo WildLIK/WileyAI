@@ -8,6 +8,7 @@ export type AvatarGesture =
   | "comfort"
   | "joy"
   | "cute"
+  | "surprise"
   | "explain"
   | "think"
   | "praise"
@@ -15,7 +16,10 @@ export type AvatarGesture =
   | "listen"
   | "thumbsup"
   | "shy"
-  | "tired";
+  | "tired"
+  | "dance"
+  | "dance2"
+  | "dance3";
 export type AvatarSignal = {
   phase: AvatarPhase;
   emotion: AvatarEmotion;
@@ -40,7 +44,11 @@ export type AvatarCapabilities = {
   wings: number;
   gestures: boolean;
 };
-export type AvatarWindowState = { visible: boolean; clickThrough: boolean };
+export type AvatarWindowState = {
+  visible: boolean;
+  clickThrough: boolean;
+  minimal: boolean;
+};
 export const idleAvatar: AvatarSignal = {
   phase: "idle",
   emotion: "neutral",
@@ -63,10 +71,10 @@ export const avatarPresets: {
     example: "Ура, у меня получилось!",
   },
   {
-    gesture: "cute",
-    emotion: "relaxed",
-    label: "Милое обращение",
-    example: "Уайли, ты такая милая",
+    gesture: "surprise",
+    emotion: "surprised",
+    label: "Удивление",
+    example: "Вот это неожиданно!",
   },
   {
     gesture: "wave",
@@ -158,13 +166,33 @@ export class AvatarActivity {
 export function avatarReaction(
   text: string,
 ): Pick<AvatarSignal, "emotion" | "gesture"> {
-  const value = text.toLowerCase().slice(0, 1600);
+  // Quoted examples/code are data, not the speaker's mood.
+  const value = text
+    .toLowerCase()
+    .replace(/```[\s\S]*?(?:```|$)|«[^»]*»|"[^"\n]*"|“[^”]*”/gu, " ")
+    .replace(
+      /(^|[\s,.!?])не\s+(?:груст[а-я]*|расстро[а-я]*|злюсь|раздраж[а-я]*|устал[а-я]*|рад[аы]?|весел[а-я]*|весёл[а-я]*|счастлив[а-я]*)(?=$|[\s,.!?])/gu,
+      " ",
+    )
+    .slice(-1600);
+  if (
+    /я (?:устал[аи]?|утомл[её]н[аы]?)|хочу спать|валюсь с ног|сил совсем нет/u.test(
+      value,
+    )
+  )
+    return { emotion: "relaxed", gesture: "tired" };
+  if (
+    /я (?:злюсь|в ярости)|меня (?:бесит|раздражает)|возмутительно|[😠😡]/u.test(
+      value,
+    )
+  )
+    return { emotion: "angry", gesture: "point" };
   if (
     /(?:ты|вы)[^.!?]{0,25}устал|пора отдохнуть|отдохни|пора спать/u.test(value)
   )
     return { emotion: "relaxed", gesture: "tired" };
   if (
-    /\b(?:sad|sorry)\b|груст|расстро|сожале|сочувств|тревож|обидно|мне плохо|не получ|не работает|ошибк|извин|устал|злюсь|раздраж|боюсь|страшно|[😢😔😭😟💔]/u.test(
+    /\b(?:sad|sorry)\b|груст|печаль|расстро|сожале|сочувств|тревож|обидно|мне плохо|тяжело на душе|одинок|огорч|не получ|не работает|ошибк|извин|устал|злюсь|раздраж|боюсь|страшно|[😢😔😭😟💔]/u.test(
       value,
     )
   )
@@ -182,7 +210,7 @@ export function avatarReaction(
       value,
     )
   )
-    return { emotion: "relaxed", gesture: "cute" };
+    return { emotion: "relaxed", gesture: "shy" };
   if (
     /(?:ты|вы|уайли)[^.!?]{0,35}(?:молодец|умниц|отлично помог|лучшая|лучш[еа-я]* помощ)|горжусь тобой/u.test(
       value,
@@ -216,7 +244,7 @@ export function avatarReaction(
   )
     return { emotion: "happy", gesture: "thumbsup" };
   if (
-    /(?:^|[\s,.!?])ура(?=$|[\s,.!?])|получилось|счастлив|радост|радуюсь|[😂😄]/u.test(
+    /(?:^|[\s,.!?])ура(?=$|[\s,.!?])|получилось|счастлив|радост|радуюсь|весел[аоы]?|весёл|я рад[аы]?|я довольн|в восторге|прекрасное настроение|[😂😄🥳]/u.test(
       value,
     )
   )
@@ -228,13 +256,23 @@ export function avatarReaction(
   )
     return { emotion: "happy", gesture: "nod" };
   if (
-    /удивитель|неожиданно|ничего себе|\bwow\b|(?:^|\s)ого(?=$|[!\s.])/u.test(
+    /удивитель|удивл[её]н|неожиданно|ничего себе|невероятно|потрясающе|\bwow\b|(?:^|\s)ого(?=$|[!\s.])|[😲😮🤯]/u.test(
       value,
     )
   )
-    return { emotion: "surprised", gesture: "none" };
-  if (/спокойной ночи|отдохни|всё хорошо|все хорошо/u.test(value))
+    return { emotion: "surprised", gesture: "surprise" };
+  if (
+    /спокойной ночи|отдохни|всё хорошо|все хорошо|мне спокойно|умиротвор|на душе спокойно/u.test(
+      value,
+    )
+  )
     return { emotion: "relaxed", gesture: "nod" };
+  if (
+    /\?\s*$|интересно|любопытно|сомнева|не уверена|попробуем разобраться/u.test(
+      value,
+    )
+  )
+    return { emotion: "neutral", gesture: "think" };
   return { emotion: "neutral", gesture: "none" };
 }
 

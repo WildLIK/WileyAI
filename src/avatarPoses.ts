@@ -1,7 +1,8 @@
 import type { AvatarGesture } from "./avatarBehavior";
 
 export type V3 = [number, number, number];
-export type HandShape = "open" | "soft" | "point" | "fist" | "thumbsup";
+export type HandShape =
+  "open" | "soft" | "clasp" | "point" | "fist" | "thumbsup";
 export type FairyPose = {
   left: V3;
   right: V3;
@@ -14,26 +15,63 @@ export type FairyPose = {
   leftLeg: V3;
   rightLeg: V3;
   knees: [number, number];
+  leftElbow?: V3;
+  rightElbow?: V3;
+  leftPalm?: V3;
+  rightPalm?: V3;
+  turn?: number;
+  shift?: V3;
 };
 const resting: FairyPose = {
-  left: [0.21, 0.45, 0.05],
-  right: [-0.21, 0.45, 0.05],
+  left: [-0.028, 0.66, 0.115],
+  right: [0.028, 0.635, 0.155],
   leftWrist: [0, 0, 0],
   rightWrist: [0, 0, 0],
-  leftHand: "soft",
-  rightHand: "soft",
-  head: [0, 0, 0],
-  body: [0, 0, 0],
-  leftLeg: [-0.3, 0.1, -0.06],
-  rightLeg: [-0.42, -0.1, 0.06],
-  knees: [0.85, 1.25],
+  leftHand: "clasp",
+  rightHand: "clasp",
+  leftElbow: [0.125, 0.59, 0.075],
+  rightElbow: [-0.125, 0.58, 0.105],
+  leftPalm: [0.65, 3.04, 0.45],
+  rightPalm: [0.65, 3.04, -0.45],
+  head: [0.025, 0.03, 0.08],
+  body: [0, 0.1, -0.03],
+  leftLeg: [-0.12, 0.035, -0.025],
+  rightLeg: [-0.3, -0.04, 0.12],
+  knees: [0.18, 0.7],
 };
 const pose = (changes: Partial<FairyPose>): FairyPose => ({
   ...resting,
+  // A new hand goal needs its own reach plane and palm orientation; the
+  // folded idle arms must not constrain a wave, dance or pointing gesture.
+  leftElbow: changes.left ? undefined : resting.leftElbow,
+  rightElbow: changes.right ? undefined : resting.rightElbow,
+  leftPalm: changes.left ? undefined : resting.leftPalm,
+  rightPalm: changes.right ? undefined : resting.rightPalm,
   ...changes,
 });
 /** Hand goals use model-height fractions, with +Z toward the viewer. */
 export const fairyPoses: Record<AvatarGesture, FairyPose> = {
+  dance: pose({
+    left: [0.3, 0.75, 0.15],
+    right: [-0.3, 0.75, 0.15],
+    knees: [1.5, 1.6],
+    leftHand: "open",
+    rightHand: "open",
+  }),
+  dance2: pose({
+    left: [0.3, 0.75, 0.15],
+    right: [-0.3, 0.75, 0.15],
+    knees: [1.5, 1.6],
+    leftHand: "open",
+    rightHand: "open",
+  }),
+  dance3: pose({
+    left: [0.3, 0.75, 0.15],
+    right: [-0.3, 0.75, 0.15],
+    knees: [1.5, 1.6],
+    leftHand: "open",
+    rightHand: "open",
+  }),
   none: resting,
   nod: pose({ head: [0.05, 0, 0] }),
   wave: pose({
@@ -66,6 +104,17 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     leftLeg: [-0.6, 0.1, -0.12],
     knees: [1.55, 0.95],
   }),
+  surprise: pose({
+    right: [-0.1, 0.75, 0.12],
+    left: [0.25, 0.58, 0.18],
+    rightHand: "point",
+    leftHand: "open",
+    leftWrist: [0.7, 0, 0],
+    head: [0.03, -0.1, 0.14],
+    body: [0, -0.2, 0.04],
+    leftLeg: [-0.6, 0.1, -0.12],
+    knees: [1.55, 0.95],
+  }),
   explain: pose({
     right: [-0.28, 0.65, 0.22],
     left: [0.14, 0.64, 0.15],
@@ -77,12 +126,19 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     knees: [0.9, 1.25],
   }),
   think: pose({
-    right: [-0.035, 0.75, 0.14],
-    left: [0.055, 0.64, 0.15],
-    rightHand: "point",
-    head: [-0.09, 0.1, -0.1],
-    body: [0.02, 0.06, 0],
-    knees: [0.95, 1.3],
+    left: [-0.005, 0.725, 0.16],
+    right: [0.075, 0.63, 0.17],
+    leftHand: "point",
+    rightHand: "soft",
+    leftPalm: [0, -0.2, 1.45],
+    rightPalm: [0.1, 0, 3.0],
+    leftElbow: [0.16, 0.61, 0.08],
+    rightElbow: [-0.18, 0.59, 0.08],
+    head: [-0.13, -0.12, 0.14],
+    body: [0.015, -0.06, 0.025],
+    leftLeg: [-0.34, 0.1, -0.04],
+    rightLeg: [-0.64, -0.12, 0.06],
+    knees: [0.65, 1.55],
   }),
   praise: pose({
     right: [-0.28, 1.04, 0.1],
@@ -129,13 +185,17 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     knees: [1.55, 1.5],
   }),
   shy: pose({
-    right: [-0.025, 0.46, 0.16],
-    left: [0.025, 0.46, 0.16],
-    head: [0.1, -0.06, 0.1],
-    body: [0.05, -0.05, 0],
-    leftLeg: [-0.55, 0.02, 0.015],
-    rightLeg: [-0.55, -0.02, -0.015],
-    knees: [1.6, 1.6],
+    right: [-0.015, 0.52, 0.15],
+    left: [0.015, 0.52, 0.15],
+    leftPalm: [0.12, 0.12, -1.5],
+    rightPalm: [0.12, -0.12, 1.5],
+    leftElbow: [0.1, 0.56, 0.1],
+    rightElbow: [-0.1, 0.56, 0.1],
+    head: [0.14, -0.06, 0.2],
+    body: [0.14, -0.04, 0.035],
+    leftLeg: [-1.04, 0.02, 0.015],
+    rightLeg: [-1.02, -0.02, -0.015],
+    knees: [2.3, 2.28],
   }),
   tired: pose({
     right: [-0.085, 0.79, 0.13],

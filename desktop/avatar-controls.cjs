@@ -1,3 +1,6 @@
+const fs = require("node:fs");
+const path = require("node:path");
+
 function avatarTrayItems(controls, show) {
   const state = controls.state();
   return [
@@ -14,6 +17,13 @@ function avatarTrayItems(controls, show) {
       enabled: state.visible,
       click: () => controls.hide(),
     },
+    {
+      label: "Только фея (Ctrl+Alt+H)",
+      type: "checkbox",
+      checked: Boolean(state.minimal),
+      enabled: state.visible,
+      click: () => controls.setMinimal(!controls.state().minimal),
+    },
   ];
 }
 
@@ -27,7 +37,17 @@ function installAvatarControls({
   sendToWindow,
   changed,
   paused,
+  dataRoot,
 }) {
+  const preference = dataRoot && path.join(dataRoot, "avatar-view.json");
+  let minimal = false;
+  try {
+    if (preference)
+      minimal =
+        JSON.parse(fs.readFileSync(preference, "utf8")).minimal === true;
+  } catch {
+    /* Use the normal view on first launch. */
+  }
   let clickThrough = false,
     ignored = false,
     regions = [];
@@ -38,6 +58,7 @@ function installAvatarControls({
   const state = () => ({
     visible: Boolean(avatar()?.isVisible()),
     clickThrough,
+    minimal,
   });
   const report = () => {
     const window = avatar();
@@ -94,6 +115,27 @@ function installAvatarControls({
     closeTool();
     avatar()?.hide();
   };
+  const hideOtherWindows = () => {
+    closeTool();
+    for (const [view, window] of windows) {
+      if (view !== "avatar" && !window.isDestroyed()) window.hide();
+    }
+  };
+  const setMinimal = (enabled) => {
+    if (typeof enabled !== "boolean")
+      throw new Error("Некорректный вид персонажа");
+    minimal = enabled;
+    if (preference) {
+      try {
+        fs.writeFileSync(preference, JSON.stringify({ minimal }));
+      } catch {
+        /* Still works for this session. */
+      }
+    }
+    if (minimal && avatar()?.isVisible()) hideOtherWindows();
+    report();
+    return state();
+  };
   ipcMain.handle("avatar-controls-get", (event) => {
     trusted(event);
     return state();
@@ -107,6 +149,10 @@ function installAvatarControls({
   ipcMain.handle("avatar-hide", (event) => {
     trusted(event);
     hide();
+  });
+  ipcMain.handle("avatar-minimal", (event, enabled) => {
+    trusted(event);
+    return setMinimal(enabled);
   });
   ipcMain.handle("avatar-control-regions", (event, value) => {
     trusted(event);
@@ -130,13 +176,17 @@ function installAvatarControls({
   return {
     state,
     setClickThrough,
+    setMinimal,
     hide,
     watch(window, view) {
       if (view !== "avatar") return;
       clickThrough = false;
       ignored = false;
       regions = [];
-      window.on("show", report);
+      window.on("show", () => {
+        if (minimal) hideOtherWindows();
+        report();
+      });
       window.on("hide", () => {
         setClickThrough(false);
         closeTool();

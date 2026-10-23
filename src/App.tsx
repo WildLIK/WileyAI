@@ -83,7 +83,11 @@ import {
 } from "./avatarBehavior";
 import { useAvatarState } from "./useAvatarState";
 import { AvatarWindowSize } from "./AvatarWindowSize";
-import { AvatarClickThrough, AvatarClose } from "./AvatarWindowControls";
+import {
+  AvatarClickThrough,
+  AvatarClose,
+  AvatarMinimal,
+} from "./AvatarWindowControls";
 import {
   microphoneConstraints,
   microphoneError,
@@ -321,20 +325,33 @@ export function App() {
     return () => clearInterval(timer);
   }, [Boolean(avatarEnergy)]);
   useEffect(() => {
-    if (!avatarCue.cue) return;
+    if (!avatarCue.cue || busy) return;
     const timer = setTimeout(() => setAvatarCue({ ...idleAvatar }), 12000);
     return () => clearTimeout(timer);
-  }, [avatarCue.cue]);
+  }, [avatarCue.cue, busy]);
   function reactToTurn(text: string, reset = false) {
     const now = performance.now();
     if (reset) setAvatarEnergy(avatarActivity.current.mark(now));
+    const reaction = avatarReaction(text);
     if (
       !reset &&
       avatarCueRef.current.gesture !== "none" &&
-      now - avatarReactedAt.current < 5000
-    )
+      now - avatarReactedAt.current < 2200
+    ) {
+      // Let the face react to a quick answer even while the user's greeting or
+      // listening pose finishes. Previously a fast complete reply was lost here.
+      if (
+        reaction.emotion !== "neutral" &&
+        reaction.emotion !== avatarCueRef.current.emotion
+      ) {
+        avatarCueRef.current = {
+          ...avatarCueRef.current,
+          emotion: reaction.emotion,
+        };
+        setAvatarCue(avatarCueRef.current);
+      }
       return;
-    const reaction = avatarReaction(text);
+    }
     if (
       !reset &&
       reaction.emotion === "neutral" &&
@@ -1176,8 +1193,16 @@ export function App() {
     let userAccepted = false;
     const config = options.speechConfig || savedSettings.current || settings;
     let output: SpeechOutput<Blob> | undefined;
+    let repeated = false;
+    let liveReaction = "";
+    let modelMood = false;
     const startOutput = () => {
-      if (!output && config && (options.conversation || config.speak_answers))
+      if (
+        !repeated &&
+        !output &&
+        config &&
+        (options.conversation || config.speak_answers)
+      )
         output = startSpeech(config, controller.signal, options.onSpeaking);
       return output;
     };
@@ -1202,6 +1227,22 @@ export function App() {
           if (event.type === "delta" && event.text) {
             setAnswer((value) => value + event.text);
             startOutput()?.push(event.text);
+            liveReaction = (liveReaction + event.text).slice(-1200);
+            if (!modelMood && /[.!?…]\s*$/.test(liveReaction)) {
+              reactToTurn(liveReaction);
+              liveReaction = "";
+            }
+          }
+          if (event.type === "avatar" && event.emotion && event.gesture) {
+            modelMood = true;
+            avatarReactedAt.current = performance.now();
+            avatarCueRef.current = {
+              ...idleAvatar,
+              emotion: event.emotion,
+              gesture: event.gesture,
+              cue: crypto.randomUUID(),
+            };
+            setAvatarCue(avatarCueRef.current);
           }
           if (event.type === "stage") setStage(event.text || "Отвечает…");
           if (
@@ -1220,13 +1261,18 @@ export function App() {
           }
           if (event.type === "limit")
             setReplyLimit(event.text || "Ответ достиг лимита длины.");
+          if (event.type === "repetition") {
+            repeated = true;
+            output?.cancel();
+            setError(event.text || "Ответ остановлен из-за повторов модели.");
+          }
           if (event.type === "error") {
             streamError = event.text || "Ошибка модели";
             setError(streamError);
           }
           if (event.type === "done" && event.message) {
             completed = event.message.content;
-            reactToTurn(completed);
+            if (!modelMood) reactToTurn(completed);
             setMessages((items) => [...items, event.message!]);
             setAnswer("");
           }
@@ -1239,7 +1285,7 @@ export function App() {
       if (streamError) throw new Error(streamError);
       if (controller.signal.aborted)
         throw new DOMException("Ответ отменён", "AbortError");
-      if (completed) startOutput()?.finish(completed);
+      if (completed && !repeated) startOutput()?.finish(completed);
       else output?.cancel();
       if (options.conversation) {
         setBusy(false);
@@ -1679,6 +1725,7 @@ export function App() {
           >
             ▣
           </button>
+          <AvatarMinimal />
           <AvatarClose />
         </div>
         <Avatar
@@ -2071,6 +2118,9 @@ export function App() {
                       </div>
                       {message.role === "assistant" &&
                         message.id === messages.at(-1)?.id &&
+                        !message.content.endsWith(
+                          "[Генерация остановлена из-за повторов.]",
+                        ) &&
                         !busy &&
                         !historyWindowVisible && (
                           <div className="button-row">
@@ -3836,13 +3886,26 @@ export function App() {
                   <div className="card">
                     <h2>Персонаж на рабочем столе</h2>
                     <p>
-                      VRM 0.x / 1.0 со встроенными текстурами, до 64 МБ. Модель
-                      хранится на вашем диске.
+                      Фея WileyAI включена в приложение. Можно также выбрать
+                      свою VRM 0.x / 1.0 со встроенными текстурами, до 64 МБ.
                     </p>
                     <div className="file-path">
-                      {settings.avatar_path || "Аватар пока не выбран"}
+                      {settings.avatar_path === "builtin:fairy"
+                        ? "Фея WileyAI — встроенная модель"
+                        : settings.avatar_path || "Аватар пока не выбран"}
                     </div>
                     <div className="button-row">
+                      <button
+                        className="outline"
+                        disabled={settings.avatar_path === "builtin:fairy"}
+                        onClick={() =>
+                          run(() =>
+                            save({ ...settings, avatar_path: "builtin:fairy" }),
+                          )
+                        }
+                      >
+                        Фея WileyAI
+                      </button>
                       <button
                         className="outline"
                         onClick={() => run(chooseAvatar)}
@@ -3864,6 +3927,18 @@ export function App() {
                       >
                         Тест эмоций и поз
                       </button>
+                      <button
+                        className="outline"
+                        disabled={!settings.avatar_path}
+                        onClick={() =>
+                          run(async () => {
+                            await window.wiley.showWindow("avatar");
+                            await window.wiley.minimalAvatar(true);
+                          })
+                        }
+                      >
+                        Только фея
+                      </button>
                     </div>
                     <p className="help">
                       Колесо над аватаром — приблизить или отдалить,
@@ -3871,7 +3946,10 @@ export function App() {
                       возвращает полный рост. Масштаб запоминается отдельно для
                       панели и отдельного окна. Окно феи можно растянуть за
                       нижний правый угол или увеличить кнопками в его верхней
-                      полосе. Размер запоминается.
+                      полосе. Размер запоминается. «Только фея» скрывает окна
+                      чата и настроек, панели и лишний текст; остаются модель и
+                      подпись действия. Вернуть панели: правый щелчок по фее,
+                      Ctrl + Alt + H или пункт «Только фея» в трее.
                     </p>
                     <label className="checkbox">
                       <input
@@ -3899,6 +3977,27 @@ export function App() {
                       />
                       Следить взглядом за указателем на экране
                     </label>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={settings.avatar_music !== false}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            avatar_music: e.target.checked,
+                          })
+                        }
+                      />
+                      Танцевать под звук плееров и браузера
+                    </label>
+                    <p className="help">
+                      AIMP, Яндекс Музыка и браузеры, включая YouTube.
+                      Измеряется только уровень звука Windows, без микрофона и
+                      записи. В браузере речь и музыка не различаются. При
+                      тишине, разговоре с ассистентом и в скрытом окне танец
+                      останавливается. Проверить движения без музыки: «Тест
+                      эмоций и поз» → «Танец».
+                    </p>
                     <label className="checkbox">
                       <input
                         type="checkbox"
@@ -3943,11 +4042,14 @@ export function App() {
                       повторять жесты и проверять движение рта без озвучки.
                     </p>
                     <details>
-                      <summary>Какие фразы вызывают позы и эмоции</summary>
+                      <summary>Примеры реакций на текст</summary>
                       <p className="help">
-                        Реакции появляются по текущей реплике. Частые новые
-                        сообщения усиливают движения, затем активность плавно
-                        стихает. Просмотр старой переписки на неё не влияет.
+                        Реакции появляются по текущей реплике и во время ответа,
+                        по словам о настроении, благодарности, сомнении и
+                        удивлении. Примеры ниже — не обязательные команды.
+                        Частые новые сообщения усиливают движения, затем
+                        активность плавно стихает. Просмотр старой переписки на
+                        неё не влияет.
                       </p>
                       {avatarPresets.map((preset) => (
                         <p className="help" key={preset.gesture}>
@@ -3968,17 +4070,20 @@ export function App() {
                         }
                       >
                         <option value={15}>15 FPS · экономия</option>
-                        <option value={30}>30 FPS · обычно</option>
+                        <option value={30}>30 FPS · баланс</option>
                         <option value={60}>60 FPS · плавно</option>
                       </select>
                     </label>
                     <p className="help">
                       Эмоции — сдержанная реакция на слова текущей реплики.
-                      Камера и анализ лица не используются. Режим уменьшения
-                      движения отключает жесты и покачивание. В скрытом окне 3D
-                      приостанавливается; после сна разговор запускается
-                      вручную. Кнопка FPS рядом с аватаром показывает
-                      фактические кадры и время рендера.
+                      Камера и анализ лица не используются. Для плавных движений
+                      выберите 60 FPS и нажмите «Сохранить». Уменьшение движения
+                      в оформлении и Windows влияет только на интерфейс.
+                      Движения феи, взгляд и танец управляются переключателями
+                      выше. В скрытом окне 3D приостанавливается; после сна
+                      разговор запускается вручную. Кнопка FPS рядом с аватаром
+                      показывает фактическую частоту, выбранный предел и время
+                      рендера.
                     </p>
                     <p className="help">
                       Ctrl + Shift + Space — открыть чат.

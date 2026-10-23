@@ -28,6 +28,7 @@ const { APP_ID } = require("./identity.cjs");
 const { CoreConnection, portFromOutput } = require("./core-connection.cjs");
 const { startupPreferences } = require("./startup.cjs");
 const { installAvatar } = require("./avatar.cjs");
+const { avatarFile } = require("./avatar-file.cjs");
 const { installAvatarLayout } = require("./avatar-layout.cjs");
 const {
   avatarTrayItems,
@@ -420,6 +421,7 @@ app.whenReady().then(async () => {
     sendToWindow,
     changed: refreshTrayMenu,
     paused: () => Boolean(avatarDesktop?.paused),
+    dataRoot,
   });
   avatarLayout = installAvatarLayout({
     ipcMain,
@@ -727,8 +729,11 @@ app.whenReady().then(async () => {
     });
     if (!response.ok) throw new Error("Не удалось получить настройки аватара");
     const settings = await response.json();
-    const file = settings.avatar_path;
-    if (!file || path.extname(file).toLowerCase() !== ".vrm") return null;
+    const file = avatarFile(
+      settings.avatar_path,
+      app.isPackaged ? process.resourcesPath : path.join(root, "assets"),
+    );
+    if (!file) return null;
     const stat = await fs.stat(file);
     if (stat.size > 64 * 1024 * 1024)
       throw new Error("Для первого прототипа выберите VRM до 64 МБ");
@@ -805,6 +810,9 @@ app.whenReady().then(async () => {
       });
       globalShortcut.register("CommandOrControl+Alt+A", () =>
         avatarControls.setClickThrough(!avatarControls.state().clickThrough),
+      );
+      globalShortcut.register("CommandOrControl+Alt+H", () =>
+        avatarControls.setMinimal(!avatarControls.state().minimal),
       );
     }
   } catch (error) {

@@ -6,6 +6,7 @@ import httpx
 import keyring
 
 from .config import Settings
+from .repetition import RepetitionGuard
 
 
 class IncompleteResponse(ValueError):
@@ -14,6 +15,10 @@ class IncompleteResponse(ValueError):
 
 class ResponseLimitReached(IncompleteResponse):
     """The provider returned usable text but stopped at its output limit."""
+
+
+class RepetitionStopped(IncompleteResponse):
+    """A degenerate generation was stopped; automatic continuation is unsafe."""
 
 
 def response_limit(settings):
@@ -74,6 +79,7 @@ async def chat(settings: Settings, messages: list[dict], output_schema: dict | N
         async with http.stream("POST", endpoint, json=body) as response:
             response.raise_for_status()
             finished = False
+            repetition = RepetitionGuard()
             async for line in response.aiter_lines():
                 if not line or line.startswith(":"):
                     continue
@@ -89,7 +95,13 @@ async def chat(settings: Settings, messages: list[dict], output_schema: dict | N
                     raise ValueError("Сервер модели сообщил об ошибке генерации")
                 delta = item.get("message", {}).get("content", "") if settings.provider == "ollama" else (item.get("choices") or [{}])[0].get("delta", {}).get("content", "")
                 if isinstance(delta, str) and delta:
-                    yield delta
+                    # Check inside large provider chunks too. Closing this async
+                    # generator also closes the HTTP response and stops decoding.
+                    for start in range(0, len(delta), 64):
+                        piece = delta[start:start + 64]
+                        if output_schema is None and repetition.repetitive(piece):
+                            raise RepetitionStopped("Остановила ответ: модель начала повторяться. Попробуйте задать вопрос короче или сменить модель.")
+                        yield piece
                 reason = item.get("done_reason") if settings.provider == "ollama" else (item.get("choices") or [{}])[0].get("finish_reason")
                 if reason in {"length", "max_tokens"}:
                     raise ResponseLimitReached("Ответ достиг лимита длины. Можно продолжить его кнопкой «Продолжить ответ».")

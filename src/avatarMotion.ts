@@ -3,11 +3,15 @@ import type { VRM, VRMHumanBoneName } from "@pixiv/three-vrm";
 import type { AvatarGesture, AvatarSignal } from "./avatarBehavior.ts";
 import { fairyPoses, type V3 } from "./avatarPoses.ts";
 import { AvatarArm } from "./avatarArm.ts";
+import { dancePose, type DanceStyle } from "./avatarDance.ts";
+import type { MusicPulse } from "./avatarMusic.ts";
 
 const bones = [
   "hips",
   "spine",
   "chest",
+  "leftShoulder",
+  "rightShoulder",
   "neck",
   "head",
   "leftUpperArm",
@@ -39,6 +43,10 @@ export class AvatarMotion {
   private cue = "";
   private cueStart = 0;
   private energy = 0;
+  private danceWeight = 0;
+  private dancePhase = 0;
+  petWeight = 0;
+  blush = 0;
   private arms: { left: AvatarArm; right: AvatarArm };
   private leftGoal: V3 = [0, 0, 0];
   private rightGoal: V3 = [0, 0, 0];
@@ -99,9 +107,16 @@ export class AvatarMotion {
       strength?: number;
       still?: boolean;
       demo?: boolean;
+      music?: MusicPulse;
+      pet?: number;
     },
   ) {
     const smooth = 1 - Math.exp(-delta * 7);
+    this.petWeight = THREE.MathUtils.lerp(
+      this.petWeight,
+      options.pet || 0,
+      smooth,
+    );
     const move = options.motion ? 1 : 0;
     const strength = Math.min(1, Math.max(0, options.strength ?? 0.65));
     this.energy = THREE.MathUtils.lerp(
@@ -113,6 +128,8 @@ export class AvatarMotion {
     if (signal.cue !== this.cue) {
       this.cue = signal.cue;
       this.cueStart = time;
+      if (options.demo && signal.gesture.startsWith("dance"))
+        this.dancePhase = 0;
     }
     const age = time - this.cueStart;
     const envelope = options.demo
@@ -134,15 +151,80 @@ export class AvatarMotion {
             : signal.phase === "speaking"
               ? "explain"
               : "none";
-    const pose = fairyPoses[this.pose],
+    const dancing =
+      this.petWeight < 0.1 &&
+      move &&
+      (this.pose.startsWith("dance") ||
+        (!options.demo &&
+          options.music?.active &&
+          signal.phase === "idle" &&
+          !active));
+    this.danceWeight = !move
+      ? 0
+      : THREE.MathUtils.lerp(this.danceWeight, dancing ? 1 : 0, smooth);
+    if (dancing)
+      this.dancePhase = options.music?.active
+        ? THREE.MathUtils.lerp(
+            this.dancePhase + delta * ((options.music.bpm || 120) / 60),
+            options.music.phase,
+            smooth * 0.5,
+          )
+        : this.dancePhase + delta * 2;
+    const style: DanceStyle = options.demo
+      ? this.pose === "dance2"
+        ? 2
+        : this.pose === "dance3"
+          ? 3
+          : 1
+      : (((Math.floor(this.dancePhase / 16) % 3) + 1) as DanceStyle);
+    const dance = dancePose(this.dancePhase, style);
+    const basePose = fairyPoses[this.pose];
+    const blend = (a: V3, b: V3): V3 =>
+      a.map((value, i) =>
+        THREE.MathUtils.lerp(value, b[i], this.danceWeight),
+      ) as V3;
+    const pose =
+        this.danceWeight > 0.001
+          ? {
+              ...basePose,
+              left: blend(basePose.left, dance.left),
+              right: blend(basePose.right, dance.right),
+              leftWrist: blend(basePose.leftWrist, dance.leftWrist),
+              rightWrist: blend(basePose.rightWrist, dance.rightWrist),
+              // Automatic music starts from idle; its folded palms and
+              // elbow poles must not constrain the dance's wider reach.
+              leftElbow: dance.leftElbow,
+              rightElbow: dance.rightElbow,
+              leftPalm: dance.leftPalm,
+              rightPalm: dance.rightPalm,
+              leftHand:
+                this.danceWeight > 0.5 ? dance.leftHand : basePose.leftHand,
+              rightHand:
+                this.danceWeight > 0.5 ? dance.rightHand : basePose.rightHand,
+              head: blend(basePose.head, dance.head),
+              body: blend(basePose.body, dance.body),
+              leftLeg: blend(basePose.leftLeg, dance.leftLeg),
+              rightLeg: blend(basePose.rightLeg, dance.rightLeg),
+              knees: basePose.knees.map((value, i) =>
+                THREE.MathUtils.lerp(value, dance.knees[i], this.danceWeight),
+              ) as [number, number],
+            }
+          : basePose,
       rest = fairyPoses.none;
+    if (this.danceWeight > 0.1)
+      this.pose = style === 2 ? "dance2" : style === 3 ? "dance3" : "dance";
     const weight = move * (active ? envelope : 1);
     const talk = signal.phase === "speaking" ? 1 : 0;
     const lookX = options.gaze ? options.pointer.x : 0,
       lookY = options.gaze ? options.pointer.y : 0;
     const glance = Math.sin(time * 0.48) * Math.sin(time * 0.19) * move;
     const breath = Math.sin(time * 1.7) * move;
-    const bob = Math.sin(time * (1.35 + this.energy * 0.3));
+    const accent =
+      (options.music?.beat ||
+        (options.demo && this.pose.startsWith("dance")
+          ? Math.max(0, Math.cos(this.dancePhase * Math.PI * 2))
+          : 0)) * this.danceWeight;
+    const bob = Math.sin(time * (1.35 + this.energy * 0.3)) + accent * 0.6;
     const nod = this.pose === "nod" ? Math.sin(age * 5) * 0.06 * weight : 0;
     for (const [name, { node, rest: rotation }] of this.nodes) {
       if (/Arm|Hand/.test(name) && move) continue;
@@ -158,15 +240,28 @@ export class AvatarMotion {
         x = breath * 0.014;
         z = Math.sin(time * 0.65) * 0.025 * move * vigor;
       }
-      if (name === "chest") x = breath * 0.012;
+      if (name === "chest") x = breath * 0.012 + this.petWeight * 0.1;
+      if (name === "leftShoulder" || name === "rightShoulder")
+        z =
+          this.pose === "shy"
+            ? (name === "leftShoulder" ? 0.1 : -0.1) * weight
+            : 0;
       if (name === "neck") {
         x = nod;
         z = pose.head[2] * weight * 0.35;
       }
       if (name === "head") {
-        x = lookY * 0.16 + pose.head[0] * weight;
-        y = lookX * 0.28 + glance * 0.07 + pose.head[1] * weight;
+        x = lookY * 0.26 + pose.head[0] * weight;
+        y = lookX * 0.48 + glance * 0.07 + pose.head[1] * weight;
         z = pose.head[2] * weight * 0.65;
+        // A small bow and tilt lean into the hand without interrupting speech.
+        x = THREE.MathUtils.lerp(x, 0.19, this.petWeight);
+        y *= 1 - this.petWeight * 0.8;
+        z = THREE.MathUtils.lerp(
+          z,
+          -0.13 + options.pointer.x * 0.08,
+          this.petWeight,
+        );
       }
       if (name === "leftUpperLeg" || name === "rightUpperLeg") {
         const leg = name === "leftUpperLeg" ? pose.leftLeg : pose.rightLeg;
@@ -195,17 +290,30 @@ export class AvatarMotion {
     }
     this.vrm.scene.position.set(
       this.origin.x +
-        Math.sin(time * 0.43) * this.height * 0.009 * move * vigor,
-      this.origin.y + (0.025 + bob * 0.017 * vigor) * this.height * move,
+        (Math.sin(time * 0.43) * 0.009 * move * vigor +
+          (dance.shift?.[0] || 0) * this.danceWeight) *
+          this.height,
+      this.origin.y +
+        (0.025 +
+          bob * 0.017 * vigor +
+          (dance.shift?.[1] || 0) * this.danceWeight) *
+          this.height *
+          move,
       this.origin.z + Math.sin(time * 0.39) * this.height * 0.018 * move,
     );
-    this.vrm.scene.rotation.y = THREE.MathUtils.lerp(
-      this.vrm.scene.rotation.y,
+    const danceTurn =
+      Math.atan2(Math.sin(dance.turn || 0), Math.cos(dance.turn || 0)) *
+      this.danceWeight;
+    const targetYaw =
       this.rotation.y +
-        options.yaw +
-        Math.sin(time * 0.35) * 0.035 * move * vigor,
-      smooth,
+      options.yaw +
+      Math.sin(time * 0.35) * 0.035 * move * vigor +
+      danceTurn;
+    const yawDelta = Math.atan2(
+      Math.sin(targetYaw - this.vrm.scene.rotation.y),
+      Math.cos(targetYaw - this.vrm.scene.rotation.y),
     );
+    this.vrm.scene.rotation.y += yawDelta * smooth;
     this.vrm.scene.updateMatrixWorld(true);
     if (move) {
       for (let i = 0; i < 3; i++) {
@@ -232,6 +340,8 @@ export class AvatarMotion {
         pose.leftHand,
         smooth,
         breath * 0.002,
+        pose.leftElbow,
+        pose.leftPalm,
       );
       this.arms.right.update(
         this.rightGoal,
@@ -239,11 +349,23 @@ export class AvatarMotion {
         pose.rightHand,
         smooth,
         flourish * weight + breath * 0.002,
+        pose.rightElbow,
+        pose.rightPalm,
       );
     }
     if (!move) {
-      this.arms.left.reset(smooth);
-      this.arms.right.reset(smooth);
+      // Reduced motion keeps the same composed idle silhouette. Apply it
+      // without oscillation instead of dropping the arms into the bind pose.
+      for (const side of ["left", "right"] as const)
+        this.arms[side].update(
+          rest[side],
+          rest[`${side}Wrist`],
+          rest[`${side}Hand`],
+          1,
+          0,
+          rest[`${side}Elbow`],
+          rest[`${side}Palm`],
+        );
     }
     const head = this.nodes.get("head")?.node;
     const headPosition = head?.getWorldPosition(this.gaze.position);
@@ -251,7 +373,7 @@ export class AvatarMotion {
       (headPosition?.x || this.origin.x) +
         (lookX * 0.9 + glance * 0.2) * this.height,
       (headPosition?.y || this.origin.y + this.height * 0.85) +
-        (0.04 - lookY * 0.5) * this.height,
+        ((this.pose === "think" ? 0.18 : 0.04) - lookY * 0.5) * this.height,
       this.origin.z + this.height * 1.1,
     );
     const cycle = time % (8.5 - this.energy * 3),
@@ -260,7 +382,7 @@ export class AvatarMotion {
       const flap =
         Math.sin(time * (10 + this.energy * 3) + wing.index * 0.3) *
         (0.2 + this.energy * 0.14) *
-        burst;
+        Math.max(burst, this.danceWeight * (0.4 + accent * 0.6));
       const angle =
         (Math.sin(time * 1.5 + wing.index * 0.3) * 0.025 + flap) *
         wing.side *
@@ -287,29 +409,65 @@ export class AvatarMotion {
       aa: talk ? 0.1 + Math.abs(Math.sin(time * 9)) * 0.4 : 0,
       ou: talk ? Math.max(0, Math.sin(time * 5.3)) * 0.12 : 0,
       happy:
-        signal.emotion === "happy"
-          ? strength * (this.pose === "thumbsup" ? 0.5 : 1)
+        this.petWeight > 0.05
+          ? Math.max(
+              this.petWeight * 0.7,
+              signal.emotion === "happy" ? strength : 0,
+            )
+          : signal.emotion === "happy" ||
+              (dancing && signal.emotion === "neutral")
+            ? strength * (this.pose === "thumbsup" ? 0.5 : 1)
+            : 0,
+      sad:
+        signal.emotion === "sad"
+          ? strength * (options.demo ? 1 : 0.9) * (1 - this.petWeight)
           : 0,
-      sad: signal.emotion === "sad" ? strength * (options.demo ? 1 : 0.9) : 0,
-      angry: signal.emotion === "angry" ? strength : 0,
+      angry: signal.emotion === "angry" ? strength * (1 - this.petWeight) : 0,
       relaxed:
         signal.emotion === "relaxed" ? strength * (options.demo ? 1 : 0.8) : 0,
       surprised:
         signal.emotion === "surprised"
           ? strength * (options.demo ? 1 : 0.8)
           : 0,
+      blush: Math.max(
+        this.petWeight * 0.8,
+        this.pose === "shy"
+          ? strength * 0.65
+          : signal.emotion === "happy" || signal.emotion === "relaxed"
+            ? strength * 0.4
+            : 0,
+      ),
+      // Cloth follows the actual blended leg rotations, independently of
+      // facial-expression settings. Ordinary VRMs simply lack these morphs.
+      skirtRaiseLeft: THREE.MathUtils.clamp(
+        -(this.nodes.get("leftUpperLeg")?.node.rotation.x || 0) / 1.1,
+        0,
+        1,
+      ),
+      skirtRaiseRight: THREE.MathUtils.clamp(
+        -(this.nodes.get("rightUpperLeg")?.node.rotation.x || 0) / 1.1,
+        0,
+        1,
+      ),
     };
     for (const [name, value] of Object.entries(targets)) {
       if (!this.vrm.expressionManager?.getExpression(name)) continue;
       const target =
-        options.expressions || ["blink", "aa", "ou"].includes(name) ? value : 0;
+        options.expressions ||
+        ["blink", "aa", "ou"].includes(name) ||
+        name.startsWith("skirtRaise")
+          ? value
+          : 0;
       const weight =
-        name === "blink" || (talk === 0 && ["aa", "ou"].includes(name))
+        name === "blink" ||
+        name.startsWith("skirtRaise") ||
+        (talk === 0 && ["aa", "ou"].includes(name))
           ? target
           : THREE.MathUtils.lerp(this.weights.get(name) || 0, target, smooth);
       this.weights.set(name, weight);
       this.vrm.expressionManager.setValue(name, weight);
     }
+    this.blush = this.weights.get("blush") || 0;
     this.vrm.update(delta);
   }
 }
