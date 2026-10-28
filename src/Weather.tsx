@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { request, type Settings } from "./api";
+import { request, type Settings, errorText } from "./api";
 
 type Forecast = {
   place: string;
@@ -86,7 +86,7 @@ export function WeatherSettings({
         setForecast(value);
     } catch (err) {
       if (!controller.signal.aborted && generation === version.current)
-        setError(String(err));
+        setError(errorText(err));
     } finally {
       if (generation === version.current) {
         active.current = null;

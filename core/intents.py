@@ -27,6 +27,9 @@ def opening_request(text, name="Уайли"):
         return None
     if re.search(r"\b(?:не|никогда|если|например)\b", value, re.I):
         return None
+    value = re.sub(r"\s+на (?:компьютере|пк)(?=[.! ]*$)", "", value, flags=re.I)
+    if re.fullmatch(r"включи\s+(?:яндекс[. ]*музык[ауеы]?|yandex\s*music)[.! ]*", value, re.I):
+        value = "открой Яндекс Музыку"
     if re.match(r"^покажи\s+", value, re.I) and not re.match(r"^покажи (?:папку|файл|сайт|приложение)\s+", value, re.I):
         return None
     if commands.opening_target(value) is not None:

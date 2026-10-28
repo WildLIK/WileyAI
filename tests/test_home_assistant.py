@@ -283,3 +283,20 @@ async def test_project_removal_discards_access_and_journal(tmp_path, vault):
         assert not db.execute("SELECT 1 FROM home_actions WHERE scope_id=?", (project["id"],)).fetchone()
     assert home.binding(store)["enabled"]
     await home.close()
+
+
+@pytest.mark.anyio
+async def test_bad_entity_row_long_object_id_out_of_range_percent_and_history(tmp_path, vault):
+    store, house, home = await setup(tmp_path)
+    long_id = "light." + "a" * 200
+    house.rows[long_id] = {"entity_id": long_id, "state": "off", "attributes": {"friendly_name": "Длинная лампа"}}
+    house.rows["broken"] = {"entity_id": "Not An Entity", "state": "on", "attributes": {}}
+    visible = {row["entity_id"] for row in (await home.entities(store))["entities"]}
+    assert long_id in visible and "light.kitchen" in visible and "Not An Entity" not in visible
+    result = await chat.handle(home, store, chat.request("умный дом, яркость Кухня на 150"), [])
+    assert "от 0 до 100" in result and not house.posts
+    preview = await home.preview(store, HomeAction(entity_id="light.kitchen", action="on"))
+    await home.confirm(store, preview["ticket"], True)
+    history = home.history(store)
+    assert len(history) == 1 and history[0]["state"] == "verified" and "Кухня" in history[0]["text"]
+    await home.close()

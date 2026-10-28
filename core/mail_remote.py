@@ -33,7 +33,9 @@ class RemoteDrafts:
     def __init__(self,mail):
         self.mail=mail
         with mail.store.db() as db:
-            db.execute("CREATE TABLE IF NOT EXISTS mail_remote_drafts(scope_id TEXT NOT NULL,local_id TEXT NOT NULL,account TEXT NOT NULL,remote_id TEXT NOT NULL,remote_hash TEXT NOT NULL,rfc_id TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(scope_id,local_id,account))")
+            db.execute("CREATE TABLE IF NOT EXISTS mail_remote_drafts(scope_id TEXT NOT NULL,local_id TEXT NOT NULL,account TEXT NOT NULL,remote_id TEXT NOT NULL,remote_hash TEXT NOT NULL,rfc_id TEXT NOT NULL,state TEXT NOT NULL,previous_hash TEXT NOT NULL DEFAULT '',PRIMARY KEY(scope_id,local_id,account))")
+            # Remote hash before an uncertain update, so a PUT that never reached Gmail can be recognised.
+            if "previous_hash" not in {row["name"] for row in db.execute("PRAGMA table_info(mail_remote_drafts)")}: db.execute("ALTER TABLE mail_remote_drafts ADD COLUMN previous_hash TEXT NOT NULL DEFAULT ''")
 
     def require(self):
         if COMPOSE not in self.mail.auth.read().get("granted_scopes",[]):
@@ -123,7 +125,7 @@ class RemoteDrafts:
             check_scope(db,store)
             row=db.execute("SELECT updated FROM mail_drafts WHERE id=? AND scope_id=?",(item["local_id"],store.scope_id)).fetchone()
             if not row or row[0]!=item["revision"]: raise ValueError("Локальный черновик изменился")
-            db.execute("INSERT OR REPLACE INTO mail_remote_drafts VALUES (?,?,?,?,?,?,?)",(store.scope_id,item["local_id"],binding["account"],item["remote_id"],item["expected_hash"],item["rfc_id"],"unknown"))
+            db.execute("INSERT OR REPLACE INTO mail_remote_drafts (scope_id,local_id,account,remote_id,remote_hash,rfc_id,state,previous_hash) VALUES (?,?,?,?,?,?,?,?)",(store.scope_id,item["local_id"],binding["account"],item["remote_id"],item["expected_hash"],item["rfc_id"],"unknown",item["remote_hash"]))
         self.mail.tickets.pop(ticket,None)
         written=False
         try:
@@ -137,7 +139,7 @@ class RemoteDrafts:
             if not written and error.status in {400,401,403,404,405,413,415,422,429}:
                 with store.db() as db:
                     db.execute("DELETE FROM mail_remote_drafts WHERE scope_id=? AND local_id=? AND account=?",(store.scope_id,item["local_id"],binding["account"]))
-                    if current: db.execute("INSERT INTO mail_remote_drafts VALUES (?,?,?,?,?,?,?)",tuple(current[key] for key in ("scope_id","local_id","account","remote_id","remote_hash","rfc_id","state")))
+                    if current: db.execute("INSERT INTO mail_remote_drafts (scope_id,local_id,account,remote_id,remote_hash,rfc_id,state) VALUES (?,?,?,?,?,?,?)",tuple(current[key] for key in ("scope_id","local_id","account","remote_id","remote_hash","rfc_id","state")))
                 raise ValueError("Gmail отклонил сохранение. Проверьте доступ и повторите предпросмотр") from error
             return {"state":"unknown","message":"Результат сохранения неизвестен. Проверьте черновик; автоматического повтора нет"}
         except ValueError:
@@ -150,16 +152,41 @@ class RemoteDrafts:
         binding=self.mail.bound(store)
         link=self.link(store,local_id)
         if not link: return None
-        ids=[link["remote_id"]] if link["remote_id"] else []
-        if not ids:
-            result=await self.call("GET","/drafts",params={"q":"rfc822msgid:"+link["rfc_id"],"maxResults":20},expected_epoch=binding["epoch"])
-            rows=result.get("drafts",[])
-            if not isinstance(rows,list) or len(rows)>20 or result.get("nextPageToken"): raise ValueError("Неполный список черновиков Gmail. Повторите проверку позже")
-            ids=[row.get("id","") for row in rows if isinstance(row,dict)]
-        for remote_id in ids:
+        key=(store.scope_id,local_id,link["account"])
+        def settle(remote_id,remote_hash):
+            with store.db() as db:
+                db.execute("UPDATE mail_remote_drafts SET remote_id=?,remote_hash=?,state='ready',previous_hash='' WHERE scope_id=? AND local_id=? AND account=?",(remote_id,remote_hash,*key))
+        if link["remote_id"]:
+            try: _,raw=await self.read(link["remote_id"],expected_epoch=binding["epoch"])
+            except GoogleError as error:
+                if error.status!=404 or link["state"]!="unknown": raise
+                # The Gmail draft is gone, so the uncertain update cannot have landed; allow a fresh save.
+                with store.db() as db: db.execute("DELETE FROM mail_remote_drafts WHERE scope_id=? AND local_id=? AND account=?",key)
+                return None
+            value=mime_hash(raw)
+            if value==link["remote_hash"]: settle(link["remote_id"],value)
+            elif link["state"]=="unknown" and link["previous_hash"] and value==link["previous_hash"]:
+                # The update never reached Gmail: restore the previous link so the user can retry.
+                settle(link["remote_id"],value)
+            elif link["state"]=="unknown":
+                # Changed by someone else; keep the expected hash so the next preview reports the remote change.
+                settle(link["remote_id"],link["remote_hash"])
+            return self.link(store,local_id)
+        result=await self.call("GET","/drafts",params={"q":"rfc822msgid:"+link["rfc_id"],"maxResults":20},expected_epoch=binding["epoch"])
+        rows=result.get("drafts",[])
+        if not isinstance(rows,list) or len(rows)>20 or result.get("nextPageToken"): raise ValueError("Неполный список черновиков Gmail. Повторите проверку позже")
+        own=None
+        for remote_id in [row.get("id","") for row in rows if isinstance(row,dict)]:
             _,raw=await self.read(remote_id,expected_epoch=binding["epoch"])
             if mime_hash(raw)==link["remote_hash"]:
-                with store.db() as db:
-                    db.execute("UPDATE mail_remote_drafts SET remote_id=?,state='ready' WHERE scope_id=? AND local_id=? AND account=?",(remote_id,store.scope_id,local_id,link["account"]))
-                break
+                settle(remote_id,link["remote_hash"])
+                return self.link(store,local_id)
+            if own is None and str(BytesParser(policy=policy.default).parsebytes(raw).get("Message-ID","")).strip()==link["rfc_id"]: own=remote_id
+        if link["state"]=="unknown":
+            if own:
+                # Our draft exists but was edited in Gmail; link it and let the next preview show the difference.
+                settle(own,link["remote_hash"])
+            else:
+                # The create never reached Gmail: forget the uncertain row so the user can save again.
+                with store.db() as db: db.execute("DELETE FROM mail_remote_drafts WHERE scope_id=? AND local_id=? AND account=?",key)
         return self.link(store,local_id)

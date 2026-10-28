@@ -79,3 +79,37 @@ def test_failed_or_unstable_check_preserves_existing_offer(tmp_path):
     checker.value["available"] = {"version": "v1.0.0", "url": updates.PAGE}
     assert asyncio.run(checker.check())["available"]["version"] == "v1.0.0"
     assert checker.state()["error"]
+
+
+def test_offer_for_installed_version_is_dropped_after_upgrade(tmp_path, monkeypatch):
+    def handler(request):
+        if request.headers.get("If-None-Match") == '"one"':
+            return httpx.Response(304)
+        return httpx.Response(200, headers={"ETag": '"one"'}, json={"tag_name": "v0.3.0"})
+    transport = httpx.MockTransport(handler)
+    checker = updates.Updates(tmp_path, client=transport)
+    assert asyncio.run(checker.check())["available"]["version"] == "v0.3.0"
+    # Same process, upgrade not yet restarted: a 304 must not keep a stale offer once VERSION matches.
+    monkeypatch.setattr(updates, "VERSION", "0.3.0")
+    assert asyncio.run(checker.check())["available"] is None
+    # After restart on the new version the saved offer is gone and the cached ETag is not reused.
+    checker.value["available"] = {"version": "v0.3.0", "url": updates.PAGE}
+    checker.save()
+    restarted = updates.Updates(tmp_path, client=transport)
+    assert restarted.state()["available"] is None
+
+
+def test_background_loop_survives_failed_save(tmp_path, monkeypatch):
+    checker = updates.Updates(tmp_path)
+    calls = []
+    async def failing():
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("disk full")
+        raise asyncio.CancelledError
+    async def instant(seconds): pass
+    monkeypatch.setattr(checker, "check", failing)
+    monkeypatch.setattr(updates.asyncio, "sleep", instant)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(checker.run())
+    assert len(calls) == 2

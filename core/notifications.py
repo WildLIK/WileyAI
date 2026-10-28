@@ -36,6 +36,30 @@ def migrate(db):
     db.execute("RELEASE migrate_calendar_alerts")
 
 
+def recurring_due(db, current):
+    """Latest due occurrence per repeating series that has no undelivered alert yet."""
+    moment, result = datetime.fromisoformat(current), []
+    for row in db.execute("SELECT * FROM calendar_events WHERE recurrence IS NOT NULL AND reminder_at<=? AND reminder_minutes IS NOT NULL", (current,)).fetchall():
+        event = dict(row)
+        due = [(begin, stop, reminder_time(utc_stamp(begin), event["reminder_minutes"])) for begin, stop in
+               occurrences(event, moment - timedelta(days=32), moment + timedelta(days=8))]
+        due = [item for item in due if item[2] <= current and (not event["reminder_cursor"] or item[2] > event["reminder_cursor"]) and item[1] > moment]
+        # Coalesce a backlog to one alert per series, preserving a deferred alert.
+        if due and not db.execute("SELECT 1 FROM calendar_alerts WHERE event_id=? AND delivered=0", (event["id"],)).fetchone():
+            result.append((event, *due[-1]))
+    return result
+
+
+def calendar_due(db, current, quiet=False):
+    """Read-only: would queue_calendar change anything? Lets the scheduler skip its write lock."""
+    current = utc_stamp(datetime.fromisoformat(current))
+    checks = [("SELECT 1 FROM calendar_alerts WHERE delivered=0 AND deferred=0 AND COALESCE(occurrence_end,(SELECT ends_at FROM calendar_events WHERE id=event_id))<=? LIMIT 1", (current,)),
+              ("SELECT 1 FROM calendar_events WHERE recurrence IS NULL AND reminder_at IS NOT NULL AND reminder_sent=0 AND (reminder_at<=? OR ends_at<=?) LIMIT 1", (current, current))]
+    if quiet:
+        checks.append(("SELECT 1 FROM calendar_alerts WHERE delivered=0 AND deferred=0 LIMIT 1", ()))
+    return any(db.execute(query, args).fetchone() for query, args in checks) or bool(recurring_due(db, current))
+
+
 def queue_calendar(db, current, quiet=False):
     current = utc_stamp(datetime.fromisoformat(current))
     # Catch up while the meeting remains relevant, without alerting about old events.
@@ -47,18 +71,7 @@ def queue_calendar(db, current, quiet=False):
         db.execute("INSERT INTO calendar_alerts (id,event_id,scheduled_for,delivered,created) VALUES (:id,:event_id,:scheduled_for,:delivered,:created)", item)
         db.execute("UPDATE calendar_events SET reminder_sent=1 WHERE id=?", (event["id"],))
         pending.append(item)
-    moment = datetime.fromisoformat(current)
-    for row in db.execute("SELECT * FROM calendar_events WHERE recurrence IS NOT NULL AND reminder_at<=? AND reminder_minutes IS NOT NULL", (current,)).fetchall():
-        event = dict(row)
-        due = [(begin, stop, reminder_time(utc_stamp(begin), event["reminder_minutes"])) for begin, stop in
-               occurrences(event, moment - timedelta(days=32), moment + timedelta(days=8))]
-        due = [item for item in due if item[2] <= current and (not event["reminder_cursor"] or item[2] > event["reminder_cursor"]) and item[1] > moment]
-        if not due:
-            continue
-        begin, stop, scheduled = due[-1]
-        # Coalesce a backlog to one alert per series, preserving a deferred alert.
-        if db.execute("SELECT 1 FROM calendar_alerts WHERE event_id=? AND delivered=0", (event["id"],)).fetchone():
-            continue
+    for event, begin, stop, scheduled in recurring_due(db, current):
         item = dict(id=uuid.uuid4().hex, event_id=event["id"], scheduled_for=scheduled, delivered=0, created=current,
                     occurrence_start=utc_stamp(begin), occurrence_end=utc_stamp(stop))
         db.execute("INSERT INTO calendar_alerts (id,event_id,scheduled_for,delivered,created,occurrence_start,occurrence_end) VALUES (:id,:event_id,:scheduled_for,:delivered,:created,:occurrence_start,:occurrence_end)", item)
@@ -69,13 +82,19 @@ def queue_calendar(db, current, quiet=False):
     return pending
 
 
-def calendar_message(db, row):
+def calendar_message(db, row, projects=None):
     start = datetime.fromisoformat(row["starts_at"]).astimezone(ZoneInfo(row["timezone"]))
     offset = start.strftime("%z")
     space = "Общий календарь"
     if row["scope_id"]:
-        project = db.execute("SELECT name FROM projects WHERE id=?", (row["scope_id"],)).fetchone()
-        space = "Проект «" + project[0] + "»" if project else "Календарь проекта"
+        if projects is None or row["scope_id"] not in projects:
+            project = db.execute("SELECT name FROM projects WHERE id=?", (row["scope_id"],)).fetchone()
+            name = project[0] if project else None
+            if projects is not None:
+                projects[row["scope_id"]] = name
+        else:
+            name = projects[row["scope_id"]]
+        space = "Проект «" + name + "»" if name else "Календарь проекта"
     label = start.strftime("%d.%m.%Y") + (" · весь день" if row["all_day"] else start.strftime(" %H:%M"))
     text = ("После тихих часов · " if row["deferred"] else "") + f"{row['title']} · {label} (UTC{offset[:3]}:{offset[3:]}) · {space}"
     if row["location"]:
@@ -95,8 +114,8 @@ TASK_PENDING = """SELECT n.id,n.task_id,t.title,n.created FROM notifications n J
 
 
 def pending(db, current, limit=500):
-    moment = datetime.fromisoformat(current)
-    calendar = [dict(id=row["id"], event_id=row["event_id"], kind="calendar", created=row["created"], title=calendar_message(db, row))
+    moment, projects = datetime.fromisoformat(current), {}
+    calendar = [dict(id=row["id"], event_id=row["event_id"], kind="calendar", created=row["created"], title=calendar_message(db, row, projects))
                 for row in db.execute(CALENDAR_PENDING + " ORDER BY a.created,a.id LIMIT ?", (utc_stamp(moment), utc_stamp(moment), limit))]
     tasks = [dict(row) | {"kind": "task"} for row in db.execute(TASK_PENDING + " ORDER BY n.created,n.id LIMIT ?", (current, limit))]
     return sorted(tasks + calendar, key=lambda item: (datetime.fromisoformat(item["created"]), item["id"]))[:limit]

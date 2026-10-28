@@ -176,3 +176,18 @@ def test_full_page_processing_covers_end_and_never_passes_generated_text(monkeyp
     asyncio.run(scenario())
     assert any("КОНЕЦ-СРОК-84" in row["text"] for row in batches)
     assert "".join(row["text"] for row in {row["id"]: row for row in batches}.values()) == text
+
+
+@pytest.mark.parametrize("text,codes", [("Какой курс лечения ангины?", None), ("Курс молодого бойца", None), ("Курс доллара к рублю", ["USD"]), ("Курсы валют", ["USD", "EUR", "CNY"])])
+def test_currency_requires_a_currency_name(text, codes):
+    item = information.request(text)
+    assert (item["codes"] if item else None) == codes
+
+
+def test_rate_against_rouble_is_not_rejected_as_a_date(monkeypatch):
+    xml = b'<ValCurs Date="17.10.2026"><Valute><CharCode>USD</CharCode><Nominal>1</Nominal><Value>79,0500</Value></Valute></ValCurs>'
+    transport(monkeypatch, lambda request: httpx.Response(200, content=xml, headers={"content-type": "application/xml"}))
+    text, _ = asyncio.run(information.fetch(Settings(currency_enabled=True), information.request("Курс доллара к рублю")))
+    assert "79.0500 RUB" in text
+    with pytest.raises(websearch.SearchError, match="Поддержан"):
+        asyncio.run(information.fetch(Settings(currency_enabled=True), information.request("Курс доллара к понедельнику")))

@@ -1,0 +1,3 @@
+# Optional CPU runtime. Keep the main environment and Torch voices intact.
+onnx-asr[cpu]==0.12.0
+av>=11,<17

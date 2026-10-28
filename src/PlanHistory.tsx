@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { request, scoped } from "./api";
+import { request, scoped, errorText } from "./api";
 
 type Receipt = {
   id: string;
@@ -54,7 +54,7 @@ export function PlanHistory({
         }
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setError(String(err));
+        if (!controller.signal.aborted) setError(errorText(err));
       });
     return () => controller.abort();
   }, [conversationId, revision]);

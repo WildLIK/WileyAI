@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { request } from "./api";
+import { request, errorText } from "./api";
+import { poll } from "./polling";
 import { ProcessStatus } from "./ProcessStatus";
 
 type State = {
@@ -34,12 +35,16 @@ export function ComponentPanel({
   const [working, setWorking] = useState(false);
   const [open, setOpen] = useState(expanded);
   useEffect(() => {
-    let active = true;
     let first = true;
-    const load = async () => {
+    return poll(async (signal) => {
       try {
-        const next = await request<State>("/components");
-        if (!active) return;
+        const next = await request<State>(
+          "/components",
+          "GET",
+          undefined,
+          signal,
+        );
+        if (signal.aborted) return;
         setState(next);
         if (first)
           setOpen(
@@ -49,15 +54,9 @@ export function ComponentPanel({
           );
         first = false;
       } catch (error) {
-        if (active) setError(String(error));
+        if (!signal.aborted) setError(errorText(error));
       }
-    };
-    void load();
-    const timer = setInterval(load, 2000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
+    }, 2000);
   }, []);
   const action = async (work: () => Promise<unknown>) => {
     setWorking(true);
@@ -66,7 +65,7 @@ export function ComponentPanel({
       await work();
       setState(await request<State>("/components"));
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      setError(errorText(error));
     } finally {
       setWorking(false);
     }

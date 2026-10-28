@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { scopedRequest } from "./api";
+import { scopedRequest, errorText } from "./api";
+import { poll } from "./polling";
 
 type Binding = {
   calendar_id: string;
@@ -138,42 +139,61 @@ export function GoogleCalendarPanel({
       mounted.current = false;
     };
   }, []);
-  const refresh = useCallback(async () => {
-    const next = await request<Status>("/calendar/google/status");
-    if (mounted.current && current.current === identity) {
-      setStatus(next);
-      setSelected(next.binding?.calendar_id ?? "");
-    }
-  }, [request, identity]);
+  const statusTicket = useRef(0);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      const ticket = ++statusTicket.current;
+      const next = await request<Status>(
+        "/calendar/google/status",
+        "GET",
+        undefined,
+        signal,
+      );
+      if (
+        mounted.current &&
+        current.current === identity &&
+        ticket === statusTicket.current &&
+        !signal?.aborted
+      ) {
+        setStatus(next);
+        setSelected(next.binding?.calendar_id ?? "");
+      }
+    },
+    [request, identity],
+  );
   useEffect(() => {
     void refresh().catch((err) => {
-      if (valid()) setError(String(err));
+      if (valid()) setError(errorText(err));
     });
   }, [refresh]);
   useEffect(() => {
     const focus = () =>
       void refresh().catch((err) => {
-        if (valid()) setError(String(err));
+        if (valid()) setError(errorText(err));
       });
     window.addEventListener("focus", focus);
     return () => window.removeEventListener("focus", focus);
   }, [refresh]);
   useEffect(() => {
-    const changed = () => {
-      setPreview(null);
-      setChoices({});
-      setResults([]);
-      void refresh().catch((err) => setError(String(err)));
-    };
+    // Chat replies and reminders also announce data updates; an open
+    // comparison and the user's choices stay, only the status is refreshed.
+    const changed = () =>
+      void refresh().catch((err) => {
+        if (valid()) setError(errorText(err));
+      });
     window.addEventListener("wiley-data-updated", changed);
     return () => window.removeEventListener("wiley-data-updated", changed);
   }, [refresh]);
   useEffect(() => {
     if (!status?.pending) return;
-    const id = setInterval(() => {
-      void refresh().catch((err) => setError(String(err)));
-    }, 2000);
-    return () => clearInterval(id);
+    return poll(
+      (signal) =>
+        refresh(signal).catch((err) => {
+          if (valid() && !signal.aborted) setError(errorText(err));
+        }),
+      2000,
+      { immediate: false },
+    );
   }, [status?.pending, refresh]);
   useEffect(() => {
     setPreview(null);
@@ -187,7 +207,7 @@ export function GoogleCalendarPanel({
     try {
       await action();
     } catch (err) {
-      if (valid()) setError(String(err));
+      if (valid()) setError(errorText(err));
     } finally {
       if (mounted.current) setBusy(false);
     }

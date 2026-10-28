@@ -2,7 +2,7 @@
   "name": "wileyai",
   "version": "0.14.0",
   "private": true,
-  "description": "Р›РѕРєР°Р»СЊРЅС‹Р№ РїРµСЂСЃРѕРЅР°Р»СЊРЅС‹Р№ Р°СЃСЃРёСЃС‚РµРЅС‚ РґР»СЏ Windows",
+  "description": "Локальный персональный ассистент для Windows",
   "type": "module",
   "main": "desktop/main.cjs",
   "scripts": {

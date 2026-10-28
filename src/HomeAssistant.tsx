@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { scopedRequest } from "./api";
+import { scopedRequest, errorText } from "./api";
 
 type Binding = { revision: string; enabled: boolean; entities: string[] };
 type Status = {
@@ -131,7 +131,7 @@ export function HomeAssistantPanel({
         }
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setError(String(err));
+        if (!controller.signal.aborted) setError(errorText(err));
       });
     return () => {
       mounted.current = false;
@@ -148,7 +148,7 @@ export function HomeAssistantPanel({
       await action();
     } catch (err) {
       if (mounted.current) {
-        setError(String(err));
+        setError(errorText(err));
         setPreview(null);
         setConfirmed(false);
       }

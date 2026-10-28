@@ -18,10 +18,12 @@ dependencies = [
     "websockets>=15,<18",
     "telethon>=1.45,<2",
     "num2words>=0.5.14,<0.6",
+    "pyjwt[crypto]>=2.10,<3",
 ]
 
 [project.optional-dependencies]
 voice = ["faster-whisper>=1.1,<2", "av>=11,<17"]
+gigaam = ["onnx-asr[cpu]==0.12.0", "av>=11,<17"]
 tts = ["torch>=2.6,<3", "scipy>=1.15,<2", "numpy>=2,<3"]
 piper = ["piper-tts>=1.8,<2"]
 dev = ["pytest>=8,<10", "numpy>=2,<3"]

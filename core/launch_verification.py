@@ -18,16 +18,32 @@ class ExecutionText(str):
         return value
 
 
+# (pid, create_time) -> normalized real executable path ("" when unreadable).
+# The pair identifies one process, so its executable never changes.
+EXECUTABLES = {}
+
+
 def process_ids(executable):
+    global EXECUTABLES
     expected = os.path.normcase(os.path.realpath(executable))
-    result = set()
-    for process in psutil.process_iter(["pid", "exe"]):
+    result, seen = set(), {}
+    for process in psutil.process_iter(["pid", "create_time"]):
         try:
-            actual = process.info.get("exe")
-            if actual and os.path.normcase(os.path.realpath(actual)) == expected:
-                result.add(process.info["pid"])
+            key = (process.info["pid"], process.info.get("create_time"))
+            actual = EXECUTABLES.get(key)
+            if actual is None:
+                try:
+                    path = process.exe()
+                except psutil.AccessDenied:
+                    path = ""
+                actual = os.path.normcase(os.path.realpath(path)) if path else ""
+            if key[1] is not None:  # Without a creation time a reused PID could be mistaken.
+                seen[key] = actual
+            if actual and actual == expected:
+                result.add(key[0])
         except (psutil.Error, OSError):
             continue
+    EXECUTABLES = seen  # Forget exited processes.
     return result
 
 

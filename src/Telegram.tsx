@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { scopedRequest } from "./api";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { scopedRequest, errorText } from "./api";
 type Status = {
   configured: boolean;
   connected: boolean;
@@ -30,7 +30,7 @@ type Preview = {
   text: string;
   retry?: boolean;
 };
-export function TelegramPanel({
+export const TelegramPanel = memo(function TelegramPanel({
   conversationId,
   visible,
 }: {
@@ -51,7 +51,7 @@ export function TelegramPanel({
       />
     </div>
   );
-}
+});
 function TelegramContent({
   conversationId,
   visible,
@@ -108,7 +108,7 @@ function TelegramContent({
           if (!controller.signal.aborted) setStatus(value);
         })
         .catch((err) => {
-          if (!controller.signal.aborted) setError(String(err));
+          if (!controller.signal.aborted) setError(errorText(err));
         });
     refresh();
     window.addEventListener("focus", refresh);
@@ -128,7 +128,7 @@ function TelegramContent({
     setOutbox([]);
     setText("");
     if (status?.connected)
-      void refreshOutbox().catch((err) => setError(String(err)));
+      void refreshOutbox().catch((err) => setError(errorText(err)));
   }, [status?.connected, status?.account, status?.revision]);
   useEffect(() => {
     if (!visible && !sending) active.current?.abort();
@@ -143,7 +143,8 @@ function TelegramContent({
     try {
       await action(controller.signal);
     } catch (err) {
-      if (mounted.current && !controller.signal.aborted) setError(String(err));
+      if (mounted.current && !controller.signal.aborted)
+        setError(errorText(err));
     } finally {
       if (active.current === controller) active.current = null;
       if (mounted.current) setBusy(false);

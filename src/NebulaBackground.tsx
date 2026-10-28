@@ -72,6 +72,7 @@ void main() {
 /** One small GPU surface, only while this theme is selected. No frame loop when paused. */
 export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const context = useRef<WebGLRenderingContext | null>(null);
   useEffect(() => {
     const node = canvas.current!;
     const gl = node.getContext("webgl", {
@@ -85,8 +86,10 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
       node.dataset.state = "fallback";
       return;
     }
+    context.current = gl;
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     let nativeActive = true,
+      focused = document.hasFocus(),
       receivedActivity = false,
       disposed = false;
     let frame = 0,
@@ -155,8 +158,9 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
     };
     const animate = (now: number) => {
       if (!running) return;
-      if (!previous || now - previous >= 1000 / 24) {
-        if (previous) elapsed += Math.min(0.1, (now - previous) / 1000);
+      // A background window keeps a slow drift instead of a full 24 fps loop.
+      if (!previous || now - previous >= 1000 / (focused ? 24 : 4)) {
+        if (previous) elapsed += Math.min(0.25, (now - previous) / 1000);
         previous = now;
         draw();
       }
@@ -212,6 +216,11 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
     }
     const activity = (state: { visible: boolean; focused: boolean }) => {
       nativeActive = state.visible;
+      focused = state.focused;
+      refresh();
+    };
+    const focus = () => {
+      focused = document.hasFocus();
       refresh();
     };
     const unsubscribe = window.wiley.onWindowActivity((state) => {
@@ -229,8 +238,8 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
     node.addEventListener("webglcontextlost", lost);
     node.addEventListener("webglcontextrestored", restored);
     document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    window.addEventListener("blur", refresh);
+    window.addEventListener("focus", focus);
+    window.addEventListener("blur", focus);
     media.addEventListener("change", refresh);
     const observer = new ResizeObserver(resize);
     observer.observe(node);
@@ -244,11 +253,19 @@ export function NebulaBackground({ motion }: { motion: "full" | "reduced" }) {
       node.removeEventListener("webglcontextlost", lost);
       node.removeEventListener("webglcontextrestored", restored);
       document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("blur", refresh);
+      window.removeEventListener("focus", focus);
+      window.removeEventListener("blur", focus);
       media.removeEventListener("change", refresh);
     };
   }, [motion]);
+  // Free the GPU context with the theme, not when only the motion setting changes.
+  useEffect(
+    () => () => {
+      context.current?.getExtension("WEBGL_lose_context")?.loseContext();
+      context.current = null;
+    },
+    [],
+  );
   return (
     <div className="nebula-backdrop" aria-hidden="true">
       <canvas ref={canvas} className="nebula-canvas" />

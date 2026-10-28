@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import secrets
+import threading
 import time
 
 import keyring
@@ -51,6 +52,7 @@ class Telegram:
         self.client=None
         self.pending=None
         self.tickets={}
+        self.tickets_lock=threading.Lock()
         with store.db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS telegram_outbox(id TEXT PRIMARY KEY,scope_id TEXT NOT NULL,account_id INTEGER NOT NULL,peer TEXT NOT NULL,text TEXT NOT NULL,random_id INTEGER NOT NULL,state TEXT NOT NULL,message_id INTEGER NOT NULL,created TEXT NOT NULL,title TEXT NOT NULL DEFAULT '')")
             if "title" not in {row["name"] for row in db.execute("PRAGMA table_info(telegram_outbox)")}: db.execute("ALTER TABLE telegram_outbox ADD COLUMN title TEXT NOT NULL DEFAULT ''")
@@ -118,10 +120,12 @@ class Telegram:
 
     def ticket(self,store,kind,**values):
         with store.db() as db: check_scope(db,store)
-        self.tickets={key:value for key,value in self.tickets.items() if value["expires"]>time.monotonic()}
-        while len(self.tickets)>=300: self.tickets.pop(next(iter(self.tickets)))
-        key=secrets.token_hex(24)
-        self.tickets[key]={"scope":store.scope_id,"epoch":self.read().get("epoch"),"kind":kind,"expires":time.monotonic()+600,**values}
+        key,epoch=secrets.token_hex(24),self.read().get("epoch")
+        # Sync previews run in the threadpool while async reads issue tickets on the event loop.
+        with self.tickets_lock:
+            self.tickets={key:value for key,value in self.tickets.items() if value["expires"]>time.monotonic()}
+            while len(self.tickets)>=300: self.tickets.pop(next(iter(self.tickets)))
+            self.tickets[key]={"scope":store.scope_id,"epoch":epoch,"kind":kind,"expires":time.monotonic()+600,**values}
         return key
 
     def lookup(self,store,key,kind):
@@ -209,12 +213,14 @@ class Telegram:
                 message_id=getattr(response,"id",0) or next((update.id for update in getattr(response,"updates",[]) if isinstance(update,types.UpdateMessageID) and update.random_id==item["random_id"]),0)
                 if message_id:
                     message=await client.get_messages(peer,ids=message_id)
-                    if message and message.out and message.message==item["text"]: state="sent"
+                    if message and message.out and (message.message or "").strip()==item["text"].strip(): state="sent"
         except errors.RandomIdDuplicateError:
-            if message_id:
+            # Telegram already accepted this random_id: an earlier attempt was delivered even if its response was lost.
+            state="sent"
+            if not message_id:
                 try:
-                    async with asyncio.timeout(10): message=await client.get_messages(peer,ids=message_id)
-                    if message and message.out and message.message==item["text"]: state="sent"
+                    async with asyncio.timeout(10): recent=await client.get_messages(peer,limit=20)
+                    message_id=next((row.id for row in recent or [] if row.out and (row.message or "").strip()==item["text"].strip()),0)
                 except (errors.RPCError,TimeoutError,OSError): pass
         except errors.RPCError as error:
             if error.code<500: state="failed"

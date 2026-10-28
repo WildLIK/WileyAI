@@ -2,7 +2,6 @@
 import asyncio
 import re
 import threading
-import subprocess
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -73,6 +72,9 @@ def request_text(text, name="Уайли"):
     if len(text) > 200 or any(ord(char) < 32 for char in text) or any(char in text for char in '"«»“”'):
         return None
     value = normalize(request_form(text, name))
+    # Device qualifiers at the end do not change the intent; only the same
+    # bounded whole-utterance grammar below can become a command.
+    value = re.sub(r"\s+на (?:компьютере|пк)$", "", value)
     value = re.sub(r"[, ]+", " ", value).strip()
     # ASR may insert a preposition between the verb and volume noun. Other
     # fillers, verb changes, negation and compound requests remain unmatched.
@@ -149,12 +151,12 @@ class AudioTools:
                     if command.action != "media_status": media["action"] = command.action
                     result = {"text": windows_media.describe(media), "media": media}
                 elif command.action in windows_audio.MEDIA_KEYS:
+                    # One player call: it reports "unavailable" without sending anything, then the media key is used.
                     try:
-                        media = windows_media.perform()
-                    except (ValueError, OSError, subprocess.TimeoutExpired):
+                        media = windows_media.perform(command.action)
+                    except (windows_media.Unavailable, OSError):
                         media = {"available": False}
                     if media.get("available"):
-                        media = windows_media.perform(command.action)
                         media["action"] = command.action
                         result = {"text": windows_media.describe(media), "media": media}
                     else:

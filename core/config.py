@@ -48,7 +48,8 @@ class Settings(BaseModel):
     name: str = Field(default="Уайли", min_length=1, max_length=60)
     grammatical_gender: Literal["feminine", "masculine", "neutral"] = "feminine"
     personality: str = Field(default="Ты Уайли, личный ассистент. Общайся на русском, тепло и по существу. Учитывай предпочтения владельца. Не выдумывай выполненные действия и воспоминания.", max_length=8000)
-    provider: Literal["ollama", "compatible"] = "ollama"
+    provider: Literal["ollama", "compatible", "chatgpt"] = "ollama"
+    chatgpt_connection: str = Field(default="", max_length=64, pattern=r"^(?:[a-f0-9]{64})?$")
     base_url: str = "http://127.0.0.1:11434"
     model: str = Field(default="qwen3.5:4b", max_length=200)
     profile: Literal["eco", "balanced", "quality"] = "balanced"
@@ -56,7 +57,7 @@ class Settings(BaseModel):
     context_tokens: int = Field(default=4096, ge=1024, le=32768)
     response_tokens: int = Field(default=2048, ge=256, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
-    stt_model: Literal["tiny", "base", "small"] = "small"
+    stt_model: Literal["tiny", "base", "small", "gigaam-v3"] = "small"
     stt_quality: Literal["fast", "balanced", "accurate"] = "accurate"
     stt_environment: Literal["normal", "music"] = "normal"
     conversation_listen_while_thinking: bool = True
@@ -207,6 +208,7 @@ class VoiceSettings(CloudSettings):
 
 
 CATALOG = [
+    {"id": "gigaam-v3", "name": "GigaAM v3 · E2E RNN-T", "kind": "stt", "engine": "GigaAM ONNX CPU", "description": "Русская речь с пунктуацией. Локально, без ключа и учётной записи. Полные веса без квантования; сначала установите компонент GigaAM ONNX.", "size": "≈ 854 МиБ + движок", "languages": "Русский", "source": "https://huggingface.co/istupakov/gigaam-v3-onnx", "license": "MIT"},
     {"id": "qwen3.5:4b", "name": "Qwen 3.5 · 4B", "kind": "llm", "engine": "ollama", "description": "Начальный сбалансированный вариант для общения и изображений.", "size": "≈ 3–4 ГБ", "languages": "Русский и другие", "source": "https://ollama.com/library/qwen3.5", "license": "Apache-2.0"},
     {"id": "huihui_ai/qwen3.5-abliterated:4b", "name": "Huihui Qwen 3.5 · 4B", "kind": "llm", "engine": "ollama", "description": "Вариант с уменьшенными ограничениями ответов. Качество сравнивается отдельно.", "size": "≈ 3–4 ГБ", "languages": "Мультиязычная", "source": "https://huggingface.co/huihui-ai/Huihui-Qwen3.5-4B-abliterated", "license": "Apache-2.0"},
     *[{"id": size, "name": f"Whisper · {size}", "kind": "stt", "engine": "faster-whisper", "description": "Локальное распознавание речи на CPU. Сначала установите компонент Whisper.", "size": amount, "languages": "Русский и другие", "source": "https://github.com/SYSTRAN/faster-whisper", "license": "MIT"} for size, amount in [("tiny", "≈ 75 МБ"), ("base", "≈ 145 МБ"), ("small", "≈ 485 МБ")]],

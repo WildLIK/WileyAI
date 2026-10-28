@@ -193,3 +193,37 @@ async def test_http_telegram_auth_review_and_stale_ticket(tmp_path,vault):
     await manager.close()
     await app.state.mail.close()
     await app.state.google_calendar.close()
+
+
+class Duplicating(Client):
+    """Telegram rejects a reused random_id once the first attempt was delivered."""
+    async def __call__(self,request):
+        if isinstance(request,functions.messages.SendMessageRequest) and request.random_id in {item.random_id for item in self.requests}:
+            self.requests.append(request)
+            raise errors.RandomIdDuplicateError(request)
+        return await super().__call__(request)
+    async def get_messages(self,peer,**kwargs):
+        if "limit" in kwargs and "ids" not in kwargs: return [NS(id=key,out=True,message=value.message) for key,value in self.sent.items()]
+        return await super().get_messages(peer,**kwargs)
+
+
+@pytest.mark.anyio
+async def test_duplicate_random_id_after_lost_first_attempt_is_delivered(tmp_path,vault):
+    store=Store(tmp_path)
+    client=Duplicating()
+    manager=Telegram(store,factory=lambda *args,**kwargs:client)
+    await manager.configure(TelegramConfig(api_id=12345,api_hash="a"*32))
+    await login(manager)
+    dialog=(await manager.dialogs(store))[0]
+    preview=manager.preview(store,TelegramPreview(dialog=dialog["ticket"],text="Одна отправка"))
+    client.lose=True
+    receipt=await manager.send(store,preview["ticket"],True)
+    assert receipt["state"]=="unknown" and receipt["message_id"]==0
+    client.lose=False
+    result=await manager.retry(store,receipt["id"],True)
+    assert result=={"id":receipt["id"],"state":"sent","message_id":77}
+    assert len(client.sent)==1
+    # The dialog is no longer blocked by an unconfirmed send.
+    other=manager.preview(store,TelegramPreview(dialog=dialog["ticket"],text="Следующее"))
+    assert (await manager.send(store,other["ticket"],True))["state"]=="sent"
+    await manager.close()

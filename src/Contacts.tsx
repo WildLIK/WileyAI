@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { scopedRequest } from "./api";
+import { scopedRequest, errorText } from "./api";
 type Contact = {
   id: string;
   name: string;
@@ -38,7 +38,7 @@ export function ContactsPanel({ conversationId }: { conversationId: string }) {
         if (live) setItems(value);
       })
       .catch((err) => {
-        if (live) setError(String(err));
+        if (live) setError(errorText(err));
       });
     return () => {
       live = false;
@@ -51,7 +51,7 @@ export function ContactsPanel({ conversationId }: { conversationId: string }) {
       await action();
       await load();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }

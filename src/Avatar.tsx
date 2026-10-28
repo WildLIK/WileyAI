@@ -6,7 +6,7 @@ import type { Settings } from "./api";
 import { addAvatarLighting, fitAvatarCamera } from "./avatarPresentation";
 import { avatarZoom, type AvatarSignal } from "./avatarBehavior";
 import { useAvatarDemo } from "./useAvatarDemo";
-import { AvatarMotion } from "./avatarMotion";
+import { AvatarMotion, pruneSpringBones } from "./avatarMotion";
 import { AvatarMeter } from "./avatarMeter";
 import { AvatarMusic } from "./avatarMusic";
 import { avatarPointer } from "./avatarPointer";
@@ -25,6 +25,13 @@ const cameraKey =
   (new URLSearchParams(location.search).get("view") === "avatar"
     ? "desktop"
     : "panel");
+// MSAA cost grows with the pixel count. On high-DPI screens render at most
+// 1.25x and keep MSAA, instead of 1.5x+MSAA: edges and MToon outlines stay
+// smooth for ~30% fewer pixels, and DPR changes need no new WebGL context.
+function renderRatio() {
+  const ratio = window.devicePixelRatio || 1;
+  return ratio >= 1.5 ? 1.25 : ratio;
+}
 function readZoom() {
   try {
     return avatarZoom(Number(localStorage.getItem(cameraKey) || 1));
@@ -47,14 +54,23 @@ export function Avatar({
   const [error, setError] = useState("");
   const [showStats, setShowStats] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
+  // Bumped to rebuild the renderer when a lost WebGL context never returns.
+  const [generation, setGeneration] = useState(0);
+  const rebuilds = useRef(0);
   const { demo, setDemo } = useAvatarDemo();
   const [caption, setCaption] = useState({
     name: "В покое",
     text: "Готова помочь",
   });
   const effectiveSignal = demo?.signal || signal;
-  const config = useRef({ signal: effectiveSignal, settings, zoom, demo });
-  config.current = { signal: effectiveSignal, settings, zoom, demo };
+  const config = useRef({
+    signal: effectiveSignal,
+    settings,
+    zoom,
+    demo,
+    showStats,
+  });
+  config.current = { signal: effectiveSignal, settings, zoom, demo, showStats };
   const pointer = useRef({ x: 0, y: 0, yaw: 0 });
   const dragging = useRef<{ x: number; yaw: number } | null>(null);
   const refresh = useRef(() => {});
@@ -88,6 +104,8 @@ export function Avatar({
     const container = host.current;
     let disposed = false,
       contextLost = false,
+      failed = false,
+      looping = false,
       nativeActive = true,
       receivedActivity = false,
       intersecting = true;
@@ -98,11 +116,16 @@ export function Avatar({
       frames = 0,
       sampleFrames = 0,
       cpu = 0,
-      sampleStart = 0;
+      sampleStart = 0,
+      probed = 0,
+      pointerMoved = 0,
+      lostTimer = 0;
     let vrm: VRM | undefined,
       motion: AvatarMotion | undefined,
       bounds: THREE.Box3 | undefined,
-      head: THREE.Vector3 | undefined;
+      head: THREE.Vector3 | undefined,
+      headNode: THREE.Object3D | undefined,
+      modelHeight = 0;
     let renderer: THREE.WebGLRenderer;
     setError("");
     setStats(null);
@@ -127,13 +150,20 @@ export function Avatar({
       "3D-персонаж. Колесо — масштаб, перетаскивание — поворот",
     );
     container.prepend(canvas);
+    const musicStatus = container.querySelector<HTMLElement>(
+      ".avatar-music-status",
+    )!;
+    const headRegion = container.querySelector<HTMLElement>(
+      ".avatar-head-region",
+    )!;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     addAvatarLighting(scene);
     let meter = new AvatarMeter(renderer.getContext());
     const music = new AvatarMusic();
-    let musicStatus = "";
+    let statusText = "";
     let captionKey = "";
+    let musicLevel = -1;
     const facePoint = new THREE.Vector3();
     const petHead = new THREE.Vector3();
     let headHit: AvatarHeadHit | undefined;
@@ -180,7 +210,6 @@ export function Avatar({
       if (!watchingPointer || disposed) return;
       const box = canvas.getBoundingClientRect();
       if (!box.width || !box.height) return;
-      const headNode = vrm?.humanoid.getNormalizedBoneNode("head");
       if (headNode) headNode.getWorldPosition(facePoint).project(camera);
       else facePoint.set(0, 0.55, 0);
       const target = avatarPointer(
@@ -191,12 +220,47 @@ export function Avatar({
         },
         box,
       );
+      if (
+        Math.abs(target.x - pointer.current.x) > 0.005 ||
+        Math.abs(target.y - pointer.current.y) > 0.005
+      )
+        pointerMoved = performance.now();
       pointer.current.x = target.x;
       pointer.current.y = target.y;
     });
-    const stop = () => {
-      watchPointer(false);
-      music.setEnabled(false);
+    // One reused options object; the render loop must not allocate per frame.
+    const motionOptions = {
+      motion: true,
+      gaze: true,
+      expressions: true,
+      strength: 0.65,
+      still: undefined as boolean | undefined,
+      demo: false,
+      pointer: pointer.current,
+      yaw: 0,
+      music: music.value,
+      pet: 0,
+    };
+    const readOptions = (now: number) => {
+      const { settings, demo } = config.current;
+      motionOptions.motion = demo
+        ? !demo.still
+        : settings.avatar_motion !== false;
+      motionOptions.gaze = !demo && settings.avatar_gaze !== false;
+      motionOptions.expressions =
+        Boolean(demo) || settings.avatar_expressions !== false;
+      motionOptions.strength =
+        demo?.strength ?? settings.avatar_expression_strength ?? 0.65;
+      motionOptions.still = demo?.still;
+      motionOptions.demo = Boolean(demo);
+      motionOptions.pointer = pointer.current;
+      motionOptions.yaw = pointer.current.yaw;
+      motionOptions.music = music.value;
+      motionOptions.pet = Math.min(1, Math.max(0, (petUntil - now) / 650));
+      return motionOptions;
+    };
+    const stopLoop = () => {
+      looping = false;
       cancelAnimationFrame(frame);
       frame = 0;
       previous = 0;
@@ -204,17 +268,107 @@ export function Avatar({
       sampleStart = 0;
       sampleFrames = 0;
       cpu = 0;
-      petUntil = 0;
+      probed = 0;
+    };
+    const mark = (key: string, value: string) => {
+      if (container.dataset[key] !== value) container.dataset[key] = value;
+    };
+    /**
+     * Captions, the music line, the head hit region and the data-* hooks read
+     * by the desktop tests change slowly; refresh them at ~10 Hz, not per frame.
+     */
+    const probe = (milliseconds: number) => {
+      probed = milliseconds;
+      const { signal, settings, demo } = config.current;
+      const value = music.value;
+      const status = demo
+        ? "Ручной тест · «Авто» включает реакции на музыку"
+        : settings.avatar_motion === false
+          ? "Музыка: движения выключены"
+          : settings.avatar_music === false
+            ? "Музыка: выключено в настройках"
+            : value.error ||
+              (value.active
+                ? `Звук: ${value.source}${signal.phase !== "idle" ? " · пауза на время разговора" : value.bpm ? ` · ≈${value.bpm} уд/мин` : ""}`
+                : value.players?.length
+                  ? `Ожидаю звук · ${value.players.join(", ")}`
+                  : "Ожидаю звук плеера или браузера");
+      if (status !== statusText) {
+        statusText = status;
+        musicStatus.textContent = status;
+        musicStatus.setAttribute("title", status);
+      }
+      const nextCaption =
+        motion && motion.petWeight > 0.1
+          ? { name: "Поглаживание", text: "Мне приятно, спасибо" }
+          : avatarCaption(motion?.pose || "none", signal.emotion, signal.phase);
+      const nextKey = nextCaption.name + nextCaption.text;
+      if (captionKey !== nextKey) {
+        captionKey = nextKey;
+        setCaption(nextCaption);
+      }
+      const expressions = vrm?.expressionManager;
+      mark("targetFps", String(settings.avatar_fps || 60));
+      mark("dancing", String(Boolean(motion?.pose.startsWith("dance"))));
+      mark("musicSource", value.source);
+      mark("headYaw", (headNode?.rotation.y || 0).toFixed(3));
+      mark("eyeYaw", (vrm?.lookAt?.yaw || 0).toFixed(2));
+      mark("pose", motion?.pose || "none");
+      mark("petting", String((motion?.petWeight || 0) > 0.1));
+      mark("blush", (motion?.blush || 0).toFixed(3));
+      mark(
+        "skirtLeft",
+        (expressions?.getValue("skirtRaiseLeft") || 0).toFixed(3),
+      );
+      mark(
+        "skirtRight",
+        (expressions?.getValue("skirtRaiseRight") || 0).toFixed(3),
+      );
+      mark("smile", (expressions?.getValue("happy") || 0).toFixed(3));
+      if (headNode) {
+        headNode.getWorldPosition(petHead);
+        petHead.y += modelHeight * 0.067;
+        facePoint.copy(petHead);
+        facePoint.x += modelHeight * 0.072;
+        facePoint.project(camera);
+        petHead.project(camera);
+        const width = canvas.clientWidth,
+          height = canvas.clientHeight;
+        const x = ((petHead.x + 1) * width) / 2,
+          y = ((1 - petHead.y) * height) / 2;
+        mark("headX", x.toFixed(1));
+        mark("headY", y.toFixed(1));
+        const r = (Math.abs(facePoint.x - petHead.x) * width) / 2;
+        const left = Math.max(0, x - r),
+          top = Math.max(0, y - r * 1.1);
+        const style = headRegion.style;
+        style.left = left + "px";
+        style.top = top + "px";
+        style.width = Math.max(0, Math.min(width, x + r) - left) + "px";
+        style.height = Math.max(0, Math.min(height, y + r * 1.1) - top) + "px";
+      }
+      mark("gazeX", pointer.current.x.toFixed(2));
+      mark("gazeY", pointer.current.y.toFixed(2));
+      mark("energy", (signal.energy || 0).toFixed(2));
+      mark("mouth", signal.phase === "speaking" ? "active" : "closed");
     };
     const animate = (milliseconds: number) => {
-      if (disposed || container.dataset.render !== "running") return;
+      if (disposed || !looping) return;
       frame = requestAnimationFrame(animate);
-      const { signal, settings, demo } = config.current;
+      const { signal, settings, demo, showStats } = config.current;
       // UI/system animation preferences govern the interface. The avatar has
       // explicit motion, gaze, music and FPS controls of its own.
       const fps = settings.avatar_fps || 60;
-      const interval = 1000 / fps;
-      container.dataset.targetFps = String(fps);
+      // A calm idle loop (breathing, hover, rare wing bursts) looks the same
+      // at 30 FPS; anything livelier gets the configured rate.
+      const lively =
+        Boolean(demo) ||
+        !motion ||
+        motion.lively ||
+        petUntil > milliseconds ||
+        dragging.current !== null ||
+        milliseconds - pointerMoved < 1200;
+      const interval = 1000 / (lively ? fps : Math.min(fps, 30));
       if (milliseconds < nextFrame - 0.5) return;
       // Keep the deadline between refreshes so 30 FPS also works on displays
       // whose refresh rate is not divisible by 30. Never catch up after a stall.
@@ -229,129 +383,41 @@ export function Avatar({
       elapsed += delta;
       if (!sampleStart) sampleStart = milliseconds - delta * 1000;
       const began = performance.now();
-      motion?.update(elapsed, delta, signal, {
-        motion: demo ? !demo.still : settings.avatar_motion !== false,
-        gaze: !demo && settings.avatar_gaze !== false,
-        expressions: Boolean(demo) || settings.avatar_expressions !== false,
-        strength: demo?.strength ?? settings.avatar_expression_strength ?? 0.65,
-        still: demo?.still,
-        demo: Boolean(demo),
-        pointer: pointer.current,
-        yaw: pointer.current.yaw,
-        music: music.value,
-        pet: Math.min(1, Math.max(0, (petUntil - milliseconds) / 650)),
-      });
-      const status = demo
-        ? "Ручной тест · «Авто» включает реакции на музыку"
-        : settings.avatar_motion === false
-          ? "Музыка: движения выключены"
-          : settings.avatar_music === false
-            ? "Музыка: выключено в настройках"
-            : music.value.error ||
-              (music.value.active
-                ? `Звук: ${music.value.source}${signal.phase !== "idle" ? " · пауза на время разговора" : music.value.bpm ? ` · ≈${music.value.bpm} уд/мин` : ""}`
-                : music.value.players?.length
-                  ? `Ожидаю звук · ${music.value.players.join(", ")}`
-                  : "Ожидаю звук плеера или браузера");
-      if (status !== musicStatus) {
-        musicStatus = status;
-        container.querySelector(".avatar-music-status")!.textContent = status;
-        container
-          .querySelector(".avatar-music-status")!
-          .setAttribute("title", status);
+      motion?.update(elapsed, delta, signal, readOptions(milliseconds));
+      if (music.value.level !== musicLevel) {
+        musicLevel = music.value.level;
+        container.style.setProperty("--music-level", String(musicLevel));
       }
-      const nextCaption =
-        motion && motion.petWeight > 0.1
-          ? { name: "Поглаживание", text: "Мне приятно, спасибо" }
-          : avatarCaption(motion?.pose || "none", signal.emotion, signal.phase);
-      const nextKey = nextCaption.name + nextCaption.text;
-      if (captionKey !== nextKey) {
-        captionKey = nextKey;
-        setCaption(nextCaption);
-      }
-      container.style.setProperty("--music-level", String(music.value.level));
-      container.dataset.dancing = String(
-        Boolean(motion?.pose.startsWith("dance")),
-      );
-      container.dataset.musicSource = music.value.source;
-      container.dataset.headYaw = (
-        vrm?.humanoid.getNormalizedBoneNode("head")?.rotation.y || 0
-      ).toFixed(3);
-      container.dataset.eyeYaw = (vrm?.lookAt?.yaw || 0).toFixed(2);
-      container.dataset.pose = motion?.pose || "none";
-      container.dataset.petting = String((motion?.petWeight || 0) > 0.1);
-      container.dataset.blush = (motion?.blush || 0).toFixed(3);
-      container.dataset.skirtLeft = (
-        vrm?.expressionManager?.getValue("skirtRaiseLeft") || 0
-      ).toFixed(3);
-      container.dataset.skirtRight = (
-        vrm?.expressionManager?.getValue("skirtRaiseRight") || 0
-      ).toFixed(3);
-      container.dataset.smile = (
-        vrm?.expressionManager?.getValue("happy") || 0
-      ).toFixed(3);
-      if (vrm && bounds) {
-        const h = bounds.getSize(new THREE.Vector3()).y;
-        vrm.humanoid.getNormalizedBoneNode("head")?.getWorldPosition(petHead);
-        petHead.y += h * 0.067;
-        facePoint.copy(petHead);
-        facePoint.x += h * 0.072;
-        facePoint.project(camera);
-        petHead.project(camera);
-        container.dataset.headX = (
-          ((petHead.x + 1) * canvas.clientWidth) /
-          2
-        ).toFixed(1);
-        container.dataset.headY = (
-          ((1 - petHead.y) * canvas.clientHeight) /
-          2
-        ).toFixed(1);
-        const x = ((petHead.x + 1) * canvas.clientWidth) / 2,
-          y = ((1 - petHead.y) * canvas.clientHeight) / 2;
-        const r = (Math.abs(facePoint.x - petHead.x) * canvas.clientWidth) / 2;
-        const region = container.querySelector<HTMLElement>(
-          ".avatar-head-region",
-        )!;
-        const left = Math.max(0, x - r),
-          top = Math.max(0, y - r * 1.1);
-        Object.assign(region.style, {
-          left: left + "px",
-          top: top + "px",
-          width: Math.max(0, Math.min(canvas.clientWidth, x + r) - left) + "px",
-          height:
-            Math.max(0, Math.min(canvas.clientHeight, y + r * 1.1) - top) +
-            "px",
-        });
-      }
-      container.dataset.gazeX = pointer.current.x.toFixed(2);
-      container.dataset.gazeY = pointer.current.y.toFixed(2);
-      container.dataset.energy = (signal.energy || 0).toFixed(2);
-      if (vrm && bounds && config.current.zoom > 1.5) {
-        vrm.humanoid.getNormalizedBoneNode("head")?.getWorldPosition(head!);
+      if (!probed || milliseconds - probed >= 100) probe(milliseconds);
+      if (headNode && bounds && config.current.zoom > 1.5) {
+        headNode.getWorldPosition(head!);
         fitAvatarCamera(camera, bounds, config.current.zoom, head);
       }
-      meter.begin(milliseconds);
+      if (showStats) meter.begin(milliseconds);
       renderer.render(scene, camera);
-      meter.end();
+      if (showStats) meter.end();
       cpu += performance.now() - began;
       sampleFrames++;
       frames++;
+      // Per frame: the desktop tests count real renders through this value.
       container.dataset.renderFrames = String(frames);
-      container.dataset.mouth =
-        signal.phase === "speaking" ? "active" : "closed";
       if (milliseconds - sampleStart >= 1000) {
-        setStats({
-          fps: (sampleFrames * 1000) / (milliseconds - sampleStart),
-          cpu: cpu / sampleFrames,
-          gpu: meter.gpuMs,
-          triangles: renderer.info.render.triangles,
-          device: meter.device,
-        });
+        if (showStats)
+          setStats({
+            fps: (sampleFrames * 1000) / (milliseconds - sampleStart),
+            cpu: cpu / sampleFrames,
+            gpu: meter.gpuMs,
+            triangles: renderer.info.render.triangles,
+            device: meter.device,
+          });
         sampleStart = milliseconds;
         cpu = 0;
         sampleFrames = 0;
       }
     };
+    let appliedWidth = 0,
+      appliedHeight = 0,
+      appliedRatio = 0;
     const resize = () => {
       const width = container.clientWidth,
         height = Math.max(
@@ -362,55 +428,88 @@ export function Avatar({
             ) || 86),
         );
       if (!width || !height || contextLost) return;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-      renderer.setSize(width, height);
-      camera.aspect = width / height;
+      const ratio = renderRatio();
+      // Resizing the canvas clears it; skip no-op resizes of a paused view.
+      if (
+        width !== appliedWidth ||
+        height !== appliedHeight ||
+        ratio !== appliedRatio
+      ) {
+        appliedWidth = width;
+        appliedHeight = height;
+        appliedRatio = ratio;
+        renderer.setPixelRatio(ratio);
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+      }
       if (bounds) fitAvatarCamera(camera, bounds, config.current.zoom, head);
     };
-    const resume = () => {
-      stop();
+    /**
+     * Derive the render state. The loop, the music stream and pointer watching
+     * only start or stop when their own state changes: focus changes, resizes
+     * and settings refreshes must not reconnect the meter or cancel petting.
+     */
+    const update = () => {
       if (disposed) return;
-      if (contextLost) {
-        container.dataset.render = "lost";
-        return;
-      }
-      if (!vrm) {
-        container.dataset.render = "loading";
-        return;
-      }
-      if (
-        !nativeActive ||
-        document.hidden ||
-        !intersecting ||
-        !container.clientWidth ||
-        !container.clientHeight
-      ) {
-        container.dataset.render = "paused";
-        return;
-      }
-      resize();
-      container.dataset.render = "running";
-      watchPointer(
-        !config.current.demo && config.current.settings.avatar_gaze !== false,
-      );
+      const visible =
+        nativeActive &&
+        !document.hidden &&
+        intersecting &&
+        container.clientWidth > 0 &&
+        container.clientHeight > 0;
+      const state = failed
+        ? "error"
+        : contextLost
+          ? "lost"
+          : !vrm
+            ? "loading"
+            : visible
+              ? "running"
+              : "paused";
+      const running = state === "running";
+      mark("render", state);
+      if (running && !looping) {
+        resize();
+        looping = true;
+        frame = requestAnimationFrame(animate);
+      } else if (!running && looping) stopLoop();
+      const { demo, settings } = config.current;
+      watchPointer(running && !demo && settings.avatar_gaze !== false);
       music.setEnabled(
-        !config.current.demo &&
-          config.current.settings.avatar_motion !== false &&
-          config.current.settings.avatar_music !== false,
+        running &&
+          !demo &&
+          settings.avatar_motion !== false &&
+          settings.avatar_music !== false,
       );
-      frame = requestAnimationFrame(animate);
     };
-    refresh.current = resume;
-    const observer = new ResizeObserver(resume);
+    refresh.current = () => {
+      resize();
+      update();
+    };
+    const observer = new ResizeObserver(() => {
+      resize();
+      update();
+    });
     observer.observe(container);
     const intersection = new IntersectionObserver(([entry]) => {
       intersecting = entry.isIntersecting;
-      resume();
+      update();
     });
     intersection.observe(container);
+    // Moving the window to a monitor with another scale changes only the DPR.
+    let ratioQuery: MediaQueryList | undefined;
+    const ratioChanged = () => {
+      ratioQuery?.removeEventListener("change", ratioChanged);
+      ratioQuery = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`,
+      );
+      ratioQuery.addEventListener("change", ratioChanged);
+      resize();
+    };
+    ratioChanged();
     const activity = (state: { visible: boolean }) => {
       nativeActive = state.visible;
-      resume();
+      update();
     };
     const offActivity = window.wiley.onWindowActivity((state) => {
       receivedActivity = true;
@@ -425,17 +524,33 @@ export function Avatar({
     const lost = (event: Event) => {
       event.preventDefault();
       contextLost = true;
-      stop();
-      container.dataset.render = "lost";
-      if (!disposed) setError("Восстанавливаю 3D после сбоя видеодрайвера…");
+      update();
+      if (disposed) return;
+      setError("Восстанавливаю 3D после сбоя видеодрайвера…");
+      clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => {
+        if (disposed || !contextLost) return;
+        // The browser did not hand the context back: start over with a new
+        // renderer, a bounded number of times.
+        if (rebuilds.current < 2) {
+          rebuilds.current++;
+          setGeneration((value) => value + 1);
+        } else
+          setError(
+            "3D не восстановилось после сбоя видеодрайвера. Перезапустите WileyAI; если ошибка повторится, обновите драйвер видеокарты.",
+          );
+      }, 5000);
     };
     const restored = () => {
+      clearTimeout(lostTimer);
       contextLost = false;
+      rebuilds.current = 0;
+      appliedWidth = appliedHeight = appliedRatio = 0;
       meter.dispose();
       meter = new AvatarMeter(renderer.getContext());
       if (!disposed) {
-        setError("");
-        resume();
+        if (!failed) setError("");
+        update();
       }
     };
     const wheel = (event: WheelEvent) => {
@@ -449,7 +564,7 @@ export function Avatar({
     container.addEventListener("wheel", wheel, { passive: false });
     canvas.addEventListener("webglcontextlost", lost);
     canvas.addEventListener("webglcontextrestored", restored);
-    document.addEventListener("visibilitychange", resume);
+    document.addEventListener("visibilitychange", update);
     resize();
     const manager = new THREE.LoadingManager();
     manager.setURLModifier((url) => {
@@ -468,7 +583,15 @@ export function Avatar({
           throw new Error(
             "Не удалось прочитать файл аватара. Выберите VRM повторно в настройках.",
           );
-        const gltf = await loader.parseAsync(new Uint8Array(data).buffer, "");
+        // IPC already delivers a private copy; avoid a second ~20 MB one.
+        const bytes =
+          data.byteOffset === 0 && data.byteLength === data.buffer.byteLength
+            ? data.buffer
+            : data.buffer.slice(
+                data.byteOffset,
+                data.byteOffset + data.byteLength,
+              );
+        const gltf = await loader.parseAsync(bytes as ArrayBuffer, "");
         if (disposed) {
           VRMUtils.deepDispose(gltf.scene);
           return;
@@ -482,6 +605,8 @@ export function Avatar({
         VRMUtils.rotateVRM0(vrm);
         VRMUtils.combineSkeletons(vrm.scene);
         VRMUtils.combineMorphs(vrm);
+        // Springs that move no vertex would only cost simulation time.
+        pruneSpringBones(vrm);
         scene.add(vrm.scene);
         vrm.scene.updateMatrixWorld(true);
         const height = new THREE.Box3()
@@ -513,28 +638,44 @@ export function Avatar({
         vrm.update(0);
         vrm.scene.updateMatrixWorld(true);
         bounds = new THREE.Box3().setFromObject(vrm.scene, true);
-        head = vrm.humanoid
-          .getNormalizedBoneNode("head")
-          ?.getWorldPosition(new THREE.Vector3());
-        const headNode = vrm.humanoid.getNormalizedBoneNode("head");
+        headNode = vrm.humanoid.getNormalizedBoneNode("head") || undefined;
+        head = headNode?.getWorldPosition(new THREE.Vector3());
         if (headNode) headHit = new AvatarHeadHit(headNode, height);
         bounds.max.y += height * 0.1;
+        modelHeight = bounds.getSize(new THREE.Vector3()).y;
+        // Start from the first animated pose and restart hair/cloth springs
+        // there, instead of letting them swing in from the bind pose.
+        motion.update(
+          0,
+          0,
+          config.current.signal,
+          readOptions(performance.now()),
+          true,
+        );
+        vrm.scene.updateMatrixWorld(true);
+        vrm.springBoneManager?.setInitState();
+        vrm.springBoneManager?.reset();
         container.dataset.ready = "true";
-        resume();
+        update();
       })
       .catch((error) => {
         if (!disposed) {
-          container.dataset.render = "error";
+          failed = true;
+          update();
           setError(error.message || "Не удалось загрузить VRM");
         }
       });
     return () => {
       disposed = true;
       void window.wiley.reportAvatarCapabilities(null).catch(() => {});
-      stop();
+      clearTimeout(lostTimer);
+      stopLoop();
+      watchPointer(false);
+      music.setEnabled(false);
       refresh.current = () => {};
       observer.disconnect();
       intersection.disconnect();
+      ratioQuery?.removeEventListener("change", ratioChanged);
       offActivity();
       offPointer();
       container.removeEventListener("wheel", wheel);
@@ -543,14 +684,14 @@ export function Avatar({
       canvas.removeEventListener("contextmenu", pet);
       canvas.removeEventListener("webglcontextlost", lost);
       canvas.removeEventListener("webglcontextrestored", restored);
-      document.removeEventListener("visibilitychange", resume);
+      document.removeEventListener("visibilitychange", update);
       meter.dispose();
       if (vrm) VRMUtils.deepDispose(vrm.scene);
       renderer.dispose();
       renderer.forceContextLoss();
       canvas.remove();
     };
-  }, [path]);
+  }, [path, generation]);
   return (
     <div
       className="avatar-stage"

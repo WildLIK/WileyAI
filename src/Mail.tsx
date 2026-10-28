@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { scopedRequest } from "./api";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { scopedRequest, errorText } from "./api";
+import { poll } from "./polling";
 import { ProcessStatus } from "./ProcessStatus";
 import { MailSend } from "./MailSend";
 import { MailRemote } from "./MailRemote";
@@ -89,7 +90,7 @@ const addresses = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-export function MailPanel({
+export const MailPanel = memo(function MailPanel({
   conversationId,
   scopeName,
   visible = true,
@@ -112,7 +113,7 @@ export function MailPanel({
       />
     </div>
   );
-}
+});
 
 function MailContent({
   conversationId,
@@ -167,22 +168,25 @@ function MailContent({
   const channel = useRef<BroadcastChannel | null>(null);
   const previousStatus = useRef<string | null>(null);
   const statusRequest = useRef(0);
-  const dirty =
-    JSON.stringify({ ...editor, attachments: undefined }) !==
-      JSON.stringify({
-        ...(selected ? editorFor(selected) : blank()),
-        attachments: undefined,
-      }) ||
-    editor.attachments.length !== (selected?.attachments?.length || 0) ||
-    editor.attachments.some((value, index) => {
-      const previous = selected?.attachments?.[index];
-      return (
-        !previous ||
-        value.name !== previous.name ||
-        value.type !== previous.type ||
-        value.data !== previous.data
-      );
-    });
+  const dirty = useMemo(
+    () =>
+      JSON.stringify({ ...editor, attachments: undefined }) !==
+        JSON.stringify({
+          ...(selected ? editorFor(selected) : blank()),
+          attachments: undefined,
+        }) ||
+      editor.attachments.length !== (selected?.attachments?.length || 0) ||
+      editor.attachments.some((value, index) => {
+        const previous = selected?.attachments?.[index];
+        return (
+          !previous ||
+          value.name !== previous.name ||
+          value.type !== previous.type ||
+          value.data !== previous.data
+        );
+      }),
+    [editor, selected],
+  );
   const refreshStatus = useCallback(
     async (signal?: AbortSignal) => {
       const revision = ++statusRequest.current;
@@ -233,7 +237,7 @@ function MailContent({
           mounted.current &&
           !controller.signal.aborted
         )
-          setError(String(result.reason));
+          setError(errorText(result.reason));
     });
     const bus = new BroadcastChannel("wiley-mail");
     channel.current = bus;
@@ -241,19 +245,19 @@ function MailContent({
       if (event.data?.type === "account-changed") {
         void refreshStatus(controller.signal).catch((err) => {
           if (mounted.current && !controller.signal.aborted)
-            setError(String(err));
+            setError(errorText(err));
         });
       }
       void refreshDrafts(controller.signal).catch((err) => {
         if (mounted.current && !controller.signal.aborted)
-          setError(String(err));
+          setError(errorText(err));
       });
     };
     const returned = () => {
       if (document.visibilityState === "hidden") return;
       void refreshStatus(controller.signal).catch((err) => {
         if (mounted.current && !controller.signal.aborted)
-          setError(String(err));
+          setError(errorText(err));
       });
     };
     window.addEventListener("focus", returned);
@@ -269,16 +273,14 @@ function MailContent({
   }, [request, refreshStatus]);
   useEffect(() => {
     if (!status?.pending) return;
-    const controller = new AbortController();
-    const interval = setInterval(() => {
-      void refreshStatus(controller.signal).catch((err) => {
-        if (!controller.signal.aborted) setError(String(err));
-      });
-    }, 2000);
-    return () => {
-      clearInterval(interval);
-      controller.abort();
-    };
+    return poll(
+      (signal) =>
+        refreshStatus(signal).catch((err) => {
+          if (!signal.aborted) setError(errorText(err));
+        }),
+      2000,
+      { immediate: false },
+    );
   }, [status?.pending, refreshStatus]);
   useEffect(() => {
     setInbox(null);
@@ -311,7 +313,8 @@ function MailContent({
     try {
       await action(controller.signal);
     } catch (err) {
-      if (mounted.current && !controller.signal.aborted) setError(String(err));
+      if (mounted.current && !controller.signal.aborted)
+        setError(errorText(err));
     } finally {
       if (active.current === controller) active.current = null;
       if (mounted.current) {

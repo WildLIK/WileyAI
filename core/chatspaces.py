@@ -151,6 +151,11 @@ class Spaces:
             for table in ("home_bindings", "home_actions"):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE name=?", (table,)).fetchone():
                     db.execute(f"DELETE FROM {table} WHERE scope_id=?", (project_id,))
+            # A stale binding would keep its Google calendar (UNIQUE) out of reach of other spaces.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='google_calendar_bindings'").fetchone():
+                for table in ("google_calendar_links", "google_calendar_auto"):
+                    db.execute(f"DELETE FROM {table} WHERE binding_id IN (SELECT id FROM google_calendar_bindings WHERE scope_id=?)", (project_id,))
+                db.execute("DELETE FROM google_calendar_bindings WHERE scope_id=?", (project_id,))
             for table in ("memories", "memory_candidates", "tasks", "notes", "routines", "calendar_events", "mail_drafts", "mail_bindings", "mail_deliveries", "contacts"):
                 db.execute(f"DELETE FROM {table} WHERE scope_id=?", (project_id,))
             db.execute("DELETE FROM projects WHERE id=?", (project_id,))

@@ -7,6 +7,7 @@ import keyring
 
 from .config import Settings
 from .repetition import RepetitionGuard
+from . import chatgpt
 
 
 class IncompleteResponse(ValueError):
@@ -30,10 +31,16 @@ def key_id(settings: Settings) -> str:
 
 
 def get_key(settings: Settings) -> str:
+    if settings.provider == "chatgpt":
+        return ""  # OAuth credentials never enter the API-key interface.
     return keyring.get_password("WileyAI", key_id(settings)) or ""
 
 
 def set_key(settings: Settings, value: str):
+    if settings.provider == "chatgpt":
+        if value:
+            raise ValueError("Для ChatGPT используется вход через аккаунт, API-ключ не нужен.")
+        return
     if value:
         keyring.set_password("WileyAI", key_id(settings), value)
     else:
@@ -53,6 +60,8 @@ def compatible_path(settings: Settings, endpoint: str) -> str:
 
 
 async def list_models(settings: Settings) -> list[dict]:
+    if settings.provider == "chatgpt":
+        return await chatgpt.connection(settings.chatgpt_connection).models()
     async with client(settings) as http:
         response = await http.get("api/tags" if settings.provider == "ollama" else compatible_path(settings, "models"))
         response.raise_for_status()
@@ -63,6 +72,22 @@ async def list_models(settings: Settings) -> list[dict]:
 
 
 async def chat(settings: Settings, messages: list[dict], output_schema: dict | None = None) -> AsyncIterator[str]:
+    if settings.provider == "chatgpt":
+        output = chatgpt.connection(settings.chatgpt_connection).reply(settings.model, messages, output_schema)
+        repetition = RepetitionGuard()
+        async with aclosing(output):
+            try:
+                async for delta in output:
+                    for start in range(0, len(delta), 64):
+                        piece = delta[start:start + 64]
+                        if output_schema is None and repetition.repetitive(piece):
+                            raise RepetitionStopped("Остановила ответ: модель начала повторяться. Попробуйте уточнить вопрос.")
+                        yield piece
+            except chatgpt.ChatGPTError as error:
+                if output_schema is not None and error.format_unsupported:
+                    raise
+                raise IncompleteResponse(str(error)) from error
+        return
     if settings.provider == "ollama":
         endpoint = "api/chat"
         body = {"model": settings.model, "messages": messages, "stream": True, "options": {"num_ctx": settings.context_tokens, "num_predict": response_limit(settings), "temperature": settings.temperature}, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile]}
@@ -128,6 +153,10 @@ async def structured(settings: Settings, messages: list[dict], schema: dict, *, 
         return result
     try:
         return await collect(schema)
+    except chatgpt.ChatGPTError as error:
+        if not error.format_unsupported:
+            raise
+        return await collect(None)
     except httpx.HTTPStatusError as error:
         # Some compatible services do not support response_format. Retry only
         # a rejected format, never auth, quota, server or interrupted responses.

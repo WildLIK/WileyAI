@@ -31,6 +31,8 @@ coverage/
 test-results/
 playwright-report/
 *.tsbuildinfo
+.gradle/
+android/local.properties
 
 # OS files
 Thumbs.db

@@ -10,6 +10,7 @@ from .providers import client, describe_error
 
 
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:-]{0,199}$")
+KEEP_FINISHED = 30
 
 
 class ModelJobs:
@@ -34,6 +35,11 @@ class ModelJobs:
             if job["model"] == model and job["status"] in {"queued", "running"}:
                 return job
         item = dict(id=uuid.uuid4().hex, model=model, status="queued", detail="В очереди", completed=0, total=0)
+        # Keep active jobs and the latest finished ones; the UI shows at most 30.
+        finished = [key for key in self.jobs if key not in self.tasks or self.tasks[key].done()]
+        for key in finished[:max(0, len(finished) - KEEP_FINISHED)]:
+            self.jobs.pop(key)
+            self.tasks.pop(key, None)
         self.jobs[item["id"]] = item
         self.tasks[item["id"]] = asyncio.create_task(self.run(settings.model_copy(deep=True), item, path))
         return item

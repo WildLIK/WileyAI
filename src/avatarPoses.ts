@@ -21,6 +21,8 @@ export type FairyPose = {
   rightPalm?: V3;
   turn?: number;
   shift?: V3;
+  /** The arms are meant to be nearly straight (shy hands pressed down). */
+  straightArms?: boolean;
 };
 const resting: FairyPose = {
   left: [-0.028, 0.66, 0.115],
@@ -35,9 +37,11 @@ const resting: FairyPose = {
   rightPalm: [0.65, 3.04, -0.45],
   head: [0.025, 0.03, 0.08],
   body: [0, 0.1, -0.03],
-  leftLeg: [-0.12, 0.035, -0.025],
-  rightLeg: [-0.3, -0.04, 0.12],
-  knees: [0.18, 0.7],
+  // Reference levitation: the right leg hangs almost straight, the left knee
+  // folds so its shin trails behind.
+  leftLeg: [-0.06, 0.04, -0.03],
+  rightLeg: [-0.16, -0.04, 0.06],
+  knees: [1.3, 0.22],
 };
 const pose = (changes: Partial<FairyPose>): FairyPose => ({
   ...resting,
@@ -115,15 +119,17 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     leftLeg: [-0.6, 0.1, -0.12],
     knees: [1.55, 0.95],
   }),
+  // Forearms forward at waist height, as people gesture while talking; the
+  // former goal lay beyond the arm's reach and spread both arms like a T.
   explain: pose({
-    right: [-0.28, 0.65, 0.22],
-    left: [0.14, 0.64, 0.15],
+    right: [-0.1, 0.63, 0.16],
+    left: [0.09, 0.62, 0.15],
     rightHand: "open",
-    leftHand: "open",
-    rightWrist: [-0.9, 0, 0],
+    leftHand: "soft",
+    rightWrist: [-0.6, 0, 0],
     head: [0, 0.06, -0.06],
     body: [0, 0.07, 0],
-    knees: [0.9, 1.25],
+    knees: [0.55, 0.8],
   }),
   think: pose({
     left: [-0.005, 0.725, 0.16],
@@ -161,16 +167,18 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     leftLeg: [-0.6, 0.15, -0.12],
     knees: [1.55, 0.8],
   }),
+  // Attentive: hands lightly together in front, head tilted toward the
+  // speaker. Hands raised beside the face read as holding her head.
   listen: pose({
-    right: [-0.105, 0.77, 0.13],
-    left: [0.105, 0.77, 0.13],
-    rightHand: "open",
-    leftHand: "open",
+    right: [-0.03, 0.58, 0.11],
+    left: [0.03, 0.58, 0.11],
+    rightHand: "soft",
+    leftHand: "soft",
     head: [0.04, 0, 0.13],
     body: [0.045, 0, 0.025],
     leftLeg: [-0.55, 0.05, -0.02],
     rightLeg: [-0.55, -0.05, 0.02],
-    knees: [1.55, 1.55],
+    knees: [1.25, 1.25],
   }),
   thumbsup: pose({
     right: [-0.23, 0.78, 0.28],
@@ -184,18 +192,22 @@ export const fairyPoses: Record<AvatarGesture, FairyPose> = {
     rightLeg: [-0.6, -0.1, 0.08],
     knees: [1.55, 1.5],
   }),
+  // Reference «Смущённая поза»: kneeling in the air with the thighs almost
+  // upright and together, shins folded back, straight arms pressing both
+  // hands down between the knees, shoulders drawn up, head tilted to a side.
   shy: pose({
-    right: [-0.015, 0.52, 0.15],
-    left: [0.015, 0.52, 0.15],
+    right: [-0.012, 0.47, 0.09],
+    left: [0.012, 0.475, 0.085],
+    straightArms: true,
     leftPalm: [0.12, 0.12, -1.5],
     rightPalm: [0.12, -0.12, 1.5],
-    leftElbow: [0.1, 0.56, 0.1],
-    rightElbow: [-0.1, 0.56, 0.1],
-    head: [0.14, -0.06, 0.2],
-    body: [0.14, -0.04, 0.035],
-    leftLeg: [-1.04, 0.02, 0.015],
-    rightLeg: [-1.02, -0.02, -0.015],
-    knees: [2.3, 2.28],
+    leftElbow: [0.08, 0.6, 0.02],
+    rightElbow: [-0.08, 0.6, 0.02],
+    head: [0.16, 0.08, -0.24],
+    body: [0.1, -0.03, 0.02],
+    leftLeg: [-0.18, 0.03, 0.06],
+    rightLeg: [-0.2, -0.03, -0.06],
+    knees: [2.05, 2.15],
   }),
   tired: pose({
     right: [-0.085, 0.79, 0.13],

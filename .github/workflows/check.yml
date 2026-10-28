@@ -1,9 +1,13 @@
 name: Check WileyAI
 
+# Branch work is checked through its pull request; main and release tags are
+# checked on push. A branch push with an open PR therefore runs only once.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,6 +26,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          version: '0.11.29'
       - run: uv sync --locked --extra dev
       - run: npm ci
       - run: npx playwright install chromium

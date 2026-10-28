@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { request, scoped, type Settings } from "./api";
+import { poll } from "./polling";
 
 type Status = {
   enabled: boolean;
@@ -25,23 +26,26 @@ export function SemanticSearch({
   const [status, setStatus] = useState<Status>();
   const [busy, setBusy] = useState(false);
   useEffect(() => setDraft(settings), [settings]);
-  useEffect(() => {
-    let disposed = false;
-    const load = () =>
-      request<Status>(scoped("/semantic", conversationId))
-        .then((value) => {
-          if (!disposed) setStatus(value);
-        })
-        .catch((error) => {
-          if (!disposed) onError(error);
-        });
-    void load();
-    const timer = setInterval(() => void load(), 2500);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-    };
-  }, [conversationId, onError]);
+  useEffect(
+    () =>
+      poll(
+        (signal) =>
+          request<Status>(
+            scoped("/semantic", conversationId),
+            "GET",
+            undefined,
+            signal,
+          )
+            .then((value) => {
+              if (!signal.aborted) setStatus(value);
+            })
+            .catch((error) => {
+              if (!signal.aborted) onError(error);
+            }),
+        2500,
+      ),
+    [conversationId, onError],
+  );
   async function action(route: string, method = "POST") {
     setBusy(true);
     try {

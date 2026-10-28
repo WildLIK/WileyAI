@@ -83,6 +83,7 @@ class CloudSpeech:
         self.metadata = self.reference.with_suffix(".json")
         self.serena = Path(__file__).resolve().parents[1] / "local/voice-samples/qwen3-serena.wav"
         self.requests = {}
+        self.stopping = set()
         self.http = None
 
     async def close(self):
@@ -154,6 +155,7 @@ class CloudSpeech:
     async def stop(self, request_id=None):
         tasks = [task for key, task in list(self.requests.items()) if task is not asyncio.current_task() and (request_id is None or key == request_id)]
         for task in tasks:
+            self.stopping.add(task)
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -207,8 +209,14 @@ class CloudSpeech:
                 return CloudAudio(data, "audio/mpeg")
             raise ValueError("Сервис вернул нераспознанный формат аудио. Проверьте настройки формата")
         except asyncio.CancelledError:
-            raise ValueError("Облачная озвучка остановлена") from None
+            # Our own stop() becomes a user-facing message; any other cancellation
+            # (client gone, shutdown, an outer timeout) must keep propagating.
+            current = asyncio.current_task()
+            if current in self.stopping and current.uncancel() == 0:
+                raise ValueError("Облачная озвучка остановлена") from None
+            raise
         except httpx.HTTPError:
             raise ValueError("Сервис озвучки недоступен или не ответил вовремя") from None
         finally:
+            self.stopping.discard(asyncio.current_task())
             self.requests.pop(request_id, None)

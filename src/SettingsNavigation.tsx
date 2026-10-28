@@ -4,6 +4,7 @@ export const SETTINGS_SECTIONS = [
   { id: "brain", label: "Мозг", icon: "⬡" },
   { id: "speech", label: "Озвучка", icon: "♪" },
   { id: "microphone", label: "Микрофон и разговор", icon: "◌" },
+  { id: "mobile", label: "Телефон", icon: "▯" },
   { id: "search", label: "Поиск", icon: "⌕" },
   { id: "avatar", label: "Аватар", icon: "◇" },
   { id: "data", label: "Данные и копии", icon: "▤" },

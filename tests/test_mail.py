@@ -152,6 +152,9 @@ def test_mime_html_is_inert_and_alternative_uses_plain_text():
     plain=message("Обычный текст")["payload"]
     mixed={"payload":{"mimeType":"multipart/alternative","parts":[plain,html["payload"]]}}
     assert content(mixed)["text"]=="Обычный текст"
+    blank=message("  ")["payload"]
+    fallback=content({"payload":{"mimeType":"multipart/alternative","parts":[blank,html["payload"]]}})
+    assert "Привет" in fallback["text"] and fallback["from_html"]
     attachment={"mimeType":"text/plain","filename":"private.txt","body":{"attachmentId":"attachment-token"}}
     mixed={"payload":{"mimeType":"multipart/mixed","parts":[plain,attachment]}}
     assert content(mixed)["attachments"][0]["name"]=="private.txt"

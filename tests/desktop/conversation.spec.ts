@@ -425,7 +425,8 @@ test("conversation: another real microphone phrase is retained while a reply is 
       "Следующая фраза в очереди",
       { timeout: 12000 },
     );
-    expect(transcriptions).toBe(1);
+    // The queued phrase is recognized right away, while the reply is pending…
+    await expect.poll(() => transcriptions, { timeout: 5000 }).toBe(2);
     expect(chats).toEqual(["Первая мысль"]);
     await first!.fulfill({
       contentType: "text/event-stream",
@@ -433,6 +434,8 @@ test("conversation: another real microphone phrase is retained while a reply is 
     });
     await expect.poll(() => chats.length, { timeout: 10000 }).toBe(2);
     expect(chats).toEqual(["Первая мысль", "Ещё одна мысль"]);
+    // …and is not sent for recognition a second time.
+    expect(transcriptions).toBe(2);
     await page
       .getByRole("button", { name: "Завершить разговор", exact: true })
       .click();

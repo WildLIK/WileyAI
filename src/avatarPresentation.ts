@@ -13,6 +13,12 @@ export function addAvatarLighting(scene: THREE.Scene) {
   scene.add(fill);
 }
 
+// Scratch values: close-ups refit the camera every frame.
+const size = new THREE.Vector3();
+const focus = new THREE.Vector3();
+const face = new THREE.Vector3();
+const projections = new WeakMap<THREE.PerspectiveCamera, number[]>();
+
 /** Fit both wingspan and height, including depth, for any companion panel size. */
 export function fitAvatarCamera(
   camera: THREE.PerspectiveCamera,
@@ -21,8 +27,8 @@ export function fitAvatarCamera(
   head?: THREE.Vector3,
 ) {
   if (bounds.isEmpty()) return;
-  const size = bounds.getSize(new THREE.Vector3());
-  const center = bounds.getCenter(new THREE.Vector3());
+  bounds.getSize(size);
+  const center = bounds.getCenter(focus);
   const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
   const distance =
     Math.max(
@@ -33,16 +39,31 @@ export function fitAvatarCamera(
       1.1 +
     size.z / 2;
   camera.zoom = avatarZoom(zoom);
-  const face =
-    head?.clone() || center.clone().add(new THREE.Vector3(0, size.y * 0.36, 0));
-  if (head) face.y += size.y * 0.04;
-  const focus = center
-    .clone()
-    .lerp(face, Math.min(1, Math.max(0, (camera.zoom - 1) / 2.5)));
-  camera.position.copy(focus).add(new THREE.Vector3(0, 0, distance));
+  if (head) face.copy(head).y += size.y * 0.04;
+  else face.copy(center).y += size.y * 0.36;
+  center.lerp(face, Math.min(1, Math.max(0, (camera.zoom - 1) / 2.5)));
+  camera.position.copy(center);
+  camera.position.z += distance;
   camera.near = Math.max(0.001, distance / 1000);
   camera.far = Math.max(20, distance + size.length() * 3);
-  camera.lookAt(focus);
-  camera.updateProjectionMatrix();
+  camera.lookAt(center);
+  const applied = projections.get(camera);
+  if (
+    !applied ||
+    applied[0] !== camera.aspect ||
+    applied[1] !== camera.zoom ||
+    applied[2] !== camera.near ||
+    applied[3] !== camera.far ||
+    applied[4] !== camera.fov
+  ) {
+    camera.updateProjectionMatrix();
+    projections.set(camera, [
+      camera.aspect,
+      camera.zoom,
+      camera.near,
+      camera.far,
+      camera.fov,
+    ]);
+  }
   camera.updateMatrixWorld();
 }

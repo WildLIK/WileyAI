@@ -29,35 +29,100 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 test("verified voice interruption cancels playback, discards queued speech and uses exactly one verified transcript", async () => {
   const capture = new FakeCapture();
-  let turns = 0, checks = 0, cancelled = false;
-  const session = new Conversation({capture, prepare: async () => {}, onPhase: () => {}, onError: error => {throw error;},
-    onBarge: async (_audio, _signal, playback) => {checks++; assert.equal(playback, " Ответ о погоде"); return "Уайли, пауза";},
+  let turns = 0,
+    checks = 0,
+    cancelled = false;
+  const session = new Conversation({
+    capture,
+    prepare: async () => {},
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    onBarge: async (_audio, _signal, playback) => {
+      checks++;
+      assert.equal(playback, " Ответ о погоде");
+      return "Уайли, пауза";
+    },
     onTurn: async (_audio, signal, phase, verified) => {
       turns++;
       if (turns === 1) {
         session.setPlayback("Ответ о погоде");
         phase("speaking");
-        await new Promise<void>(resolve => signal.addEventListener("abort", () => {cancelled = true; resolve();}, {once: true}));
+        await new Promise<void>((resolve) =>
+          signal.addEventListener(
+            "abort",
+            () => {
+              cancelled = true;
+              resolve();
+            },
+            { once: true },
+          ),
+        );
         signal.throwIfAborted();
       } else assert.equal(verified, "Уайли, пауза");
-    }});
-  await session.start(); capture.utterance(); await tick();
-  capture.utterance(); await tick(); await tick();
-  assert.equal(checks, 1); assert.equal(turns, 2); assert.equal(cancelled, true);
-  assert.equal(session.active, true); assert.equal(session.phase, "listening");
+    },
+  });
+  await session.start();
+  capture.utterance();
+  await tick();
+  capture.utterance();
+  await tick();
+  await tick();
+  assert.equal(checks, 1);
+  assert.equal(turns, 2);
+  assert.equal(cancelled, true);
+  assert.equal(session.active, true);
+  assert.equal(session.phase, "listening");
   await session.stop();
 });
 
 test("unverified playback does not interrupt; a late verifier cannot revive a stopped session", async () => {
   const capture = new FakeCapture();
-  let verify: (value: string | null) => void = () => {}, aborted = false;
-  const session = new Conversation({capture, prepare: async () => {}, onPhase: () => {}, onError: error => {throw error;},
-    onBarge: async () => new Promise(resolve => { verify = resolve; }),
-    onTurn: async (_audio, signal, phase) => {phase("speaking"); await new Promise<void>(resolve => signal.addEventListener("abort", () => {aborted = true; resolve();}, {once: true})); signal.throwIfAborted();}});
-  await session.start(); capture.utterance(); await tick(); capture.utterance(); await tick();
-  verify(null); await tick(); assert.equal(aborted, false);
-  capture.utterance(); await tick(); await session.stop(); verify("Уайли, открой блокнот"); await tick();
-  assert.equal(session.active, false); assert.equal(session.phase, "idle"); assert.equal(aborted, true);
+  let verify: (value: string | null) => void = () => {},
+    aborted = false;
+  const session = new Conversation({
+    capture,
+    prepare: async () => {},
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    onBarge: async () =>
+      new Promise((resolve) => {
+        verify = resolve;
+      }),
+    onTurn: async (_audio, signal, phase) => {
+      phase("speaking");
+      await new Promise<void>((resolve) =>
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            resolve();
+          },
+          { once: true },
+        ),
+      );
+      signal.throwIfAborted();
+    },
+  });
+  await session.start();
+  capture.utterance();
+  await tick();
+  capture.utterance();
+  await tick();
+  verify(null);
+  await tick();
+  assert.equal(aborted, false);
+  capture.utterance();
+  await tick();
+  await session.stop();
+  verify("Уайли, открой блокнот");
+  await tick();
+  assert.equal(session.active, false);
+  assert.equal(session.phase, "idle");
+  assert.equal(aborted, true);
 });
 
 test("TTS waits for an in-progress follow-up phrase; cancellation releases the wait", async () => {
@@ -371,4 +436,47 @@ test("ASR/provider failure stops the session rather than looping API requests", 
   assert.equal(errors.length, 1);
   assert.equal(session.active, false);
   assert.equal(capture.receive, null);
+});
+
+test("phrases queued during an answer are recognized at once; empty ones never become turns", async () => {
+  const capture = new FakeCapture();
+  const recognized: string[] = ["", "Уайли, следующий трек"];
+  let transcribed = 0;
+  const heard: (string | undefined)[] = [];
+  let finish: () => void = () => {};
+  const session = new Conversation({
+    capture,
+    listenWhileThinking: true,
+    prepare: async () => {},
+    onPhase: () => {},
+    onError: (error) => {
+      throw error;
+    },
+    transcribe: async () => recognized[transcribed++],
+    onTurn: async (_audio, _signal, phase, text) => {
+      heard.push(text);
+      if (heard.length === 1) {
+        phase("thinking");
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
+    },
+  });
+  await session.start();
+  capture.utterance(); // The first phrase is recognized by its own turn.
+  capture.utterance(); // Noise while thinking.
+  capture.utterance(); // A real request while thinking.
+  await tick();
+  assert.equal(
+    transcribed,
+    2,
+    "both queued phrases were recognized before the answer ended",
+  );
+  finish();
+  await tick();
+  await tick();
+  assert.deepEqual(heard, [undefined, "Уайли, следующий трек"]);
+  assert.equal(session.phase, "listening");
+  await session.stop();
 });

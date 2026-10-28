@@ -2,10 +2,34 @@ import * as THREE from "three";
 import type { VRM } from "@pixiv/three-vrm";
 import type { HandShape, V3 } from "./avatarPoses";
 
+const curlAmount = [1.05, 1.25, 0.9];
+const curlDigit = [0.95, 0.95, 1, 1.04, 1.08];
+const closedThumbTurn = [1.15, 0, 0];
+const raisedThumbTurn = [-0.22, 0, 0];
+const closedThumbCurl = [0.15, 0.35, 0.5];
+const digits = ["Thumb", "Index", "Middle", "Ring", "Little"] as const;
+/** A half turn around Y: the VRM 0.x rig frame relative to the VRM 1.0 one. */
+const halfTurn = new THREE.Quaternion(0, 1, 0, 0);
+
+/**
+ * A goal beyond the arm's length locked the elbow straight, like a T-pose.
+ * Up to 75% of the reach the hand goes exactly to its goal; beyond that it
+ * eases toward 90%, so an outstretched arm always keeps a soft elbow.
+ */
+export function softReach(distance: number, reach: number) {
+  const knee = reach * 0.75,
+    room = reach * 0.15;
+  return distance <= knee
+    ? distance
+    : knee + room * (1 - Math.exp(-(distance - knee) / room));
+}
+
 /** Analytic two-bone reach on the VRM normalized rig; no changes to the file. */
 export class AvatarArm {
   private vrm: VRM;
   private side: "left" | "right";
+  /** -1 for VRM 0.x rigs, whose X and Z axes are opposite to VRM 1.0. */
+  private facing: number;
   private height: number;
   private bottom: number;
   private upper;
@@ -63,6 +87,10 @@ export class AvatarArm {
   ) {
     this.vrm = vrm;
     this.side = side;
+    this.facing =
+      (vrm.meta as { metaVersion?: string } | undefined)?.metaVersion === "0"
+        ? -1
+        : 1;
     this.height = height;
     this.bottom = bottom;
     this.upper = vrm.humanoid.getNormalizedBoneNode(`${side}UpperArm`);
@@ -89,7 +117,7 @@ export class AvatarArm {
         this.aims.set(node, { direction, rotation });
       }
     }
-    for (const digit of ["Thumb", "Index", "Middle", "Ring", "Little"] as const)
+    for (const digit of digits)
       for (const [joint, segment] of (digit === "Thumb"
         ? ["Metacarpal", "Proximal", "Distal"]
         : ["Proximal", "Intermediate", "Distal"]
@@ -106,9 +134,7 @@ export class AvatarArm {
             thumb: digit === "Thumb",
             index: digit === "Index",
             joint,
-            digit: ["Thumb", "Index", "Middle", "Ring", "Little"].indexOf(
-              digit,
-            ),
+            digit: digits.indexOf(digit),
           });
       }
   }
@@ -174,9 +200,14 @@ export class AvatarArm {
     flutter: number,
     elbow?: V3,
     palm?: V3,
+    /** 0: soft elbow (softReach); 1: the pose wants an almost straight arm. */
+    firm = 0,
   ) {
     if (!this.upper || !this.lower || !this.hand) return;
     const sign = this.side === "left" ? 1 : -1;
+    // Goals are authored for VRM 1.0 (+Z forward in scene space). VRM 0.x
+    // scenes are turned by π, so mirror X/Z to reach the same visible point.
+    const f = this.facing;
     const scene = this.vrm.scene;
     this.upper.updateWorldMatrix(true, true);
     this.upper.getWorldPosition(this.a);
@@ -186,23 +217,29 @@ export class AvatarArm {
       lowerLength = this.b.distanceTo(this.c);
     if (upperLength < 0.0001 || lowerLength < 0.0001) return;
     this.target.set(
-      goal[0] * this.height,
+      goal[0] * f * this.height,
       this.bottom + (goal[1] + flutter) * this.height,
-      goal[2] * this.height,
+      goal[2] * f * this.height,
     );
     scene.localToWorld(this.target);
     this.direction.copy(this.target).sub(this.a);
+    const requested = this.direction.length(),
+      reach = upperLength + lowerLength;
     const distance = THREE.MathUtils.clamp(
-      this.direction.length(),
+      THREE.MathUtils.lerp(
+        softReach(requested, reach),
+        Math.min(requested, reach * 0.985),
+        firm,
+      ),
       Math.abs(upperLength - lowerLength) + 0.001,
-      (upperLength + lowerLength) * 0.98,
+      upperLength + lowerLength,
     );
     this.direction.normalize();
     this.target.copy(this.a).addScaledVector(this.direction, distance);
     this.pole.set(
-      (elbow?.[0] ?? sign * 0.36) * this.height,
+      (elbow?.[0] ?? sign * 0.36) * f * this.height,
       this.bottom + (elbow?.[1] ?? 0.62) * this.height,
-      (elbow?.[2] ?? 0.18) * this.height,
+      (elbow?.[2] ?? 0.18) * f * this.height,
     );
     scene.localToWorld(this.pole);
     this.pole.sub(this.a);
@@ -230,7 +267,8 @@ export class AvatarArm {
         this.to.copy(this.target).sub(this.elbow),
       )
       .normalize()
-      .multiplyScalar(-sign);
+      // The bone's local +Z is forward on VRM 1.0 and backward on VRM 0.x.
+      .multiplyScalar(-sign * f);
     this.turn(
       this.upper,
       this.to.copy(this.elbow).sub(this.a),
@@ -250,7 +288,7 @@ export class AvatarArm {
       this.thumbUp.set(0, 1, 0).applyQuaternion(this.sceneRotation);
       this.thumbUp.addScaledVector(this.axis, -this.thumbUp.dot(this.axis));
       if (this.thumbUp.lengthSq() < 0.001) {
-        this.thumbUp.set(0, 0, 1).applyQuaternion(this.sceneRotation);
+        this.thumbUp.set(0, 0, f).applyQuaternion(this.sceneRotation);
         this.thumbUp.addScaledVector(this.axis, -this.thumbUp.dot(this.axis));
       }
       this.thumbUp.normalize();
@@ -258,12 +296,17 @@ export class AvatarArm {
       this.palm.setFromRotationMatrix(
         this.basis.makeBasis(this.axis, this.palmUp, this.thumbUp),
       );
+      if (f < 0) this.palm.multiply(halfTurn);
     } else if (palm) {
-      this.palm.setFromEuler(this.palmEuler.set(...palm));
+      this.palm.setFromEuler(
+        this.palmEuler.set(palm[0] * f, palm[1], palm[2] * f),
+      );
       scene.getWorldQuaternion(this.sceneRotation);
       this.palm.premultiply(this.sceneRotation);
     } else {
-      this.palm.setFromEuler(this.palmEuler.set(...wrist));
+      this.palm.setFromEuler(
+        this.palmEuler.set(wrist[0] * f, wrist[1], wrist[2] * f),
+      );
       this.palm.premultiply(this.handRest).premultiply(this.world);
     }
     this.palm.premultiply(this.parent.copy(this.world).invert()).normalize();
@@ -300,7 +343,7 @@ export class AvatarArm {
         (shape === "thumbsup" && finger.thumb)
       )
         curl = 0.015;
-      const amount = [1.05, 1.25, 0.9][finger.joint];
+      const amount = curlAmount[finger.joint];
       let y = 0,
         z = -sign * curl * amount;
       if (finger.thumb) {
@@ -308,22 +351,22 @@ export class AvatarArm {
         y =
           sign *
           (closed
-            ? [1.15, 0, 0][finger.joint]
+            ? closedThumbTurn[finger.joint]
             : shape === "thumbsup"
-              ? [-0.22, 0, 0][finger.joint]
+              ? raisedThumbTurn[finger.joint]
               : 0.08);
         z =
           -sign *
           (closed
-            ? [0.15, 0.35, 0.5][finger.joint]
+            ? closedThumbCurl[finger.joint]
             : shape === "soft"
               ? 0.12
               : 0.02);
       } else {
-        z *= [0.95, 0.95, 1, 1.04, 1.08][finger.digit];
+        z *= curlDigit[finger.digit];
       }
       this.fingerTarget
-        .setFromEuler(this.fingerEuler.set(0, y, z))
+        .setFromEuler(this.fingerEuler.set(0, y, z * f))
         .premultiply(finger.rest);
       finger.node.quaternion.slerp(this.fingerTarget, smooth);
     }

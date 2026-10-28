@@ -151,6 +151,29 @@ const smooth = (value: number) => {
   return x * x * (3 - 2 * x);
 };
 
+/**
+ * Advance a dance by tempo and pull it toward the meter's beat grid. The
+ * backend phase is an ever-growing beat counter (it also runs while she does
+ * not dance and restarts with its worker), so only the fractional beat error
+ * is corrected; the dance never skips whole beats or styles.
+ */
+export function followBeat(
+  phase: number,
+  beat: number,
+  delta: number,
+  bpm: number,
+  smooth: number,
+) {
+  const next = phase + (delta * bpm) / 60;
+  const error = ((((beat - next) % 1) + 1.5) % 1) - 0.5;
+  return next + error * smooth * 0.5;
+}
+
+/** Each style lasts 16 beats; negative phases still map to a valid style. */
+export function danceStyle(phase: number): DanceStyle {
+  return ((((Math.floor(phase / 16) % 3) + 3) % 3) + 1) as DanceStyle;
+}
+
 export function dancePose(phase: number, style: DanceStyle = 1): FairyPose {
   const cycle = ((phase % 16) + 16) % 16;
   const frames = style === 2 ? spin : style === 3 ? steps : sway;

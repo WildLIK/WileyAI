@@ -52,6 +52,8 @@ from core.storage import Store
     ("Предыдущий трек", "previous", None),
     ("Переключи воспроизведение", "play_pause", None),
     ("Останови музыку", "stop", None),
+    ("Останови музыку на компьютере", "stop", None),
+    ("Следующий трек на ПК", "next", None),
 ])
 def test_russian_audio_intents(text, action, value):
     assert resolve(text) == AudioAction(action=action, value=value)
@@ -457,3 +459,29 @@ def test_cancellation_waits_for_dispatched_action_and_records_its_result():
             await task
         assert progress == ["Громкость Windows: 35%."]
     asyncio.run(scenario())
+
+
+def test_media_key_uses_one_player_call_and_timeouts_are_not_server_errors(tmp_path, monkeypatch):
+    import subprocess
+    from core import windows_media
+    calls, keys = [], []
+    monkeypatch.setattr(windows_audio, "send_media", keys.append)
+    tools = AudioTools(Store(tmp_path))
+    def unavailable(action="read"):
+        calls.append(action)
+        raise windows_media.Unavailable("нет плеера")
+    monkeypatch.setattr(windows_media, "perform", unavailable)
+    assert "медиаклавишу" in tools.execute(AudioAction(action="next"))["text"]
+    assert calls == ["next"] and keys == ["next"]
+    calls.clear(); keys.clear()
+    monkeypatch.setattr(windows_media, "perform", lambda action="read": calls.append(action) or {"available": True, "player": "P", "state": "Воспроизведение", "backend": "smtc", "accepted": True, "confirmed": False})
+    assert tools.execute(AudioAction(action="next"))["media"]["action"] == "next"
+    assert calls == ["next"] and not keys
+    def slow(*args, **kwargs): raise subprocess.TimeoutExpired("powershell", 6)
+    monkeypatch.setattr(windows_media.subprocess, "run", slow)
+    with pytest.raises(windows_media.Unavailable): windows_media.system_session("read")
+    with pytest.raises(ValueError, match="не подтверждено") as error: windows_media.system_session("next")
+    assert not isinstance(error.value, windows_media.Unavailable)
+    monkeypatch.setattr(windows_media, "perform", lambda action="read": windows_media.system_session(action))
+    with pytest.raises(ValueError, match="не подтверждено"): tools.execute(AudioAction(action="next"))
+    assert not keys

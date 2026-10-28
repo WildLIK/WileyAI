@@ -25,6 +25,8 @@ export class SpeechSegmenter {
   private noiseFloor = 0.002;
   private calibratedMs = 0;
   private calibration: number[] = [];
+  /** Recent frame levels (about 3 s), kept while speaking too: a minimum statistic of noise. */
+  private levels: number[] = [];
   isSpeaking = false;
 
   get calibrating() {
@@ -64,15 +66,31 @@ export class SpeechSegmenter {
         this.calibration = [];
       return null;
     }
-    const margin = this.options.noiseCalibrationMs
-      ? this.isSpeaking
-        ? 1.4
-        : 1.9
-      : 3;
-    const threshold = Math.max(
-      this.options.threshold,
-      this.noiseFloor * margin,
-    );
+    this.levels.push(level);
+    const window = Math.round(3000 / ms);
+    if (this.levels.length > window) this.levels.shift();
+    // Steady sound that begins above the gate (music, a fan) would otherwise
+    // count as one endless phrase. The quietest 10% of the last seconds is
+    // background even during speech, which keeps short pauses between words.
+    if (this.isSpeaking && this.levels.length >= window / 2) {
+      const quiet = [...this.levels].sort((a, b) => a - b)[
+        Math.floor(this.levels.length * 0.1)
+      ];
+      if (quiet > this.noiseFloor)
+        this.noiseFloor += (quiet - this.noiseFloor) * 0.03;
+    }
+    const calibrated = this.options.noiseCalibrationMs > 0;
+    // Hysteresis: a phrase starts above a higher gate than the one that keeps
+    // it going, so quiet word endings do not count as the final pause.
+    const threshold = this.isSpeaking
+      ? Math.max(
+          this.options.threshold * 0.7,
+          this.noiseFloor * (calibrated ? 1.4 : 2.2),
+        )
+      : Math.max(
+          this.options.threshold,
+          this.noiseFloor * (calibrated ? 1.9 : 3),
+        );
     const audible = level >= threshold;
     if (!this.isSpeaking) {
       this.preRoll.push(samples);

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 
 from .mail_drafts import check_scope
 
-ENTITY = r"[a-z][a-z0-9_]*\.[a-z0-9_]{1,120}"
+ENTITY = r"[a-z][a-z0-9_]*\.[a-z0-9_]{1,255}"
 CONTROL = {"light", "switch", "input_boolean", "fan"}
 VISIBLE = CONTROL | {"sensor", "binary_sensor", "climate", "weather", "cover", "lock", "alarm_control_panel", "media_player"}
 LABELS = {"on": "Включить", "off": "Выключить", "brightness": "Установить яркость", "speed": "Установить скорость"}
@@ -243,7 +243,9 @@ class HomeAssistant:
         binding = self.binding(store)
         result = []
         for raw in rows:
-            state = safe_state(raw)
+            # One malformed or unsupported entity must not hide the rest of the house.
+            try: state = safe_state(raw)
+            except ValueError: continue
             if state["domain"] not in VISIBLE: continue
             actions = []
             for action in ("on", "off", "brightness", "speed"):
@@ -295,6 +297,10 @@ class HomeAssistant:
             check_scope(db, store)
             row = db.execute("SELECT * FROM home_actions WHERE id=? AND scope_id=? AND epoch=?", (item_id, store.scope_id, value["epoch"])).fetchone()
         if not row: raise ValueError("Действие Home Assistant не найдено в этом пространстве")
+        return self.describe(row)
+
+    @staticmethod
+    def describe(row):
         result = dict(row)
         for key in ("action", "expected", "observed"): result[key] = json.loads(result[key])
         result["text"] = ("Home Assistant подтвердил состояние: " if result["state"] == "verified" else "Home Assistant отклонил действие: " if result["state"] == "failed" else "Состояние после команды пока не подтверждено: ") + result["label"] + "."
@@ -307,8 +313,8 @@ class HomeAssistant:
         value = self.read()
         with store.db() as db:
             check_scope(db, store)
-            ids = [row[0] for row in db.execute("SELECT id FROM home_actions WHERE scope_id=? AND epoch=? ORDER BY created DESC LIMIT 20", (store.scope_id, value.get("epoch", "")))]
-        return [self.receipt(store, item_id) for item_id in ids]
+            rows = db.execute("SELECT * FROM home_actions WHERE scope_id=? AND epoch=? ORDER BY created DESC LIMIT 20", (store.scope_id, value.get("epoch", ""))).fetchall()
+        return [self.describe(row) for row in rows]
 
     def mark(self, store, item_id, state, observed=None):
         with store.db() as db: db.execute("UPDATE home_actions SET state=?,observed=? WHERE id=? AND scope_id=?", (state, json.dumps(observed or {}, ensure_ascii=False), item_id, store.scope_id))

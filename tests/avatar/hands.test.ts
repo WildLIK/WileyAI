@@ -237,7 +237,9 @@ test("raised and folded arms reach their goals without a half-turn at either sho
         const wrist = f.scene.worldToLocal(
           f.hand.getWorldPosition(new THREE.Vector3()),
         );
-        if (goal.distanceTo(localRoot) < 0.46)
+        // Goals within 75% of the 0.47 reach are met exactly; farther ones
+        // are deliberately eased short to keep a soft elbow (softReach).
+        if (goal.distanceTo(localRoot) < 0.47 * 0.75)
           assert.ok(
             wrist.distanceTo(goal) < 0.004,
             `${side} ${name}: shoulder limit lost the wrist goal`,
@@ -294,5 +296,18 @@ test("automatic music releases the folded idle arms and reaches the same dance a
       f.scene.traverse((o) => {
         if (o instanceof THREE.Mesh) o.geometry.dispose();
       });
+  }
+});
+
+test("an out-of-reach hand goal keeps a soft elbow instead of locking the arm straight", async () => {
+  const { softReach } = await import("../../src/avatarArm.ts");
+  assert.equal(softReach(0.5, 1), 0.5);
+  assert.equal(softReach(0.75, 1), 0.75);
+  let previous = 0;
+  for (const distance of [0.8, 0.9, 1, 1.3, 3]) {
+    const reached = softReach(distance, 1);
+    assert.ok(reached > previous, "monotonic");
+    assert.ok(reached < 0.9, `${distance} → ${reached}`);
+    previous = reached;
   }
 });

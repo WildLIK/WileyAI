@@ -120,8 +120,10 @@ def snapshot(domain, row):
 
 def catalog(store, text, budget):
     public, allowed, used = [], {}, 0
-    words = set(re.findall(r"\w{3,}", normalize(text)))
-    def score(title): return sum(word[:4] in normalize(title) for word in words)
+    prefixes = [word[:4] for word in set(re.findall(r"\w{3,}", normalize(text)))]
+    def score(title):
+        title = normalize(title)  # Once per row, not once per query word.
+        return sum(prefix in title for prefix in prefixes)
     with store.db() as db:
         Calendar(store)._check_chat(db)
         db.create_function("plan_score", 1, score)
@@ -200,8 +202,8 @@ def prepare_task(prepared, plan, now, *, validate=True):
         expected_kind = "alarm" if re.search(r"будильник|разбуди", value) else "timer" if re.search(r"таймер|засеки", value) else "reminder" if re.search(r"напомни|не забудь|не дай мне забыть", value) else "todo"
         if d.kind != expected_kind: raise ValueError("Вид задачи не совпадает с просьбой")
     for key in ("day", "clock", "repeat", "weekdays"): setattr(step, key, getattr(d, key))
-    offset = bool(d.action == "move" and d.seconds is not None and re.search(r"\bна\s+.{0,50}(?:секунд|минут|час|дня|дней|недел)", step.source, re.I) and not re.search(r"\bчерез\b", step.source, re.I))
-    prepared.task = tasks.Plan(decision=d, targets=[tasks.Snapshot.model_validate(row) for row in prepared.snapshots], zone=plan.zone, anchor=plan.anchor, scope_id=plan.scope_id, offset_from_due=offset, offset_sign=-1 if re.search(r"\bраньше\b", step.source, re.I) else 1)
+    offset, calendar = tasks.relative_shift(d, step.source)
+    prepared.task = tasks.Plan(decision=d, targets=[tasks.Snapshot.model_validate(row) for row in prepared.snapshots], zone=plan.zone, anchor=plan.anchor, scope_id=plan.scope_id, offset_from_due=offset, offset_sign=-1 if re.search(r"\bраньше\b", step.source, re.I) else 1, offset_calendar=calendar)
     tasks.validate_time(prepared.task, now)
 
 
@@ -313,8 +315,9 @@ def coverage(text, steps, name):
 async def propose(store, settings, text, zone=None, now=None):
     now = tasks.clock_now(zone or "UTC", now)
     try:
-        public, allowed = catalog(store, text, min(8000, max(0, settings.context_tokens * 2 - len(text) - 5000)))
-        last = store.dialogue().get("last_plan_target")
+        # Catalog scoring scans whole tables; keep it off the event loop.
+        public, allowed = await asyncio.to_thread(catalog, store, text, min(8000, max(0, settings.context_tokens * 2 - len(text) - 5000)))
+        last = (await asyncio.to_thread(store.dialogue)).get("last_plan_target")
         if not isinstance(last, dict) or (last.get("domain"), last.get("id")) not in allowed or not 0 <= now.timestamp() - last.get("at", 0) <= TTL: last = None
         prompt = (
             "Разбери явные поручения владельца в ПЛАН до 6 локальных действий. Только JSON по схеме, ничего не выполняй. "
@@ -355,7 +358,7 @@ async def propose(store, settings, text, zone=None, now=None):
             step = prepared.step
             check_source(step, last, settings.name)
             literal_note(step, settings.name)
-            prepared.snapshots = targets(store, step, allowed)
+            prepared.snapshots = await asyncio.to_thread(targets, store, step, allowed)
             for row in prepared.snapshots:
                 key = (step.domain, row["id"])
                 if key in touched: raise ValueError("Два шага изменяют одну запись. Выполните их отдельными планами")
@@ -396,6 +399,8 @@ def check_snapshots(db, plan):
 def execute(store, pending, now):
     plan = pending.plan
     results, changed = [], set()
+    # Stored timestamps are UTC like the rest of the store, so ORDER BY created stays chronological.
+    created = now.astimezone(timezone.utc).isoformat()
     with store.db() as db:
         db.execute("BEGIN IMMEDIATE")
         Calendar(store)._check_chat(db)
@@ -417,7 +422,7 @@ def execute(store, pending, now):
                 d = prepared.task.decision
                 if step.action == "create":
                     recurrence = RepeatRule(rule=d.repeat, weekdays=d.weekdays, timezone=plan.zone).model_dump_json(exclude_defaults=True) if d.repeat not in {"keep", "none"} else None
-                    item = dict(id=item_id, title=d.title.strip(), kind=d.kind, due=prepared.task.due or None, done=0, recurrence=recurrence, created=now.isoformat())
+                    item = dict(id=item_id, title=d.title.strip(), kind=d.kind, due=prepared.task.due or None, done=0, recurrence=recurrence, created=created)
                 else:
                     item = dict(db.execute("SELECT * FROM tasks WHERE id=? AND scope_id=?", (item_id, plan.scope_id)).fetchone())
                     if step.action in {"stop", "resume", "no_repeat"} and not item["recurrence"]: raise ValueError("Шаг требует повторяющуюся задачу. Ничего не изменено")
@@ -430,7 +435,7 @@ def execute(store, pending, now):
                 else: store._write_task(db, item)
             elif step.domain == "note":
                 if step.action == "delete": db.execute("DELETE FROM notes WHERE id=? AND scope_id=?", (item_id, plan.scope_id))
-                elif step.action == "create": db.execute("INSERT INTO notes (id,title,content,created,scope_id) VALUES (?,?,?,?,?)", (item_id, title, step.content.strip(), now.isoformat(), plan.scope_id))
+                elif step.action == "create": db.execute("INSERT INTO notes (id,title,content,created,scope_id) VALUES (?,?,?,?,?)", (item_id, title, step.content.strip(), created, plan.scope_id))
                 else:
                     content = old["content"] + "\n" + step.content.strip() if step.action == "append" else step.content.strip()
                     db.execute("UPDATE notes SET content=? WHERE id=? AND scope_id=?", (content, item_id, plan.scope_id))
@@ -460,7 +465,7 @@ def execute(store, pending, now):
         final = results[-1]
         state["last_plan_target"] = {"domain": final["domain"], "id": final["id"], "at": now.timestamp()} if final["action"] != "delete" else None
         db.execute("UPDATE chat_dialogue SET value=? WHERE conversation_id=?", (json.dumps(state, ensure_ascii=False), store.conversation_id))
-        db.execute("INSERT INTO actions (id,kind,target,status,created,details) VALUES (?,?,?,?,?,?)", (plan.id, "plan", plan.id, "verified", now.isoformat(), json.dumps({"scope_id": plan.scope_id, "steps": results}, ensure_ascii=False)))
+        db.execute("INSERT INTO actions (id,kind,target,status,created,details) VALUES (?,?,?,?,?,?)", (plan.id, "plan", plan.id, "verified", created, json.dumps({"scope_id": plan.scope_id, "steps": results}, ensure_ascii=False)))
     return Outcome("План выполнен. Изменения сохранены:\n" + "\n".join(f"{row['step']}. {describe(prepared, plan)} — сохранено." for row, prepared in zip(results, plan.steps)), changed=sorted(changed))
 
 
@@ -502,10 +507,11 @@ def consume(store, settings, text, zone=None, now=None, *, allow=True):
                 if parsed.clock: unresolved.step.clock = parsed.clock.strftime("%H:%M")
                 if not parsed.clock and re.search(r"полудн", value): unresolved.step.clock = "12:00"
                 if not parsed.clock and re.search(r"полноч", value): unresolved.step.clock = "00:00"
-            elif need == "title": unresolved.step.title = text.strip()[:200]
+            elif need == "title": unresolved.step.title = direct(text, settings.name).strip()[:200]
             else:
-                if ":" not in text: return present(plan)
-                unresolved.step.title, unresolved.step.content = [part.strip() for part in text.split(":", 1)]
+                cleaned = direct(text, settings.name)
+                if ":" not in cleaned: return present(plan)
+                unresolved.step.title, unresolved.step.content = [part.strip() for part in cleaned.split(":", 1)]
                 unresolved.step = Step.model_validate(unresolved.step.model_dump())
             if unresolved.step.domain == "task": prepare_task(unresolved, plan, now, validate=False)
             if unresolved.step.domain == "event": prepare_event(unresolved, plan, now, validate=False)

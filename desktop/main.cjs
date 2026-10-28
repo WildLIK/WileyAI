@@ -39,7 +39,9 @@ const root = path.resolve(__dirname, "..");
 const backend = app.isPackaged
   ? path.join(process.resourcesPath, "backend")
   : root;
-const dev = process.env.WILEYAI_DEV === "1";
+// Developer overrides never apply to an installed build. WILEYAI_DATA_DIR stays
+// available there: the packaged smoke test runs against an isolated profile.
+const dev = !app.isPackaged && process.env.WILEYAI_DEV === "1";
 const test = process.env.WILEYAI_TEST === "1";
 const startup = startupPreferences(app, { test });
 if (test && process.env.WILEYAI_DATA_DIR)
@@ -49,16 +51,23 @@ const dataRoot =
   (app.isPackaged
     ? path.join(app.getPath("userData"), "data")
     : path.join(root, "data"));
-const python =
-  process.env.WILEYAI_PYTHON ||
-  (app.isPackaged
-    ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
-    : path.join(root, ".venv", "Scripts", "python.exe"));
+const python = app.isPackaged
+  ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
+  : process.env.WILEYAI_PYTHON ||
+    path.join(root, ".venv", "Scripts", "python.exe");
+// The bundled runtime ignores PYTHON* variables and the user site directory;
+// -E also drops PYTHONIOENCODING/PYTHONUNBUFFERED, hence -X utf8 -u.
+const pythonFlags = app.isPackaged ? ["-E", "-s", "-X", "utf8", "-u"] : [];
 const serviceEnv = {
-  ...process.env,
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !app.isPackaged || !/^PYTHON/i.test(key),
+    ),
+  ),
   WILEYAI_DATA_DIR: dataRoot,
   ...(app.isPackaged
     ? {
+        PYTHONNOUSERSITE: "1",
         WILEYAI_PACKAGED: "1",
         WILEYAI_UV: path.join(
           process.resourcesPath,
@@ -70,6 +79,14 @@ const serviceEnv = {
       }
     : {}),
 };
+// Attachment types that run code or macros when opened.
+const RISKY_EXTENSIONS = new Set(
+  (
+    "exe scr bat cmd com pif ps1 psm1 vbs vbe js jse wsf wsh hta lnk url msi " +
+    "msp reg cpl jar dll sys inf scf application appref-ms gadget msc iso img " +
+    "vhd vhdx docm dotm xlsm xltm xlam pptm potm ppam sldm"
+  ).split(" "),
+);
 const windows = new Map();
 let avatarDesktop;
 let avatarLayout;
@@ -83,11 +100,32 @@ let ollamaProcess;
 let notificationTimer;
 let updateTimer;
 let backups;
+// Windows drops click handlers of garbage-collected notifications.
+const notifications = new Set();
+function showNotification(options, click) {
+  const notification = new Notification(options);
+  notifications.add(notification);
+  const forget = () => notifications.delete(notification);
+  notification.on("click", () => {
+    forget();
+    click();
+  });
+  notification.on("close", forget);
+  notification.on("failed", forget);
+  notification.show();
+}
 function spawnService(executable, args, options) {
   if (process.platform !== "win32") return spawn(executable, args, options);
   return spawn(
     python,
-    ["-m", "core.process_guard", String(process.pid), executable, ...args],
+    [
+      ...pythonFlags,
+      "-m",
+      "core.process_guard",
+      String(process.pid),
+      executable,
+      ...args,
+    ],
     options,
   );
 }
@@ -109,18 +147,18 @@ const deliverNotifications = createNotificationDelivery({
   enabled: () => !backups?.restoring && !quitting,
   display: (item) => {
     try {
-      if (Notification.isSupported()) {
-        const notification = new Notification({
-          title:
-            item.kind === "calendar"
-              ? "WileyAI · Встреча"
-              : "WileyAI · Напоминание",
-          body: item.title,
-          icon: path.join(__dirname, "icon.png"),
-        });
-        notification.on("click", () => showWindow("chat"));
-        notification.show();
-      }
+      if (Notification.isSupported())
+        showNotification(
+          {
+            title:
+              item.kind === "calendar"
+                ? "WileyAI · Встреча"
+                : "WileyAI · Напоминание",
+            body: item.title,
+            icon: path.join(__dirname, "icon.png"),
+          },
+          () => showWindow("chat"),
+        );
     } catch {
       /* In-app notices remain available if Windows notifications fail. */
     }
@@ -129,8 +167,16 @@ const deliverNotifications = createNotificationDelivery({
   },
 });
 
-async function startManagedOllama() {
-  if (test) return;
+// Startup and the settings button share one attempt; a live child is reused.
+let ollamaStarting;
+function startManagedOllama() {
+  if (test || quitting) return Promise.resolve();
+  ollamaStarting ||= launchOllama().finally(() => {
+    ollamaStarting = undefined;
+  });
+  return ollamaStarting;
+}
+async function launchOllama() {
   let executable = path.join(root, "local", "ollama", "ollama.exe");
   try {
     const marker = JSON.parse(
@@ -163,7 +209,14 @@ async function startManagedOllama() {
   } catch {
     /* Start the optional portable engine when no server is listening. */
   }
-  ollamaProcess = spawnService(executable, ["serve"], {
+  if (quitting) return;
+  if (ollamaProcess) {
+    // Our engine is still running but slow to answer; do not start a second one.
+    if (ollamaProcess.exitCode === null && ollamaProcess.signalCode === null)
+      return;
+    ollamaProcess = undefined;
+  }
+  const child = spawnService(executable, ["serve"], {
     cwd: backend,
     windowsHide: true,
     env: {
@@ -176,10 +229,17 @@ async function startManagedOllama() {
     },
     stdio: "ignore",
   });
-  ollamaProcess.on("error", (error) =>
-    process.stderr.write("Ollama: " + error.message + "\n"),
-  );
+  ollamaProcess = child;
+  const forget = () => {
+    if (ollamaProcess === child) ollamaProcess = undefined;
+  };
+  child.on("error", (error) => {
+    forget();
+    process.stderr.write("Ollama: " + error.message + "\n");
+  });
+  child.on("exit", forget);
   for (let attempt = 0; attempt < 30; attempt++) {
+    if (ollamaProcess !== child) return;
     try {
       if (
         (
@@ -232,7 +292,7 @@ function trusted(event) {
 
 async function startCore() {
   const token = randomBytes(32).toString("hex");
-  const child = spawnService(python, ["-m", "core"], {
+  const child = spawnService(python, [...pythonFlags, "-m", "core"], {
     cwd: backend,
     windowsHide: true,
     env: {
@@ -247,12 +307,14 @@ async function startCore() {
   core = child;
   child.stderr.on("data", (data) => process.stderr.write(data));
   return new Promise((resolve, reject) => {
+    // First launch can be slow while Windows Defender scans the bundled runtime.
     const timer = setTimeout(
-      () => reject(new Error("Ядро не запустилось за 30 секунд")),
-      30000,
+      () => reject(new Error("Ядро не запустилось за 120 секунд")),
+      120000,
     );
     let output = "";
     let probing = false;
+    child.stdout.setEncoding("utf8");
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -270,10 +332,15 @@ async function startCore() {
           sendToWindow(window, "core-offline");
       }
     });
-    child.stdout.on("data", async (data) => {
-      output += data.toString();
-      const port = portFromOutput(output);
-      if (!port || connection || probing || quitting) return;
+    child.stdout.on("data", async (text) => {
+      // Keep draining stdout, but only buffer the unfinished line before the port.
+      if (probing) return;
+      const lines = (output + text).split("\n");
+      output = lines.pop().slice(-4096);
+      const port = lines
+        .map((line) => portFromOutput(line + "\n"))
+        .find(Boolean);
+      if (!port || connection || quitting) return;
       probing = true;
       const info = { url: `http://127.0.0.1:${port}`, token };
       for (let attempt = 0; attempt < 80; attempt++) {
@@ -300,6 +367,32 @@ async function startCore() {
   });
 }
 
+// Quitting mid-restore would leave the profile half replaced.
+function requestQuit(window) {
+  if (!backups?.restoring) return app.quit();
+  const options = {
+    type: "info",
+    title: "WileyAI",
+    message:
+      "Идёт восстановление из резервной копии. Выйти можно после его завершения.",
+  };
+  void (window && !window.isDestroyed()
+    ? dialog.showMessageBox(window, options)
+    : dialog.showMessageBox(options));
+}
+
+// The session is ending: let windows close and Electron exit without waiting.
+// The process guard ends core and Ollama together with this process.
+function endSession() {
+  if (quitting) return;
+  quitting = true;
+  coreConnection.fail(new Error("WileyAI завершает работу"));
+  clearInterval(notificationTimer);
+  clearInterval(updateTimer);
+  globalShortcut.unregisterAll();
+  app.quit();
+}
+
 function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   tray.setContextMenu(
@@ -308,7 +401,7 @@ function refreshTrayMenu() {
       { label: "Настройки", click: () => showWindow("settings") },
       ...avatarTrayItems(avatarControls, () => showWindow("avatar")),
       { type: "separator" },
-      { label: "Выйти", click: () => app.quit() },
+      { label: "Выйти", click: () => requestQuit() },
     ]),
   );
 }
@@ -356,9 +449,38 @@ function showWindow(view = "chat") {
       sandbox: true,
       webSecurity: true,
       autoplayPolicy: "no-user-gesture-required",
+      devTools: !app.isPackaged,
     },
   });
   windows.set(view, window);
+  if (avatar) {
+    // The transparent avatar has no visible zoom state to undo; keep it at 100%.
+    window.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+    window.webContents.on("before-input-event", (event, input) => {
+      if (
+        input.type === "keyDown" &&
+        (input.control || input.meta) &&
+        ["+", "=", "-", "_", "0"].includes(input.key)
+      )
+        event.preventDefault();
+    });
+    window.webContents.on("zoom-changed", () =>
+      window.webContents.setZoomLevel(0),
+    );
+  } else if (app.isPackaged) {
+    // Without the default menu its zoom accelerators are gone; keep them for reading.
+    window.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || !(input.control || input.meta)) return;
+      const step = { "+": 0.5, "=": 0.5, "-": -0.5, _: -0.5 }[input.key];
+      if (step === undefined && input.key !== "0") return;
+      event.preventDefault();
+      const level =
+        step === undefined ? 0 : window.webContents.getZoomLevel() + step;
+      window.webContents.setZoomLevel(Math.max(-3, Math.min(3, level)));
+    });
+  }
+  // Windows shutdown/logoff closes windows; never turn that into "hide to tray".
+  window.on("session-end", endSession);
   avatarDesktop?.watch(window);
   avatarLayout.watch(window, view);
   avatarControls.watch(window, view);
@@ -412,6 +534,10 @@ function windowActivity(window) {
 }
 app.whenReady().then(async () => {
   if (!primary) return;
+  // Before any window or notification, so Windows groups them under this app.
+  if (!test) app.setAppUserModelId(app.isPackaged ? APP_ID : "WileyAI");
+  // The default menu exposes DevTools, reload and zoom accelerators.
+  if (app.isPackaged) Menu.setApplicationMenu(null);
   avatarControls = installAvatarControls({
     ipcMain,
     BrowserWindow,
@@ -539,6 +665,50 @@ app.whenReady().then(async () => {
   ipcMain.handle("google-calendar-login", (event) =>
     googleLogin(event, "/calendar/google/login"),
   );
+  ipcMain.handle("chatgpt-login", async (event, newAccount = false) => {
+    trusted(event);
+    if (typeof newAccount !== "boolean")
+      throw new Error("Некорректный вариант входа ChatGPT");
+    const current = await coreConnection.wait();
+    const response = await fetch(
+      current.url + "/chatgpt/login?new_account=" + newAccount,
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer " + current.token },
+        signal: AbortSignal.timeout(45000),
+        redirect: "error",
+      },
+    );
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(data.detail || "Не удалось начать вход ChatGPT");
+    const url = new URL(data.url);
+    if (
+      url.origin !== "https://auth.openai.com" ||
+      url.pathname !== "/api/accounts/authorize" ||
+      url.username ||
+      url.password ||
+      url.hash
+    )
+      throw new Error("Недопустимый адрес входа ChatGPT");
+    try {
+      await shell.openExternal(url.href);
+    } catch {
+      // Launch errors can contain the URL's sensitive ID-token hint.
+      await fetch(current.url + "/chatgpt/cancel", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + current.token },
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => {});
+      throw new Error(
+        "Не удалось открыть браузер для входа ChatGPT. Повторите вход.",
+      );
+    }
+  });
+  ipcMain.handle("chatgpt-usage", async (event) => {
+    trusted(event);
+    await shell.openExternal("https://chatgpt.com/settings/usage");
+  });
   ipcMain.handle("gmail-login", (event) =>
     googleLogin(event, "/mail/gmail/login"),
   );
@@ -655,12 +825,43 @@ app.whenReady().then(async () => {
       .split(/[\\/]/)
       .pop()
       .replace(/[<>:"|?*\x00-\x1f]/g, "_")
-      .slice(0, 180);
-    const result = await dialog.showSaveDialog(
-      BrowserWindow.fromWebContents(event.sender),
-      { title: "Сохранить вложение", defaultPath: "WileyAI-" + name },
-    );
+      .slice(0, 180)
+      .replace(/[. ]+$/, ""); // Windows drops these, which would hide ".exe."
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const extension = path.extname(name).slice(1).toLowerCase();
+    if (
+      RISKY_EXTENSIONS.has(extension) &&
+      (
+        await dialog.showMessageBox(owner, {
+          type: "warning",
+          title: "Опасное вложение",
+          message: `Файл «${name}» может запустить программу или макрос.`,
+          detail:
+            "Сохраняйте и открывайте его, только если доверяете отправителю. Windows пометит файл как скачанный из интернета.",
+          buttons: ["Сохранить", "Отмена"],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      ).response !== 0
+    )
+      return null;
+    const result = await dialog.showSaveDialog(owner, {
+      title: "Сохранить вложение",
+      defaultPath: "WileyAI-" + name,
+      ...(extension
+        ? { filters: [{ name: "." + extension, extensions: [extension] }] }
+        : {}),
+    });
     if (result.canceled || !result.filePath) return null;
+    // The warning above was about the original type; renaming cannot bypass it.
+    const chosen = path.extname(result.filePath).slice(1).toLowerCase();
+    if (extension ? chosen !== extension : RISKY_EXTENSIONS.has(chosen))
+      throw new Error(
+        extension
+          ? "Сохраните вложение с исходным расширением ." + extension
+          : "Выберите имя файла без исполняемого расширения",
+      );
     const temporary =
       result.filePath + "." + randomBytes(8).toString("hex") + ".tmp";
     const handle = await fs.open(temporary, "wx", 0o600);
@@ -677,6 +878,15 @@ app.whenReady().then(async () => {
         if (error.code !== "ENOENT") throw error;
       });
     }
+    // Mark of the Web: SmartScreen and Office treat the file as downloaded.
+    await fs
+      .writeFile(
+        result.filePath + ":Zone.Identifier",
+        "[ZoneTransfer]\r\nZoneId=3\r\n",
+      )
+      .catch(() => {
+        /* FAT/exFAT and network shares may not support alternate streams. */
+      });
     return { path: result.filePath };
   });
   ipcMain.handle("conversation-acquire", (event) => {
@@ -726,6 +936,8 @@ app.whenReady().then(async () => {
     const current = await coreConnection.wait();
     const response = await fetch(current.url + "/settings", {
       headers: { Authorization: "Bearer " + current.token },
+      signal: AbortSignal.timeout(15000),
+      redirect: "error",
     });
     if (!response.ok) throw new Error("Не удалось получить настройки аватара");
     const settings = await response.json();
@@ -735,13 +947,14 @@ app.whenReady().then(async () => {
     );
     if (!file) return null;
     const stat = await fs.stat(file);
+    if (!stat.isFile()) throw new Error("Выберите файл модели VRM");
     if (stat.size > 64 * 1024 * 1024)
       throw new Error("Для первого прототипа выберите VRM до 64 МБ");
     return new Uint8Array(await fs.readFile(file));
   });
   ipcMain.handle("quit", (event) => {
     trusted(event);
-    app.quit();
+    requestQuit(BrowserWindow.fromWebContents(event.sender));
   });
   backups = installBackups({
     ipcMain,
@@ -757,11 +970,21 @@ app.whenReady().then(async () => {
   });
   try {
     await startCore();
-    await startManagedOllama();
+    if (!test) {
+      tray = new Tray(
+        nativeImage.createFromPath(path.join(__dirname, "icon.png")),
+      );
+      tray.setToolTip("WileyAI");
+      refreshTrayMenu();
+      tray.on("double-click", () => showWindow("chat"));
+    }
     if (!app.isPackaged || !process.argv.includes("--autostart") || test)
       showWindow("chat");
+    // Windows do not need the optional engine; the core reaches it per request.
+    void startManagedOllama().catch((error) =>
+      process.stderr.write("Ollama: " + error.message + "\n"),
+    );
     if (!test) {
-      app.setAppUserModelId(app.isPackaged ? APP_ID : "WileyAI");
       notificationTimer = setInterval(deliverNotifications, 2500);
       let updatePolling = false;
       updateTimer = setInterval(async () => {
@@ -774,46 +997,47 @@ app.whenReady().then(async () => {
             signal: AbortSignal.timeout(3000),
           });
           const item = response.ok ? await response.json() : null;
-          if (item && Notification.isSupported()) {
-            const notification = new Notification({
-              title: "Новая версия WileyAI",
-              body:
-                "Доступна версия " +
-                item.version +
-                ". Откройте выпуск на GitHub.",
-              icon: path.join(__dirname, "icon.png"),
-            });
-            notification.on("click", () =>
-              shell.openExternal("https://github.com/WildLIK/WileyAI/releases"),
+          if (item && Notification.isSupported())
+            showNotification(
+              {
+                title: "Новая версия WileyAI",
+                body:
+                  "Доступна версия " +
+                  item.version +
+                  ". Откройте выпуск на GitHub.",
+                icon: path.join(__dirname, "icon.png"),
+              },
+              () =>
+                shell.openExternal(
+                  "https://github.com/WildLIK/WileyAI/releases",
+                ),
             );
-            notification.show();
-          }
         } catch {
           /* Update errors are shown in settings; the assistant stays usable. */
         } finally {
           updatePolling = false;
         }
       }, 60000);
-      tray = new Tray(
-        nativeImage.createFromPath(path.join(__dirname, "icon.png")),
-      );
-      tray.setToolTip("WileyAI");
-      refreshTrayMenu();
-      tray.on("double-click", () => showWindow("chat"));
-      globalShortcut.register("CommandOrControl+Shift+Space", () =>
-        showWindow("chat"),
-      );
-      globalShortcut.register("CommandOrControl+Shift+Escape", () => {
-        conversation.stop();
-        for (const window of windows.values()) sendToWindow(window, "stop-all");
-        avatarControls.setClickThrough(false);
-      });
-      globalShortcut.register("CommandOrControl+Alt+A", () =>
-        avatarControls.setClickThrough(!avatarControls.state().clickThrough),
-      );
-      globalShortcut.register("CommandOrControl+Alt+H", () =>
-        avatarControls.setMinimal(!avatarControls.state().minimal),
-      );
+      const shortcuts = {
+        "CommandOrControl+Shift+Space": () => showWindow("chat"),
+        // Ctrl+Shift+Esc belongs to Task Manager and cannot be registered.
+        "CommandOrControl+Alt+Escape": () => {
+          conversation.stop();
+          for (const window of windows.values())
+            sendToWindow(window, "stop-all");
+          avatarControls.setClickThrough(false);
+        },
+        "CommandOrControl+Alt+A": () =>
+          avatarControls.setClickThrough(!avatarControls.state().clickThrough),
+        "CommandOrControl+Alt+H": () =>
+          avatarControls.setMinimal(!avatarControls.state().minimal),
+      };
+      for (const [accelerator, action] of Object.entries(shortcuts))
+        if (!globalShortcut.register(accelerator, action))
+          console.warn(
+            "WileyAI: global shortcut is taken by another app:",
+            accelerator,
+          );
     }
   } catch (error) {
     coreConnection.fail(error);

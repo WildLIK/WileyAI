@@ -145,6 +145,7 @@ class YandexMusic:
         self.path = Path(root) / "yandex-music-connection.json"
         self.store, self.scanner = store, scanner
         self.lock = threading.Lock()
+        self.scan = (None, 0.0, [])
 
     def executable(self):
         aliases = self.store.list("aliases", 1000)
@@ -170,13 +171,21 @@ class YandexMusic:
         except (OSError, ValueError, KeyError, TypeError, psutil.Error):
             return None
 
+    def listeners(self, port):
+        # A full TCP table scan is slow on Windows; connect() polls status() every 0.2 s, so reuse it briefly.
+        cached, at, rows = self.scan
+        if cached != port or time.monotonic() - at > 1:
+            rows = [item for item in psutil.net_connections(kind="tcp") if item.status == psutil.CONN_LISTEN and item.laddr.port == port]
+            self.scan = (port, time.monotonic(), rows)
+        return rows
+
     @contextmanager
     def renderer(self):
         from websockets.sync.client import connect
         data = self.descriptor()
         if not data: raise ValueError("Яндекс Музыка не подключена. Нажмите «Подключить» в разделе «Команды → Яндекс Музыка»")
         family = {data["pid"], *(p.pid for p in psutil.Process(data["pid"]).children(recursive=True))}
-        listeners = [item for item in psutil.net_connections(kind="tcp") if item.status == psutil.CONN_LISTEN and item.laddr.port == data["port"]]
+        listeners = self.listeners(data["port"])
         if not listeners or any(item.pid not in family or item.laddr.ip not in {"127.0.0.1", "::1"} for item in listeners):
             raise ValueError("Локальный канал не принадлежит проверенному процессу Яндекс Музыки")
         with httpx.Client(trust_env=False, follow_redirects=False, timeout=3) as client:

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { request, type Settings } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { request, type Settings, errorText } from "./api";
 
 type Weather = {
   place: string;
@@ -103,7 +103,7 @@ export function WeatherBar({
             ...value,
             key,
             busy: false,
-            error: String(error),
+            error: errorText(error),
           }));
           next = Date.now() + 5 * 60 * 1000;
         }
@@ -128,11 +128,17 @@ export function WeatherBar({
   const current = state.key === key ? state : { key };
   const weather = current.value,
     reading = weather?.current;
-  const date = new Intl.DateTimeFormat("ru-RU", {
-    day: "numeric",
-    month: "short",
-    ...(weather ? { timeZone: weather.timezone } : {}),
-  }).format(now);
+  const timeZone = weather?.timezone;
+  const dateFormat = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ru-RU", {
+        day: "numeric",
+        month: "short",
+        ...(timeZone ? { timeZone } : {}),
+      }),
+    [timeZone],
+  );
+  const date = dateFormat.format(now);
   const details =
     weather && reading
       ? `${weather.place}. ${reading.condition}. ${degrees(reading.temperature)}C, ощущается как ${degrees(reading.feels_like)}C. Расчёт: ${reading.time.replace("T", " ")} (${weather.timezone}). Open-Meteo; получено ${new Date(weather.checked_at).toLocaleString("ru-RU")}.`

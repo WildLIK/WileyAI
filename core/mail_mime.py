@@ -102,7 +102,11 @@ def content(data, attachment_details=False):
             if mime == "multipart/alternative":
                 candidates = [child for child in children if isinstance(child,dict) and child.get("mimeType", "") == "text/plain"]
                 if candidates:
-                    return walk(candidates[0],depth+1)
+                    piece = walk(candidates[0],depth+1)
+                    if piece[0].strip():
+                        return piece
+                    # A blank text/plain alternative falls back to the HTML (or other) part.
+                    children = [child for child in children if child is not candidates[0]]
             pieces = [walk(child,depth+1) for child in children]
             if mime == "multipart/alternative":
                 return next((piece for piece in reversed(pieces) if piece[0]),("",False))

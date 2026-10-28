@@ -352,3 +352,18 @@ def test_disabled_understanding_never_claims_unexecuted_task_changes(model, monk
         assert not calls and not api.get("/tasks").json()
         complex_time = api.post("/chat", json={"text": "Напомни в следующую среду к полудню оплатить интернет", "timezone": ZONE})
         assert "выключено" in complex_time.text and not calls and not api.get("/tasks").json()
+
+
+@pytest.mark.parametrize("text,seconds,expected", [
+    ("Отложи задачу про интернет на час позже", 3600, "2026-10-24T09:00:00+00:00"),
+    ("Отложи задачу про интернет на день позже", 86400, "2026-10-25T09:00:00+00:00"),
+    # «2 дня» is not 14:00, and a day shift across the DST change keeps 10:00 local time.
+    ("Отложи задачу про интернет на 2 дня позже", 2 * 86400, "2026-10-26T09:00:00+00:00"),
+    ("Отложи задачу про интернет на неделю позже", 7 * 86400, "2026-10-31T09:00:00+00:00"),
+])
+def test_relative_day_and_hour_shifts(model, text, seconds, expected):
+    store, responses, _ = model
+    item = store.save_task("оплатить интернет", "reminder", "2026-10-24T08:00:00+00:00")
+    responses.append(dict(action="move", candidates=[item["id"]], seconds=seconds))
+    outcome = asyncio.run(tasks.propose(store, store.settings(), text, "Europe/Berlin", NOW))
+    assert outcome.plan and datetime.fromisoformat(outcome.plan.due) == datetime.fromisoformat(expected)

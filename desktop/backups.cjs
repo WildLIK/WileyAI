@@ -18,6 +18,7 @@ function installBackups({
     const connection = getConnection();
     if (!connection) throw new Error("Ядро ещё не запущено");
     const response = await fetch(connection.url + route, {
+      signal: AbortSignal.timeout(120000),
       ...options,
       headers: {
         Authorization: "Bearer " + connection.token,
@@ -131,6 +132,8 @@ function installBackups({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(options),
+          // Generous: a large profile on a slow disk; never block quit forever.
+          signal: AbortSignal.timeout(10 * 60 * 1000),
         })
       ).json();
       restored();

@@ -4,6 +4,8 @@ import json
 
 from . import providers
 
+# Excerpts kept for the final answer, file boundary anchors included.
+EVIDENCE = 20
 
 READ_PROMPT = (
     "Выбери опорные отрывки для краткого пересказа этой части файла. "
@@ -214,7 +216,8 @@ async def prepare(settings, documents, final_budget):
     # the first/last source records are kept outside model ranking.
     body = [record for record in records if record["id"] not in anchors]
     space = final_budget - len(context_text(anchored, documents))
-    slots = min(20 - len(anchored), max(0, space // 350), len(body))
+    # Many files can bring more than 20 boundary anchors; then no extra buckets fit.
+    slots = max(0, min(EVIDENCE - len(anchored), space // 350, len(body)))
     buckets = [[] for _ in range(slots)]
     for index, record in enumerate(body):
         if slots:
@@ -248,6 +251,11 @@ async def prepare(settings, documents, final_budget):
     if len(context_text(notes, documents)) > final_budget:
         raise ValueError("Для опорных отрывков недостаточно контекста модели")
     yield {"type": "prepared", "text": context_text(notes, documents), "parts": len(plan), "evidence": notes}
+
+
+def evidence_limit(documents):
+    """Upper bound of prepared excerpts: chronology buckets or up to three anchors per file."""
+    return max(EVIDENCE, 3 * len(documents))
 
 
 def sections(count):
@@ -320,7 +328,7 @@ async def respond(settings, payload, documents, question, mode="text", full=Fals
         return
     yield {"type": "read_all"}
     work = settings.model_copy(update={"response_tokens": min(1024, providers.response_limit(settings)), "temperature": 0})
-    budget = (work.context_tokens - providers.response_limit(work)) * 2 - 256 - len(ANSWER_PROMPT) - len(question) - len(encoded(answer_schema(20))) - 100
+    budget = (work.context_tokens - providers.response_limit(work)) * 2 - 256 - len(ANSWER_PROMPT) - len(question) - len(encoded(answer_schema(evidence_limit(documents)))) - 100
     prepared = None
     async with aclosing(prepare(settings, documents, budget)) as reading:
         async for update in reading:

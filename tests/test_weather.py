@@ -165,3 +165,13 @@ def test_current_weather_deduplicates_windows_and_refreshes_expired_result(monke
         now[0] = 1801
         assert (await cache.read(config))["sequence"] == 2
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("text", ["Прогноз курса доллара", "Прогноз матча", "Прогноз", "Погода в доме", "Какая погода в семье?"])
+def test_bare_forecast_and_idioms_are_not_weather(text): assert weather.request(text) is None
+
+
+@pytest.mark.parametrize("text,city", [("Прогноз в Сургуте", "Сургуте"), ("Прогноз на завтра", ""), ("Прогноз для Перми на неделю", "Перми")])
+def test_bare_forecast_with_place_or_period_is_weather(text, city):
+    item = weather.request(text)
+    assert item and not item.get("error") and item["city"] == city

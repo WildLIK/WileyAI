@@ -156,10 +156,14 @@ def discover():
     return {"supported": True, "items": items, "categories": CATEGORIES, "warnings": warnings}
 
 
+MISSING_TTL = 300
+
+
 class ApplicationScanner:
     def __init__(self, root=None):
         self.lock = threading.Lock()
         self.cache = Path(root) / "applications.json" if root is not None else None
+        self.missing = {}  # canonical name -> monotonic time of a full scan that did not find it
 
     def find(self, name):
         """Resolve only a known product, rechecking the local file before launch.
@@ -173,9 +177,13 @@ class ApplicationScanner:
         for item in self.saved()["items"]:
             if canonical_name(item["name"]) == canonical and local_file(item["target"], (".exe", ".lnk")):
                 return item
+        # A product that is not installed must not cost a full rescan on every request.
+        if time.monotonic() - self.missing.get(canonical, -MISSING_TTL) < MISSING_TTL:
+            return None
         for item in self.scan()["items"]:
             if canonical_name(item["name"]) == canonical and local_file(item["target"], (".exe", ".lnk")):
                 return item
+        self.missing[canonical] = time.monotonic()
         return None
 
     def saved(self):
@@ -200,6 +208,7 @@ class ApplicationScanner:
         if not self.lock.acquire(blocking=False):
             raise ValueError("Сканирование уже выполняется. Дождитесь завершения.")
         try:
+            self.missing.clear()
             result = discover()
             result["scanned_at"] = datetime.now(timezone.utc).isoformat()
             if self.cache and result["supported"]:

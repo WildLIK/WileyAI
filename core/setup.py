@@ -33,10 +33,10 @@ class ProgressUpdate(BaseModel):
 class SetupSettings(BaseModel):
     """Sparse edits, merged with current settings at the time of saving."""
     model_config = ConfigDict(extra="forbid")
-    provider: Literal["ollama", "compatible"] | None = None
+    provider: Literal["ollama", "compatible", "chatgpt"] | None = None
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
     model: str | None = Field(default=None, min_length=1, max_length=200)
-    stt_model: Literal["tiny", "base", "small"] | None = None
+    stt_model: Literal["tiny", "base", "small", "gigaam-v3"] | None = None
     tts_engine: Literal["piper", "sapi"] | None = None
     tts_voice: str | None = Field(default=None, max_length=300)
     speak_answers: bool | None = None
@@ -85,7 +85,10 @@ def model_present(config, models):
 
 
 def speech_readiness(config, voice, system_voices):
-    result = {"recognition": voice.available() and (voice.root / "models/whisper" / config.stt_model / "model.bin").is_file(),
+    from . import gigaam
+    recognition = (gigaam.available() and gigaam.installed(voice.root)) if config.stt_model == gigaam.MODEL_ID else (
+        voice.available() and (voice.root / "models/whisper" / config.stt_model / "model.bin").is_file())
+    result = {"recognition": recognition,
               "synthesis": False, "error": ""}
     try:
         if config.tts_engine == "piper":

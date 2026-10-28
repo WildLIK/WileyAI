@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 import zipfile
 
@@ -18,11 +19,50 @@ PROJECT = Path(__file__).resolve().parents[1]
 CATALOG = {
     "ollama": ("Ollama", "Мозг · запуск локальных языковых моделей", None, "около 1,5 ГБ загрузки; до 5 ГБ на диске"),
     "whisper": ("Whisper", "Распознавание голоса", "faster_whisper", "около 500 МБ на диске, без весов модели"),
+    "gigaam": ("GigaAM ONNX", "Локальное распознавание русской речи на CPU; без Torch", "onnx_asr", "около 200 МБ на диске; веса около 854 МиБ отдельно"),
     "piper": ("Piper", "Быстрая локальная озвучка", "piper", "около 300 МБ на диске, без голосов"),
     "silero": ("Silero / Torch CPU", "Локальная озвучка и основа OpenVoice", "torch", "около 1,5 ГБ на диске, без голосов"),
     "qwen": ("Qwen3-TTS CPU", "Изолированный движок качественной озвучки; требует много ОЗУ", None, "несколько ГБ; веса скачиваются отдельно"),
 }
 OLLAMA_VERSION = "v0.40.4"
+
+
+async def blocking(function, *args):
+    """Runs file work off the event loop; a cancel stops it at the next block before cleanup starts."""
+    stop = threading.Event()
+    task = asyncio.ensure_future(asyncio.to_thread(function, *args, stop))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        stop.set()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+
+
+def write_block(digest, output, block, stop):
+    if not stop.is_set():
+        digest.update(block)
+        output.write(block)
+
+
+def extract_ollama(archive, staging, stop):
+    with zipfile.ZipFile(archive) as source:
+        if len(source.infolist()) > 20000 or sum(item.file_size for item in source.infolist()) > 32 * 1024**3:
+            raise ValueError("Некорректный размер архива Ollama")
+        for item in source.infolist():
+            path = staging / item.filename
+            if "\\" in item.filename or ":" in item.filename or not path.resolve().is_relative_to(staging.resolve()) or (item.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError("Недопустимый путь в архиве Ollama")
+            if item.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with source.open(item) as stream, path.open("wb") as output:
+                    while block := stream.read(1024 * 1024):
+                        if stop.is_set():
+                            return
+                        output.write(block)
+    archive.unlink()
 
 
 def component_directory(root, key):
@@ -177,27 +217,11 @@ class Components:
                         received += len(block)
                         if received > 8 * 1024**3:
                             raise ValueError("Архив Ollama превышает допустимый размер")
-                        digest.update(block)
-                        output.write(block)
+                        await blocking(write_block, digest, output, block)
                         self.job["progress"] = min(90, received / total * 90) if total else None
             if digest.hexdigest().lower() != match[1].lower():
                 raise ValueError("Контрольная сумма Ollama не совпала. Повторите загрузку")
         self.job.update(stage="Распаковка Ollama", progress=92)
-        with zipfile.ZipFile(archive) as source:
-            if len(source.infolist()) > 20000 or sum(item.file_size for item in source.infolist()) > 32 * 1024**3:
-                raise ValueError("Некорректный размер архива Ollama")
-            for item in source.infolist():
-                path = staging / item.filename
-                if "\\" in item.filename or ":" in item.filename or not path.resolve().is_relative_to(staging.resolve()) or (item.external_attr >> 16) & 0o170000 == 0o120000:
-                    raise ValueError("Недопустимый путь в архиве Ollama")
-                if item.is_dir():
-                    path.mkdir(parents=True, exist_ok=True)
-                else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    with source.open(item) as stream, path.open("wb") as output:
-                        while block := stream.read(1024 * 1024):
-                            output.write(block)
-                            await asyncio.sleep(0)
-        archive.unlink()
+        await blocking(extract_ollama, archive, staging)
         if not (staging / "ollama.exe").is_file():
             raise ValueError("В архиве нет движка Ollama")

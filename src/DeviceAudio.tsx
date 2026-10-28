@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { request } from "./api";
+import { request, errorText } from "./api";
 
 type AudioState = {
   available: boolean;
@@ -42,7 +42,7 @@ export function DeviceAudio() {
       setError("");
     } catch (reason) {
       if (alive.current && current === generation.current)
-        setError(String(reason));
+        setError(errorText(reason));
     }
   }, []);
   useEffect(() => {
@@ -91,7 +91,7 @@ export function DeviceAudio() {
         }));
       }
     } catch (reason) {
-      if (alive.current) setError(String(reason));
+      if (alive.current) setError(errorText(reason));
     } finally {
       busy.current = false;
       if (alive.current) {

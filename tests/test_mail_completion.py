@@ -24,6 +24,7 @@ class Remote:
         self.lose=False
         self.reject=False
         self.pages=False
+        self.drop=False
     def handle(self,request):
         path=request.url.path
         if "/drafts" not in path: return self.fallback.handle(request)
@@ -37,6 +38,7 @@ class Remote:
         if request.method in {"POST","PUT"}:
             self.writes.append(request)
             if self.reject: return httpx.Response(403,json={"secret":"do-not-display"})
+            if self.drop: raise httpx.ConnectTimeout("never arrived",request=request)
             item_id=path.rsplit("/",1)[-1] if request.method=="PUT" else "draft-1"
             data=json.loads(request.content)
             self.drafts[item_id]=base64.urlsafe_b64decode(data["message"]["raw"])
@@ -141,6 +143,31 @@ async def test_remote_lost_create_reconciles_without_resend_and_rejection_allows
     remote.pages=False
     assert (await mail.remote_drafts.check(store,draft["id"]))["state"]=="ready"
     assert len(remote.writes)==2
+    await mail.close()
+
+
+@pytest.mark.anyio
+async def test_remote_save_that_never_reached_gmail_can_be_retried(tmp_path,vault):
+    store,remote,mail,draft=await configured(tmp_path)
+    remote.drop=True
+    preview=await mail.remote_drafts.preview(store,draft["id"],draft["updated"])
+    assert (await mail.remote_drafts.save(store,preview["ticket"],True))["state"]=="unknown"
+    # Nothing was created in Gmail: the uncertain row is dropped instead of blocking forever.
+    assert await mail.remote_drafts.check(store,draft["id"]) is None
+    remote.drop=False
+    preview=await mail.remote_drafts.preview(store,draft["id"],draft["updated"])
+    created=await mail.remote_drafts.save(store,preview["ticket"],True)
+    assert created["state"]=="ready" and len(remote.drafts)==1
+    # An update that never reached Gmail restores the previous link.
+    remote.drop=True
+    preview=await mail.remote_drafts.preview(store,draft["id"],draft["updated"])
+    assert (await mail.remote_drafts.save(store,preview["ticket"],True))["state"]=="unknown"
+    restored=await mail.remote_drafts.check(store,draft["id"])
+    assert restored["state"]=="ready" and restored["remote_id"]==created["remote_id"] and restored["remote_hash"]==created["remote_hash"]
+    remote.drop=False
+    preview=await mail.remote_drafts.preview(store,draft["id"],draft["updated"])
+    assert not preview["remote_changed"]
+    assert (await mail.remote_drafts.save(store,preview["ticket"],True))["state"]=="ready"
     await mail.close()
 
 

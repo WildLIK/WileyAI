@@ -16,6 +16,12 @@ import httpx
 
 from .document_library import Library
 from .document_summary import chunks
+from .storage import SOURCE_TEXT
+
+try:
+    import numpy
+except ImportError:  # Optional in the base runtime; scoring falls back to Python.
+    numpy = None
 
 MAX_CHUNKS = 10000
 MAX_CACHE = 12000
@@ -35,6 +41,27 @@ def vector(value):
     if not math.isfinite(size) or size < 1e-12:
         raise ValueError("Пустой вектор embeddings")
     return [n / size for n in value]
+
+
+def scores(values, query):
+    """Cosine similarity with a unit query. Stored float32 vectors are re-normalized."""
+    if not values:
+        return []
+    if numpy is None:
+        result = []
+        for value in values:
+            value = vector([float(n) for n in value])
+            if len(value) != len(query):
+                raise ValueError("Размерность изменилась")
+            result.append(sum(a * b for a, b in zip(value, query)))
+        return result
+    matrix = numpy.asarray(values, dtype=numpy.float64)
+    if matrix.ndim != 2 or matrix.shape[1] != len(query):
+        raise ValueError("Размерность изменилась")
+    norms = numpy.linalg.norm(matrix, axis=1)
+    if not numpy.isfinite(norms).all() or (norms < 1e-12).any():
+        raise ValueError("Некорректный вектор embeddings")
+    return ((matrix @ numpy.asarray(query, dtype=numpy.float64)) / norms).tolist()
 
 
 def configuration(settings):
@@ -57,22 +84,22 @@ class SemanticIndex:
         with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             yield db
 
-    def sources(self, scoped, kind="all"):
+    def sources(self, scoped, kind="all", ids=None):
         rows = []
+        # `ids` narrows the read to known records (the post-query recheck).
+        only, chosen = ("", ()) if ids is None else (" AND {}.id IN (SELECT value FROM json_each(?))", (json.dumps(sorted(ids)),))
         # Read source records in one consistent transaction, including scope.
         with scoped.db() as db:
             db.execute("BEGIN")
             library = Library(scoped)
             library.check_chat(db)
             if kind in {"all", "memory"}:
-                for row in db.execute("SELECT * FROM memories WHERE scope_id=? ORDER BY id", (scoped.scope_id,)):
+                for row in db.execute(f"SELECT m.*,{SOURCE_TEXT} FROM memories m WHERE m.scope_id=?" + only.format("m") + " ORDER BY m.id", (scoped.scope_id, *chosen)):
                     item = dict(row)
-                    source = db.execute("SELECT m.content FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=? AND COALESCE(c.project_id,'')=?", (item["source_message_id"], scoped.scope_id)).fetchone()
-                    item["source_text"] = source[0] if source else None
                     rows.append({"kind": "memory", "id": item["id"], "offset": 0, "text": item["content"], "item": item})
             if kind in {"all", "document"}:
                 where, args = library.visible()
-                for row in db.execute("SELECT d.* FROM document_library d WHERE " + where + " ORDER BY d.id", args):
+                for row in db.execute("SELECT d.* FROM document_library d WHERE " + where + only.format("d") + " ORDER BY d.id", (*args, *chosen)):
                     item = dict(row)
                     for offset, text in chunks(item["content"], 1200):
                         rows.append({"kind": "document", "id": item["id"], "offset": offset, "text": text,
@@ -133,7 +160,7 @@ class SemanticIndex:
                     records.extend(db.execute("SELECT hash,value FROM vectors WHERE model=? AND hash IN (" + ",".join("?" for _ in batch) + ")", (key, *batch)).fetchall())
             for fingerprint, raw in records:
                 if isinstance(raw, bytes) and len(raw) % 4 == 0 and 8 <= len(raw) <= 16384:
-                    result[fingerprint] = list(struct.unpack("<" + "f" * (len(raw) // 4), raw))
+                    result[fingerprint] = numpy.frombuffer(raw, "<f4") if numpy is not None else list(struct.unpack("<" + "f" * (len(raw) // 4), raw))
                 elif isinstance(raw, str):
                     result[fingerprint] = json.loads(raw)  # Early local development cache.
             return result
@@ -155,41 +182,47 @@ class SemanticIndex:
             raise ValueError("Индекс уже строится. Дождитесь окончания или остановите его")
         self.job = {"state": "running", "completed": 0, "total": 0, "text": "Проверяю локальную модель…"}
         self.task = asyncio.create_task(self.rebuild(scoped))
-        return self.status(scoped)
+
+    def reserve(self, settings, key, rows, pending):
+        with self.db() as db:
+            # A model switch (including updated weights under the same
+            # tag) cannot mix dimensions or results from the old model.
+            db.execute("DELETE FROM vectors WHERE model!=?", (key,))
+            db.execute("DELETE FROM meta")
+            db.execute("INSERT INTO meta VALUES (?,?)", (configuration(settings), key))
+            # Reserve room for this entire scope before writing. Keep
+            # current hashes; evict older scopes from the derived cache.
+            db.execute("CREATE TEMP TABLE keep_hash (hash TEXT PRIMARY KEY)")
+            db.executemany("INSERT OR IGNORE INTO keep_hash VALUES (?)", [(row["hash"],) for row in rows])
+            count = db.execute("SELECT count(*) FROM vectors").fetchone()[0]
+            excess = max(0, count + pending - MAX_CACHE)
+            if excess:
+                db.execute("DELETE FROM vectors WHERE rowid IN (SELECT rowid FROM vectors v WHERE NOT EXISTS (SELECT 1 FROM keep_hash k WHERE k.hash=v.hash) ORDER BY rowid LIMIT ?)", (excess,))
+
+    def write(self, key, batch, values):
+        with self.db() as db:
+            db.executemany("INSERT OR REPLACE INTO vectors VALUES (?,?,?)", [(key, row[0], struct.pack("<" + "f" * len(value), *value)) for row, value in zip(batch, values)])
 
     async def rebuild(self, scoped):
         try:
             async with self.lock:
-                settings = self.store.settings()
+                settings = await asyncio.to_thread(self.store.settings)
                 key = await self.model_key(settings)
-                rows = self.sources(scoped)
-                cached = self.cached(key, [row["hash"] for row in rows])
+                rows = await asyncio.to_thread(self.sources, scoped)
+                cached = await asyncio.to_thread(self.cached, key, [row["hash"] for row in rows])
                 unique = {row["hash"]: row["input"] for row in rows if row["hash"] not in cached}
                 pending = list(unique.items())
                 self.job.update(total=len(pending), text="Создаю локальный индекс…")
-                with self.db() as db:
-                    # A model switch (including updated weights under the same
-                    # tag) cannot mix dimensions or results from the old model.
-                    db.execute("DELETE FROM vectors WHERE model!=?", (key,))
-                    db.execute("DELETE FROM meta")
-                    db.execute("INSERT INTO meta VALUES (?,?)", (configuration(settings), key))
-                    # Reserve room for this entire scope before writing. Keep
-                    # current hashes; evict older scopes from the derived cache.
-                    db.execute("CREATE TEMP TABLE keep_hash (hash TEXT PRIMARY KEY)")
-                    db.executemany("INSERT OR IGNORE INTO keep_hash VALUES (?)", [(row["hash"],) for row in rows])
-                    count = db.execute("SELECT count(*) FROM vectors").fetchone()[0]
-                    excess = max(0, count + len(pending) - MAX_CACHE)
-                    if excess:
-                        db.execute("DELETE FROM vectors WHERE rowid IN (SELECT rowid FROM vectors v WHERE NOT EXISTS (SELECT 1 FROM keep_hash k WHERE k.hash=v.hash) ORDER BY rowid LIMIT ?)", (excess,))
+                await asyncio.to_thread(self.reserve, settings, key, rows, len(pending))
                 for offset in range(0, len(pending), 8):
-                    if not self.store.settings().embedding_enabled or configuration(self.store.settings()) != configuration(settings):
+                    current = await asyncio.to_thread(self.store.settings)
+                    if not current.embedding_enabled or configuration(current) != configuration(settings):
                         raise ValueError("Настройки embeddings изменились. Повторите построение индекса")
                     batch = pending[offset:offset + 8]
                     values = await self.embed(settings, [row[1] for row in batch])
                     if cached and any(len(v) != len(next(iter(cached.values()))) for v in values):
                         raise ValueError("Размерность модели изменилась. Очистите и перестройте индекс")
-                    with self.db() as db:
-                        db.executemany("INSERT OR REPLACE INTO vectors VALUES (?,?,?)", [(key, row[0], struct.pack("<" + "f" * len(value), *value)) for row, value in zip(batch, values)])
+                    await asyncio.to_thread(self.write, key, batch, values)
                     cached.update({row[0]: value for row, value in zip(batch, values)})
                     self.job.update(completed=min(offset + 8, len(pending)))
                 self.job.update(state="done", text="Индекс построен. Изменённые документы и память потребуют обновления")
@@ -199,31 +232,31 @@ class SemanticIndex:
             self.job.update(state="error", text="Не удалось построить индекс. Проверьте локальный Ollama и embeddings-модель; обычный поиск доступен")
 
     async def search(self, scoped, query, kind, limit=20, ids=None):
-        settings = self.store.settings()
+        settings = await asyncio.to_thread(self.store.settings)
         if not settings.embedding_enabled or not query.strip():
             return None, ""
         try:
             key = await self.model_key(settings)
-            rows = self.sources(scoped, kind)
-            if ids is not None:
-                rows = [row for row in rows if row["id"] in ids]
-            cached = self.cached(key, [row["hash"] for row in rows])
+
+            def snapshot():
+                rows = self.sources(scoped, kind, ids)
+                return rows, self.cached(key, [row["hash"] for row in rows])
+
+            rows, cached = await asyncio.to_thread(snapshot)
             if any(row["hash"] not in cached for row in rows):
                 return None, "Индекс требует обновления; показаны совпадения обычного поиска"
             query_vector, = await self.embed(settings, [query[:1000]])
-            ranked = []
-            for row in rows:
-                value = vector(cached[row["hash"]])
-                if len(value) != len(query_vector):
-                    raise ValueError("Размерность изменилась")
-                score = sum(a * b for a, b in zip(value, query_vector))
-                if score >= .35:
-                    ranked.append(row | {"score": round(score, 5)})
-            # Recheck scope/content after network awaits. No deleted or edited
-            # source is ever taken from the cache or an old in-flight snapshot.
-            fresh = {(row["kind"], row["id"], row["offset"]): row["hash"] for row in self.sources(scoped, kind)}
-            ranked = [row for row in ranked if fresh.get((row["kind"], row["id"], row["offset"])) == row["hash"]]
-            if configuration(self.store.settings()) != configuration(settings) or not self.store.settings().embedding_enabled:
+
+            def rank():
+                similarity = scores([cached[row["hash"]] for row in rows], query_vector)
+                ranked = [row | {"score": round(score, 5)} for row, score in zip(rows, similarity) if score >= .35]
+                # Recheck scope/content after network awaits. No deleted or edited
+                # source is ever taken from the cache or an old in-flight snapshot.
+                fresh = {(row["kind"], row["id"], row["offset"]): row["hash"] for row in self.sources(scoped, kind, {row["id"] for row in ranked})} if ranked else {}
+                return [row for row in ranked if fresh.get((row["kind"], row["id"], row["offset"])) == row["hash"]], self.store.settings()
+
+            ranked, current = await asyncio.to_thread(rank)
+            if configuration(current) != configuration(settings) or not current.embedding_enabled:
                 return None, "Настройки поиска изменились; показан обычный поиск"
             ranked.sort(key=lambda row: row["score"], reverse=True)
             return ranked[:limit], ""

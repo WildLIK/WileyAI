@@ -9,7 +9,7 @@ import re
 import site
 
 _data = Path(os.environ.get("WILEYAI_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
-for _key in ("whisper", "piper", "silero"):
+for _key in ("whisper", "piper", "silero", "gigaam"):
     try:
         _base = _data / "components" / _key
         _directory = json.loads((_base / "ready.json").read_text(encoding="utf-8"))["directory"]

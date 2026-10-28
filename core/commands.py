@@ -118,6 +118,15 @@ def application_query(text):
     return canonical_name(match[1]) if match else None
 
 
+# Opening these through the shell runs code or changes the system. Applications
+# (EXE or a shortcut) are added as apps; everything else here is refused as a «file».
+EXECUTABLE_FILES = {
+    ".exe", ".com", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta",
+    ".msi", ".msp", ".scr", ".pif", ".cpl", ".msc", ".reg", ".jar", ".lnk", ".url", ".scf", ".inf",
+    ".appref-ms", ".application", ".settingcontent-ms", ".library-ms", ".search-ms", ".appx", ".msix", ".appinstaller",
+}
+
+
 def validate(command: Command):
     if command.kind == "url":
         parsed = urlparse(command.target)
@@ -131,7 +140,7 @@ def validate(command: Command):
         raise ValueError("Этот путь не является папкой")
     if command.kind == "app" and path.suffix.casefold() not in {".exe", ".lnk"}:
         raise ValueError("Для приложения укажите EXE или ярлык LNK")
-    if command.kind == "file" and path.suffix.casefold() in {".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".msi", ".scr", ".lnk"}:
+    if command.kind == "file" and path.suffix.casefold() in EXECUTABLE_FILES:
         raise ValueError("Исполняемый файл нужно добавить как приложение в настройках команд")
 
 

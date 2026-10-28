@@ -7,8 +7,10 @@ import {
   type VoiceInfo,
   type CatalogItem,
   type Job,
+  errorText,
 } from "./api";
 import { ComponentPanel } from "./Components";
+import { poll } from "./polling";
 import { AudioDevices } from "./voice/AudioDevices";
 import { playAudio } from "./voice/devices";
 
@@ -105,7 +107,7 @@ export function SetupWizard({
         }
       })
       .catch((error) => {
-        if (alive.current) setError(String(error));
+        if (alive.current) setError(errorText(error));
       });
     const stop = () => preview.current?.abort();
     const escape = (event: KeyboardEvent) => {
@@ -125,19 +127,10 @@ export function SetupWizard({
   }, [progress.step]);
   useEffect(() => {
     if (progress.step !== 1) return;
-    let active = true;
-    const load = () =>
-      request<Job[]>("/jobs")
-        .then((next) => {
-          if (active) setJobs(next);
-        })
-        .catch(() => {});
-    void load();
-    const timer = setInterval(load, 1500);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
+    return poll(async (signal) => {
+      const next = await request<Job[]>("/jobs", "GET", undefined, signal);
+      if (!signal.aborted) setJobs(next);
+    }, 1500);
   }, [progress.step]);
   const job = [...jobs].reverse().find((item) => item.model === model);
   const downloading = Boolean(
@@ -161,8 +154,7 @@ export function SetupWizard({
     try {
       await work();
     } catch (error) {
-      if (alive.current)
-        setError(error instanceof Error ? error.message : String(error));
+      if (alive.current) setError(errorText(error));
     } finally {
       if (alive.current) setPending("");
     }
@@ -279,7 +271,7 @@ export function SetupWizard({
       );
     } catch (error) {
       if (!controller.signal.aborted && alive.current)
-        setError(error instanceof Error ? error.message : String(error));
+        setError(errorText(error));
     } finally {
       if (preview.current === controller) preview.current = null;
       if (alive.current) setPreviewing(false);
@@ -659,10 +651,20 @@ export function SetupWizard({
               </label>
               {(progress.voice_mode === "piper" || progress.microphone) && (
                 <ComponentPanel
-                  key={[progress.voice_mode, progress.microphone].join()}
+                  key={[
+                    progress.voice_mode,
+                    progress.microphone,
+                    config.stt_model === "gigaam-v3",
+                  ].join()}
                   ids={[
                     ...(progress.voice_mode === "piper" ? ["piper"] : []),
-                    ...(progress.microphone ? ["whisper"] : []),
+                    ...(progress.microphone
+                      ? [
+                          config.stt_model === "gigaam-v3"
+                            ? "gigaam"
+                            : "whisper",
+                        ]
+                      : []),
                   ]}
                   expanded
                   onReady={() => {}}
@@ -721,6 +723,9 @@ export function SetupWizard({
                       <option value="small">
                         Whisper small · около 485 МБ
                       </option>
+                      <option value="gigaam-v3">
+                        GigaAM v3 · E2E RNN-T · около 854 МиБ
+                      </option>
                     </select>
                   </label>
                   <div className="setup-download">
@@ -728,7 +733,10 @@ export function SetupWizard({
                       className="outline"
                       disabled={
                         locked ||
-                        !voice?.available ||
+                        !voice ||
+                        !(config.stt_model === "gigaam-v3"
+                          ? voice?.gigaam_available
+                          : voice?.available) ||
                         voice.installed_stt.includes(config.stt_model)
                       }
                       onClick={() =>
@@ -742,9 +750,15 @@ export function SetupWizard({
                         ? "Распознавание установлено"
                         : "Скачать модель распознавания"}
                     </button>
-                    {!voice?.available && (
+                    {!(config.stt_model === "gigaam-v3"
+                      ? voice?.gigaam_available
+                      : voice?.available) && (
                       <small>
-                        Сначала установите Whisper и перезапустите программу.
+                        Сначала установите{" "}
+                        {config.stt_model === "gigaam-v3"
+                          ? "GigaAM ONNX"
+                          : "Whisper"}{" "}
+                        и перезапустите программу.
                       </small>
                     )}
                   </div>
@@ -843,7 +857,7 @@ export function SetupWizard({
                       ? "Можно подключить позже"
                       : check?.speech.recognition
                         ? "Движок и выбранная модель установлены"
-                        : "Установите Whisper и веса выбранной модели"}
+                        : "Установите движок и веса выбранной модели"}
                   </dd>
                 </div>
               </dl>

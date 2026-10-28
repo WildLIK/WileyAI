@@ -48,15 +48,17 @@ const installed = (await readdir(join(staging, "managed"))).find((name) =>
 if (!installed) throw new Error("Portable Python not found");
 await rm(pythonRoot, { recursive: true, force: true }); // fixed, workspace-owned staging path
 await cp(join(staging, "managed", installed), pythonRoot, { recursive: true });
+// The bundled base runtime installs only the exact locked artifacts.
 const requirements = run(
   uv,
-  ["export", "--locked", "--no-dev", "--no-emit-project", "--no-hashes"],
+  ["export", "--locked", "--no-dev", "--no-emit-project"],
   true,
 );
 await writeFile(join(staging, "base.txt"), requirements + "\n");
 run(uv, [
   "pip",
   "install",
+  "--require-hashes",
   "--break-system-packages",
   "--python",
   join(pythonRoot, "python.exe"),
@@ -66,9 +68,12 @@ run(uv, [
 await mkdir(join(staging, "requirements"), { recursive: true });
 for (const [id, extra] of [
   ["whisper", "voice"],
+  ["gigaam", "gigaam"],
   ["piper", "piper"],
   ["silero", "tts"],
 ]) {
+  // Unhashed on purpose: core/components.py installs these at runtime with
+  // --torch-backend cpu, which may select a different torch wheel than the lock.
   const text = run(
     uv,
     [
@@ -118,7 +123,7 @@ for (const name of ["react", "react-dom", "three", "@pixiv/three-vrm"]) {
 }
 run(join(pythonRoot, "python.exe"), [
   "-c",
-  "import fastapi,uvicorn,keyring,psutil,docx,pypdf,telethon,websockets; from zoneinfo import ZoneInfo; ZoneInfo('Asia/Yekaterinburg'); print('Bundled core dependencies and timezone data OK')",
+  "import fastapi,uvicorn,keyring,psutil,docx,pypdf,telethon,websockets,jwt,cryptography; from zoneinfo import ZoneInfo; ZoneInfo('Asia/Yekaterinburg'); print('Bundled core dependencies, ChatGPT authentication and timezone data OK')",
 ]);
 await writeFile(
   join(staging, "build-info.json"),

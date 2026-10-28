@@ -32,6 +32,13 @@ def request(text, name="Уайли"):
     prefix = value[:found.start()].strip()
     if prefix and not re.fullmatch(r"(?:(?:какая|какую|будет|сейчас|сегодня|завтра|послезавтра|на|неделю)\s*)+", prefix, re.I): return None
     detail = (prefix + " " + value[found.end():]).strip()
+    # «Погода в доме» is an idiom, not a place.
+    if re.match(r"(?:в|во)\s+(?:доме|семье|коллективе|отношениях|душе)\b", value[found.end():].strip(), re.I): return None
+    if found[0].casefold() == "прогноз":
+        # A bare «прогноз» is weather only with a period or a place: not «прогноз курса» or «прогноз матча».
+        rest = re.sub(r"\b(?:на\s+)?(?:неделю|семь дней|7 дней|сегодня|сейчас|завтра|послезавтра|вчера|выходные|месяц)\b|\bчерез\s+\d{1,2}\s+д(?:ень|ня|ней)\b|\b(?:какая|какую|будет)\b", "", detail, flags=re.I)
+        rest = re.sub(r"\s+", " ", rest).strip(" ,")
+        if rest == detail.strip(" ,") and not rest or rest and not re.match(r"(?:на\s+)?(?:в|во|для)\s+\S", rest, re.I): return None
     if re.search(r"\b(?:вчера|выходные|выходных|месяц|утром|вечером|ночью|вечер|утро|снег|дождь)\b|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}", detail, re.I):
         return {"kind": "weather", "error": PERIOD_ERROR}
     week = re.search(r"(?:на\s+)?(?:неделю|семь дней|7 дней)\b", detail, re.I)

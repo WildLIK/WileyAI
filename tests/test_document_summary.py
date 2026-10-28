@@ -465,3 +465,16 @@ def test_duplicate_citations_are_normalized_only_after_strict_validation(sources
     else:
         with pytest.raises(ValueError):
             summary.parse_claims(json.dumps(value), 1)
+
+
+def test_many_files_with_more_than_twenty_anchors_do_not_break_bucketing(monkeypatch):
+    async def model(settings, messages, schema, **kwargs):
+        rows = json.loads(messages[-1]["content"])
+        return json.dumps({"ids": [rows[0]["id"]]})
+    monkeypatch.setattr(providers, "structured", model)
+    documents = [{"name": f"Глава {n}.txt", "content": "".join(f"Глава {n}, сцена {i}: дорога продолжилась.\n" for i in range(40))} for n in range(8)]
+    async def run():
+        return [item async for item in summary.prepare(Settings(), documents, 12000)]
+    prepared = asyncio.run(run())[-1]
+    assert prepared["type"] == "prepared"
+    assert 20 < len(prepared["evidence"]) <= summary.evidence_limit(documents)

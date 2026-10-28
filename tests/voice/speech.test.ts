@@ -65,3 +65,38 @@ test("music profile calibrates steady background and ends speech above it withou
   assert.equal(detector.calibrating, false);
   assert.equal(feed(detector, 100, 0.03), null);
 });
+
+test("steady loud background that starts above the gate ends instead of becoming one endless phrase", () => {
+  const detector = new SpeechSegmenter(16000, { maximumSpeechMs: 60000 });
+  feed(detector, 50, 0.001);
+  let utterance: Float32Array | null = null,
+    frames = 0;
+  while (!utterance && frames < 3000) {
+    utterance = detector.push(frame(0.05));
+    frames++;
+  }
+  assert.ok(utterance, "the phrase ended");
+  assert.ok(
+    frames * 20 < 5000,
+    `ended after ${frames * 20} ms, not at the 60 s limit`,
+  );
+  // The same background no longer opens new phrases…
+  assert.equal(feed(detector, 500, 0.05), null);
+  assert.equal(detector.isSpeaking, false);
+  // …while a voice above it still does.
+  feed(detector, 30, 0.2);
+  assert.equal(detector.isSpeaking, true);
+  assert.ok(feed(detector, 60, 0.05));
+});
+
+test("a quiet word ending above the hold gate does not split a command", () => {
+  const detector = new SpeechSegmenter(16000, { silenceMs: 600 });
+  feed(detector, 20, 0);
+  feed(detector, 20, 0.05);
+  // Quieter than the start gate (0.015), louder than the hold gate.
+  assert.equal(feed(detector, 40, 0.012), null);
+  assert.equal(detector.isSpeaking, true);
+  feed(detector, 20, 0.05);
+  const utterance = feed(detector, 40, 0);
+  assert.ok(utterance && utterance.length > 16000 * 1.5);
+});

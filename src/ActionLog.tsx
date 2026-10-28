@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { request } from "./api";
+import { request, errorText } from "./api";
 
 type Entry = {
   id: string;
@@ -34,7 +34,7 @@ export function ActionLog() {
       );
       setError("");
     } catch (reason) {
-      setError(String(reason));
+      setError(errorText(reason));
     }
   };
   useEffect(() => {

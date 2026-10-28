@@ -4,12 +4,16 @@ from telethon import errors
 from .mail_send import ConfirmBody
 from .telegram_client import TelegramConfig, PhoneBody, CodeBody, PasswordBody, TelegramPreview
 
+# Connect (25 s) + send with verification (35 s) + duplicate lookup (10 s) must finish inside the outer deadline,
+# otherwise the outbox row is never updated with the real result.
+SEND_LIMIT=75
+
 
 def install_telegram(app,telegram,store):
-    async def call(action):
+    async def call(action,limit=45):
         async with telegram.lock:
             try:
-                async with asyncio.timeout(45): return await action()
+                async with asyncio.timeout(limit): return await action()
             except errors.FloodWaitError as error: raise ValueError(f"Telegram просит подождать {error.seconds} секунд") from error
             except (errors.PhoneCodeInvalidError,errors.PhoneCodeExpiredError) as error: raise ValueError("Код Telegram неверный или истёк. Проверьте код или запросите новый") from error
             except errors.PasswordHashInvalidError as error: raise ValueError("Неверный пароль двухэтапной проверки Telegram") from error
@@ -47,7 +51,7 @@ def install_telegram(app,telegram,store):
 
     @app.post("/telegram/send")
     async def send(body:ConfirmBody,conversation_id:str|None=None):
-        with CancelScope(shield=True): return await call(lambda:telegram.send(store.for_chat(conversation_id),body.ticket,body.confirmed))
+        with CancelScope(shield=True): return await call(lambda:telegram.send(store.for_chat(conversation_id),body.ticket,body.confirmed),SEND_LIMIT)
 
     @app.get("/telegram/outbox")
     def outbox(conversation_id:str|None=None): return telegram.outbox(store.for_chat(conversation_id))
@@ -58,4 +62,4 @@ def install_telegram(app,telegram,store):
     @app.post("/telegram/outbox/{item_id}/retry")
     async def retry(item_id:str,body:ConfirmBody,conversation_id:str|None=None):
         if body.ticket!=item_id: raise ValueError("Подтверждение относится к другой отправке")
-        with CancelScope(shield=True): return await call(lambda:telegram.retry(store.for_chat(conversation_id),item_id,body.confirmed))
+        with CancelScope(shield=True): return await call(lambda:telegram.retry(store.for_chat(conversation_id),item_id,body.confirmed),SEND_LIMIT)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
 import os
@@ -24,6 +24,10 @@ from .contacts import migrate as migrate_contacts
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# The memory's source message, only while it stays in the memory's own space (alias m = memories).
+SOURCE_TEXT = "(SELECT s.content FROM messages s JOIN conversations c ON c.id=s.conversation_id WHERE s.id=m.source_message_id AND COALESCE(c.project_id,'')=m.scope_id) AS source_text"
 
 
 class Store:
@@ -80,6 +84,8 @@ class Store:
             migrate_contacts(db)
             if "details" not in {row["name"] for row in db.execute("PRAGMA table_info(actions)")}:
                 db.execute("ALTER TABLE actions ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
+            # Plan history per space; the audit table only grows.
+            db.execute("CREATE INDEX IF NOT EXISTS actions_plan_scope ON actions(json_extract(details,'$.scope_id'),created) WHERE kind='plan'")
             initial = db.execute("SELECT id,project_id FROM conversations ORDER BY id=? DESC,updated DESC LIMIT 1", (LEGACY_CHAT,)).fetchone()
             self.conversation_id = initial["id"]
             self.scope_id = initial["project_id"] or ""
@@ -112,14 +118,17 @@ class Store:
         with self.db() as db:
             db.execute("INSERT OR REPLACE INTO config VALUES (1, ?)", (settings.model_dump_json(),))
 
-    def patch_settings(self, changes: dict) -> Settings:
+    def update_settings(self, change) -> Settings:
+        """Atomic read-modify-write: `change(current)` returns the new settings; raising rolls back."""
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT value FROM config WHERE id=1").fetchone()
-            current = Settings.model_validate_json(row[0]) if row else Settings()
-            updated = Settings.model_validate({**current.model_dump(), **changes})
+            updated = change(Settings.model_validate_json(row[0]) if row else Settings())
             db.execute("INSERT OR REPLACE INTO config VALUES (1, ?)", (updated.model_dump_json(),))
             return updated
+
+    def patch_settings(self, changes: dict) -> Settings:
+        return self.update_settings(lambda current: Settings.model_validate({**current.model_dump(), **changes}))
 
     def list(self, table: str, limit: int = 100) -> list[dict]:
         if table not in {"messages", "memories", "aliases", "documents", "actions", "tasks", "notes", "notifications"}:
@@ -240,14 +249,10 @@ class Store:
             if query.strip() and not expression:
                 return []
             if expression:
-                rows = db.execute("SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.id WHERE memories_fts MATCH ? AND m.scope_id=? ORDER BY bm25(memories_fts),m.pinned DESC,m.updated DESC LIMIT ?", (expression, self.scope_id, limit)).fetchall()
+                rows = db.execute(f"SELECT m.*,{SOURCE_TEXT} FROM memories_fts f JOIN memories m ON m.id=f.id WHERE memories_fts MATCH ? AND m.scope_id=? ORDER BY bm25(memories_fts),m.pinned DESC,m.updated DESC LIMIT ?", (expression, self.scope_id, limit)).fetchall()
             else:
-                rows = db.execute("SELECT * FROM memories WHERE scope_id=? ORDER BY pinned DESC,updated DESC,id LIMIT ?", (self.scope_id, limit)).fetchall()
-            result = [dict(row) for row in rows]
-            for item in result:
-                source = db.execute("SELECT m.content FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=? AND COALESCE(c.project_id,'')=?", (item["source_message_id"], self.scope_id)).fetchone()
-                item["source_text"] = source[0] if source else None
-            return result
+                rows = db.execute(f"SELECT m.*,{SOURCE_TEXT} FROM memories m WHERE m.scope_id=? ORDER BY m.pinned DESC,m.updated DESC,m.id LIMIT ?", (self.scope_id, limit)).fetchall()
+            return [dict(row) for row in rows]
 
     def memory_context(self, text: str, budget: int = 1600, ranked: list[dict] | None = None) -> list[dict]:
         recent = self.memories(limit=12)
@@ -399,6 +404,11 @@ class Store:
         if item["done"]:
             db.execute("UPDATE notifications SET delivered=1 WHERE task_id=?", (item["id"],))
 
+    def note(self, item_id: str) -> dict | None:
+        with self.db() as db:
+            row = db.execute("SELECT * FROM notes WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone()
+        return dict(row) if row else None
+
     def task(self, item_id: str) -> dict | None:
         with self.db() as db:
             row = db.execute("SELECT * FROM tasks WHERE id=? AND scope_id=?", (item_id, self.scope_id)).fetchone()
@@ -433,6 +443,12 @@ class Store:
     def queue_due_notifications(self) -> list[dict]:
         pending = []
         with self.db() as db:
+            # A cheap read first: most ticks have nothing due and need no write lock.
+            current = now()
+            if not db.execute("SELECT 1 FROM tasks WHERE done=0 AND notified=0 AND due IS NOT NULL AND due<=? LIMIT 1", (current,)).fetchone() \
+                    and not notifications.calendar_due(db, current, quiet.database_active(db, datetime.fromisoformat(current))):
+                return pending
+        with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             current = now()
             for task in db.execute("SELECT * FROM tasks WHERE done=0 AND notified=0 AND due IS NOT NULL AND due<=? ORDER BY due,id LIMIT 1000", (current,)).fetchall():
@@ -450,6 +466,13 @@ class Store:
                     db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task["id"],))
             pending.extend(notifications.queue_calendar(db, current, quiet.database_active(db, datetime.fromisoformat(current))))
         return pending
+
+    def prune_delivered(self, days: int = 30) -> int:
+        """Delivered alerts are history only; keep the queue and backups bounded."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self.db() as db:
+            removed = db.execute("DELETE FROM notifications WHERE delivered=1 AND created<?", (cutoff,)).rowcount
+            return removed + db.execute("DELETE FROM calendar_alerts WHERE delivered=1 AND created<?", (cutoff,)).rowcount
 
     def pending_notifications(self):
         with self.db() as db:

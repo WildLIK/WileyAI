@@ -8,7 +8,8 @@ export interface Settings {
   name: string;
   grammatical_gender: "feminine" | "masculine" | "neutral";
   personality: string;
-  provider: "ollama" | "compatible";
+  provider: "ollama" | "compatible" | "chatgpt";
+  chatgpt_connection: string;
   base_url: string;
   model: string;
   profile: "eco" | "balanced" | "quality";
@@ -16,7 +17,7 @@ export interface Settings {
   context_tokens: number;
   response_tokens: number;
   temperature: number;
-  stt_model: "tiny" | "base" | "small";
+  stt_model: "tiny" | "base" | "small" | "gigaam-v3";
   stt_quality: "fast" | "balanced" | "accurate";
   tts_engine: "silero" | "silero_v5_6" | "piper" | "sapi" | "qwen3" | "cloud";
   tts_service: "openrouter" | "routerai" | "compatible";
@@ -239,6 +240,7 @@ export interface Alias {
 }
 export interface VoiceInfo {
   available: boolean;
+  gigaam_available?: boolean;
   voices: { name: string; language: string }[];
   installed_stt: string[];
   tts_available: boolean;
@@ -349,6 +351,8 @@ declare global {
       startOllama(): Promise<void>;
       openUpdate(): Promise<void>;
       googleCalendarLogin(): Promise<void>;
+      chatgptLogin(newAccount?: boolean): Promise<void>;
+      chatgptUsage(): Promise<void>;
       gmailLogin(): Promise<void>;
       gmailSendLogin(): Promise<void>;
       gmailDraftsLogin(): Promise<void>;
@@ -381,6 +385,39 @@ declare global {
       onOffline(callback: () => void): () => void;
     };
   }
+}
+/** A readable message for any thrown value, without the "Error: " prefix. */
+export function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+/** One error shape for every endpoint: FastAPI detail, validation list, 5xx or plain text. */
+async function errorFrom(
+  response: Response,
+  fallback = "Проверьте введённые параметры",
+) {
+  const text = await response.text().catch(() => "");
+  let detail: unknown;
+  try {
+    detail = text ? (JSON.parse(text) as { detail?: unknown })?.detail : "";
+  } catch {
+    detail = undefined;
+  }
+  if (typeof detail === "string" && detail.trim()) return new Error(detail);
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item: { msg?: unknown } | null) =>
+        typeof item?.msg === "string"
+          ? item.msg.replace(/^Value error, /, "")
+          : "",
+      )
+      .filter(Boolean);
+    if (messages.length) return new Error([...new Set(messages)].join("; "));
+  }
+  if (response.status >= 500)
+    return new Error(
+      `Ошибка локального ядра (${response.status}). Повторите действие или перезапустите WileyAI.`,
+    );
+  return new Error(fallback);
 }
 let connection: Connection | undefined;
 function readyConnection(): Connection {
@@ -416,18 +453,15 @@ export async function request<T = unknown>(
       body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     signal,
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof error.detail === "string"
-        ? error.detail
-        : Array.isArray(error.detail) &&
-            typeof error.detail[0]?.msg === "string"
-          ? error.detail[0].msg.replace(/^Value error, /, "")
-          : "Проверьте введённые параметры",
-    );
+  if (!response.ok) throw await errorFrom(response);
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("Локальное ядро вернуло некорректный ответ");
   }
-  return response.json();
 }
 export async function audioRequest(
   text: string,
@@ -466,10 +500,7 @@ export async function audioRequest(
       }),
       signal,
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Ошибка синтеза речи");
-    }
+    if (!response.ok) throw await errorFrom(response, "Ошибка синтеза речи");
     const actualDevice = response.headers.get("X-Wiley-TTS-Device");
     if (actualDevice === "cpu" || actualDevice === "cuda")
       onDevice?.(actualDevice);
@@ -525,21 +556,29 @@ export async function stream(
       }),
       signal,
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Не удалось отправить сообщение");
-    }
+    if (!response.ok)
+      throw await errorFrom(response, "Не удалось отправить сообщение");
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let pending = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      pending += decoder.decode(value, { stream: true });
-      const parts = pending.split("\n\n");
-      pending = parts.pop() || "";
-      for (const part of parts)
-        if (part.startsWith("data: ")) onEvent(JSON.parse(part.slice(6)));
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        const parts = pending.split("\n\n");
+        pending = parts.pop() || "";
+        for (const part of parts)
+          if (part.startsWith("data: ")) onEvent(JSON.parse(part.slice(6)));
+      }
+    } catch (error) {
+      // A malformed event or a failing handler must not leave the model
+      // generating on the server: stop it the same way an abort does.
+      if (!signal.aborted) {
+        void reader.cancel().catch(() => {});
+        cancel();
+      }
+      throw error;
     }
   } finally {
     signal.removeEventListener("abort", cancel);

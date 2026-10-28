@@ -50,7 +50,8 @@ function installAvatarControls({
   }
   let clickThrough = false,
     ignored = false,
-    regions = [];
+    regions = [],
+    timer;
   const avatar = () => {
     const window = windows.get("avatar");
     return window && !window.isDestroyed() ? window : null;
@@ -98,10 +99,19 @@ function installAvatarControls({
       ),
     );
   };
+  // Hit-test the cursor only while click-through is on.
+  const poll = () => {
+    if (clickThrough && !timer) timer = setInterval(refresh, 60).unref();
+    if (!clickThrough && timer) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  };
   const setClickThrough = (enabled) => {
     if (typeof enabled !== "boolean")
       throw new Error("Некорректный режим пропуска кликов");
     clickThrough = Boolean(enabled && avatar()?.isVisible());
+    poll();
     refresh();
     report();
     return state();
@@ -172,7 +182,6 @@ function installAvatarControls({
     regions = value.map(({ x, y, width, height }) => ({ x, y, width, height }));
     refresh();
   });
-  setInterval(refresh, 60).unref();
   return {
     state,
     setClickThrough,
@@ -183,6 +192,7 @@ function installAvatarControls({
       clickThrough = false;
       ignored = false;
       regions = [];
+      poll();
       window.on("show", () => {
         if (minimal) hideOtherWindows();
         report();
@@ -195,6 +205,7 @@ function installAvatarControls({
         clickThrough = false;
         ignored = false;
         regions = [];
+        poll();
         changed();
       });
       const release = () => {

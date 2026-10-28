@@ -274,3 +274,30 @@ def test_qwen_voice_device_and_settings_are_independent_of_llm(api, monkeypatch)
     assert "X-Wiley-TTS-Device" in response.headers["Access-Control-Expose-Headers"]
     assert received == [("serena", "qwen3", "cpu")]
     assert api.post("/voice/synthesize", json={"text": "Привет", "device": "shell"}).status_code == 422
+
+
+def test_chat_lock_released_when_client_leaves_before_stream_starts(tmp_path, monkeypatch):
+    import asyncio, json
+    monkeypatch.setattr(providers, "get_key", lambda settings: "")
+    app = create_app(tmp_path, TOKEN)
+    body = json.dumps({"text": "привет"}).encode()
+
+    async def call():
+        sent, received = [], []
+        async def receive():
+            received.append(1)
+            return {"type": "http.request", "body": body, "more_body": False} if len(received) == 1 else {"type": "http.disconnect"}
+        async def send(message):
+            sent.append(message)
+        scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1", "method": "POST",
+                 "scheme": "http", "path": "/chat", "raw_path": b"/chat", "query_string": b"", "root_path": "",
+                 "server": ("127.0.0.1", 1), "client": ("127.0.0.1", 2),
+                 "headers": [(b"host", b"127.0.0.1"), (b"authorization", ("Bearer " + TOKEN).encode()),
+                             (b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]}
+        await asyncio.wait_for(app(scope, receive, send), 10)
+        return next(message["status"] for message in sent if message["type"] == "http.response.start")
+
+    async def scenario():
+        assert await call() == 200
+        assert await call() == 200  # Not «Ассистент уже отвечает в другом окне».
+    asyncio.run(scenario())

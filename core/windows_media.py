@@ -13,6 +13,10 @@ import psutil
 STATES = {0: "Остановлено", 1: "Пауза", 2: "Воспроизведение"}
 
 
+class Unavailable(ValueError):
+    """No player could be reached; no command was sent to it."""
+
+
 class Aimp:
     def __init__(self):
         self.user = c.WinDLL("user32", use_last_error=True)
@@ -31,9 +35,9 @@ class Aimp:
         try:
             self.executable = psutil.Process(self.pid).exe()
         except psutil.Error as error:
-            raise ValueError("Не удалось проверить процесс AIMP") from error
+            raise Unavailable("Не удалось проверить процесс AIMP") from error
         if Path(self.executable).name.casefold() != "aimp.exe":
-            raise ValueError("Окно управления не принадлежит процессу AIMP.exe")
+            raise Unavailable("Окно управления не принадлежит процессу AIMP.exe")
 
     def send(self, message, value):
         result = c.c_size_t()
@@ -48,7 +52,10 @@ class Aimp:
         return {"available": True, "player": "AIMP", "state": STATES[state], "code": state, "pid": self.pid, "executable": self.executable, "backend": "aimp"}
 
     def perform(self, action):
-        before = self.read()
+        try:
+            before = self.read()
+        except ValueError as error:
+            raise Unavailable(str(error)) from error
         desired = {"play": 2, "pause": 1, "stop": 0, "play_pause": 1 if before["code"] == 2 else 2}.get(action)
         if desired is None or before["code"] != desired:
             # AIMP SDK apiRemote.h: pause is a toggle, so never send it if paused/stopped.
@@ -70,6 +77,7 @@ $ErrorActionPreference='Stop'
 [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
 $command=ConvertFrom-Json ([Console]::In.ReadToEnd())
+try {
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
 $asTask=([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'})[0]
@@ -83,6 +91,7 @@ $session=$manager.GetCurrentSession()
 if($null -eq $session) { '{"available":false}';exit }
 $accepted=$false
 $beforeStatus=$session.GetPlaybackInfo().PlaybackStatus.ToString()
+} catch { exit 3 }
 switch($command.action) {
  'read' {}
  'play' {$accepted=Await ($session.TryPlayAsync()) ([bool])}
@@ -108,9 +117,16 @@ if($accepted -and $desired) {
 
 def system_session(action):
     powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
-    result = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", SMTC_SCRIPT], input=json.dumps({"action": action}), capture_output=True, encoding="utf-8", errors="replace", timeout=6, creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        result = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", SMTC_SCRIPT], input=json.dumps({"action": action}), capture_output=True, encoding="utf-8", errors="replace", timeout=6, creationflags=subprocess.CREATE_NO_WINDOW)
+    except subprocess.TimeoutExpired as error:
+        if action == "read":
+            raise Unavailable("Медиасессия Windows не ответила вовремя. Состояние плеера не прочитано.") from error
+        raise ValueError("Медиасессия Windows не ответила вовремя. Команда могла дойти до плеера, но его состояние не подтверждено.") from error
     if result.returncode:
-        raise ValueError("Не удалось обратиться к медиасессии Windows. Плеер может не поддерживать системное управление.")
+        # Exit code 3: the session could not be reached before any command was sent.
+        error = Unavailable if result.returncode == 3 or action == "read" else ValueError
+        raise error("Не удалось обратиться к медиасессии Windows. Плеер может не поддерживать системное управление.")
     data = json.loads(result.stdout.lstrip("\ufeff"))
     if not isinstance(data, dict) or not isinstance(data.get("available"), bool):
         raise ValueError("Неверный ответ медиасессии Windows")
@@ -123,7 +139,7 @@ def perform(action="read"):
     if action not in {"read", "play", "pause", "play_pause", "stop", "next", "previous"}:
         raise ValueError("Неизвестная медиакоманда")
     if os.name != "nt":
-        raise ValueError("Управление проигрывателем доступно в Windows")
+        raise Unavailable("Управление проигрывателем доступно в Windows")
     try:
         player = Aimp()
     except LookupError:

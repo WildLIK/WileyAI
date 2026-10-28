@@ -384,3 +384,18 @@ def test_polite_composite_and_note_cannot_swallow_another_order(model):
     bad = "запиши заметку Дом: полить цветы; удали задачу Интернет"
     outcome = propose(model, {"steps": [dict(domain="note", action="create", source=bad, title="Дом", content="полить цветы")]}, bad)
     assert outcome.plan is None and not store.list("notes")
+
+
+def test_clarified_title_drops_address_and_timestamps_are_utc(model):
+    store, _, _ = model
+    source = "напомни завтра в 10"
+    outcome = propose(model, {"steps": [dict(domain="task", action="create", source=source, title="", kind="reminder", day="2026-10-21", clock="10:00", repeat="none")]}, source)
+    ask(store, outcome)
+    clarified = reply(store, "Уайли, оплатить интернет")
+    assert clarified.plan and clarified.plan.steps[0].step.title == "оплатить интернет"
+    ask(store, clarified)
+    assert reply(store).changed == ["tasks"]
+    assert store.list("tasks")[0]["title"] == "оплатить интернет"
+    with store.db() as db:
+        assert db.execute("SELECT created FROM tasks").fetchone()[0].endswith("+00:00")
+        assert db.execute("SELECT created FROM actions WHERE kind='plan'").fetchone()[0].endswith("+00:00")

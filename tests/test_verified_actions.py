@@ -32,10 +32,19 @@ def test_launch_reports_only_observed_processes(tmp_path, monkeypatch, before, a
 
 
 def test_exact_executable_not_merely_same_process_name(monkeypatch, tmp_path):
+    reads = []
     class Process:
-        info = {"pid": 10, "exe": str(tmp_path / "Other" / "app.exe")}
-    monkeypatch.setattr(launches.psutil, "process_iter", lambda attrs: [Process()])
-    assert launches.process_ids(tmp_path / "Mine" / "app.exe") == set()
+        def __init__(self, pid, path):
+            self.info, self.path = {"pid": pid, "create_time": 1.0}, path
+        def exe(self):
+            reads.append(self.info["pid"])
+            return str(self.path)
+    processes = [Process(10, tmp_path / "Other" / "app.exe"), Process(11, tmp_path / "Mine" / "app.exe")]
+    monkeypatch.setattr(launches.psutil, "process_iter", lambda attrs: processes)
+    assert launches.process_ids(tmp_path / "Mine" / "app.exe") == {11}
+    # The executable of a (pid, create_time) is read once while that process lives.
+    assert launches.process_ids(tmp_path / "Mine" / "app.exe") == {11}
+    assert sorted(reads) == [10, 11]
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows ShellExecuteEx")
@@ -146,6 +155,9 @@ def test_lets_start_music_controls_existing_player_without_model(tmp_path, monke
     token = "verified-actions-tests-0123456789"
     with TestClient(create_app(tmp_path, token), headers={"Authorization": "Bearer " + token}) as api:
         response = api.post("/chat", json={"text": "Запустим музыку"})
+        assert "Плеер подтвердил" in response.text and calls == ["read", "play"]
+        calls.clear()
+        response = api.post("/chat", json={"text": "Включи музыку на компьютере"})
         assert "Плеер подтвердил" in response.text and calls == ["read", "play"]
         entry = api.get("/actions").json()[0]
         assert entry["status"] == "confirmed" and entry["details"]["media"]["player"] == "Test Player"

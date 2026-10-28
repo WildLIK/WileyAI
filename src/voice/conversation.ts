@@ -50,6 +50,14 @@ type Options = {
     signal: AbortSignal,
     playback: string,
   ) => Promise<string | null>;
+  /** Recognize a phrase queued during an answer right away, not after it. */
+  transcribe?: (audio: Blob, signal: AbortSignal) => Promise<string>;
+};
+
+/** `text`: null — recognized as empty; undefined — not recognized in advance. */
+type Utterance = {
+  samples: Float32Array;
+  text?: Promise<string | null | undefined>;
 };
 
 export class Conversation {
@@ -61,11 +69,11 @@ export class Conversation {
   private options: Options;
   private working = false;
   private cooling = false;
-  private pending: Float32Array[] = [];
+  private pending: Utterance[] = [];
+  private queueController: AbortController | null = null;
   private bargeSegmenter: SpeechSegmenter | null = null;
   private bargeController: AbortController | null = null;
   private playback = "";
-  private verified = new WeakMap<Float32Array, string>();
 
   setPlayback(text: string) {
     this.playback = (this.playback + " " + text).slice(-2400);
@@ -120,7 +128,12 @@ export class Conversation {
     }
   }
   private receive(frame: Float32Array) {
-    if (this.active && !this.cooling && this.phase === "speaking" && this.bargeSegmenter) {
+    if (
+      this.active &&
+      !this.cooling &&
+      this.phase === "speaking" &&
+      this.bargeSegmenter
+    ) {
       if (!this.bargeController) {
         const samples = this.bargeSegmenter.push(frame);
         if (samples) void this.checkBarge(samples);
@@ -139,20 +152,36 @@ export class Conversation {
     if (this.segmenter.calibrating) return;
     if (utterance) {
       if (this.working) {
-        if (this.pending.length < 3) this.pending.push(utterance);
+        if (this.pending.length < 3) this.pending.push(this.queued(utterance));
         this.options.onPending?.(
           this.pending.length,
           this.pending.length === 3,
         );
         this.transition("queued");
-      } else void this.turn(utterance);
+      } else void this.turn({ samples: utterance });
       return;
     }
     if (this.working) return;
     const phase = this.segmenter.isSpeaking ? "hearing" : "listening";
     if (phase !== this.phase) this.transition(phase);
   }
-  private async turn(samples: Float32Array) {
+  private blob(samples: Float32Array) {
+    return new Blob([wav(samples, this.options.capture.sampleRate)], {
+      type: "audio/wav",
+    });
+  }
+  /** Start recognition while the current answer is still running. */
+  private queued(samples: Float32Array): Utterance {
+    const transcribe = this.options.transcribe;
+    if (!transcribe) return { samples };
+    this.queueController ??= new AbortController();
+    const text = transcribe(this.blob(samples), this.queueController.signal)
+      .then((value) => value.trim() || null)
+      // An error is reported by the regular turn, which transcribes again.
+      .catch(() => undefined);
+    return { samples, text };
+  }
+  private async turn(utterance: Utterance) {
     const version = this.version;
     const controller = new AbortController();
     this.controller = controller;
@@ -160,10 +189,20 @@ export class Conversation {
     this.playback = "";
     this.transition("transcribing");
     try {
+      let recognized: string | null | undefined;
+      if (utterance.text) {
+        recognized = await utterance.text;
+        if (
+          !this.active ||
+          version !== this.version ||
+          controller.signal.aborted
+        )
+          return;
+        // Noise or an empty phrase recognized in advance never becomes a turn.
+        if (recognized === null) return;
+      }
       await this.options.onTurn(
-        new Blob([wav(samples, this.options.capture.sampleRate)], {
-          type: "audio/wav",
-        }),
+        this.blob(utterance.samples),
         controller.signal,
         (phase) => {
           if (
@@ -173,7 +212,7 @@ export class Conversation {
           )
             this.transition(phase);
         },
-        this.verified.get(samples),
+        recognized ?? undefined,
       );
       if (!this.active || version !== this.version) return;
       if (this.phase === "speaking") {
@@ -206,9 +245,7 @@ export class Conversation {
     this.bargeController = controller;
     try {
       const accepted = await this.options.onBarge!(
-        new Blob([wav(samples, this.options.capture.sampleRate)], {
-          type: "audio/wav",
-        }),
+        this.blob(samples),
         controller.signal,
         this.playback,
       );
@@ -219,9 +256,9 @@ export class Conversation {
         this.phase === "speaking" &&
         !controller.signal.aborted
       ) {
-        this.verified.set(samples, accepted);
         this.controller?.abort();
-        this.pending = [samples];
+        this.dropQueue();
+        this.pending = [{ samples, text: Promise.resolve(accepted) }];
         this.options.onPending?.(0, false);
       }
     } catch {
@@ -262,12 +299,17 @@ export class Conversation {
     if (!this.active || this.phase === "preparing") return;
     this.controller?.abort();
     this.bargeController?.abort();
-    this.pending = [];
+    this.dropQueue();
     this.options.onPending?.(0, false);
     this.segmenter?.reset();
     // A pending turn owns this transition until its cancellation has completed.
     if (this.phase === "listening" || this.phase === "hearing")
       this.transition("listening");
+  }
+  private dropQueue() {
+    this.pending = [];
+    this.queueController?.abort();
+    this.queueController = null;
   }
   private async fail(error: unknown, version: number) {
     if (version !== this.version) return;
@@ -282,7 +324,7 @@ export class Conversation {
     this.bargeController = null;
     this.bargeSegmenter = null;
     this.controller = null;
-    this.pending = [];
+    this.dropQueue();
     this.working = this.cooling = false;
     this.options.onPending?.(0, false);
     this.segmenter?.reset();

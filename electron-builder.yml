@@ -1,11 +1,18 @@
 appId: ru.wildlik.wileyai
 productName: WileyAI
 asar: true
+# Packaged builds are never a generic Node runtime. Inspect arguments stay
+# enabled: Playwright attaches through --inspect in scripts/test-packaged.mjs.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: true
 directories:
   output: local/releases
 files:
   - desktop/**
   - dist/**
+  - "!dist/**/*.map"
   - package.json
   - "!node_modules/**"
 extraResources:

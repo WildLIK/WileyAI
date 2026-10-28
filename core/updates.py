@@ -30,12 +30,23 @@ class Updates:
         self.client = client
         self.running = False
         self.value = {"automatic": True, "checked_at": None, "available": None,
-                      "dismissed": "", "notified": "", "error": "", "etag": ""}
+                      "dismissed": "", "notified": "", "error": "", "etag": "", "etag_version": ""}
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.value.update({key: saved[key] for key in self.value if key in saved})
         except (OSError, ValueError, TypeError):
             pass
+        if self.value["etag_version"] != VERSION:
+            # A cached 304 was computed against another installed version; ask GitHub for the full release again.
+            self.value["etag"] = ""
+        self.forget_installed()
+
+    def forget_installed(self):
+        """Drops an offer that is not newer than the running version (e.g. after upgrading)."""
+        item = self.value.get("available")
+        parsed = version(item.get("version", "")) if isinstance(item, dict) else None
+        if item is not None and not (parsed and parsed > version(VERSION)):
+            self.value["available"] = None
 
     def save(self):
         with self.guard:
@@ -106,6 +117,7 @@ class Updates:
                             self.value["available"] = ({"version": tag, "url": PAGE + "/tag/" + tag}
                                                        if parsed > version(VERSION) else None)
                             self.value["etag"] = response.headers.get("etag", "")
+                            self.value["etag_version"] = VERSION
                 self.value["error"] = ""
             except asyncio.CancelledError:
                 raise
@@ -115,6 +127,7 @@ class Updates:
             finally:
                 self.running = False
                 self.value["checked_at"] = time.time()
+                self.forget_installed()
                 self.save()
             return self.state()
 
@@ -137,6 +150,10 @@ class Updates:
     async def run(self):
         await asyncio.sleep(15)
         while True:
-            if self.value["automatic"] and time.time() - (self.value["checked_at"] or 0) >= 6 * 3600:
-                await self.check()
+            try:
+                if self.value["automatic"] and time.time() - (self.value["checked_at"] or 0) >= 6 * 3600:
+                    await self.check()
+            except Exception:
+                # A failed save must not stop future background checks.
+                pass
             await asyncio.sleep(60)

@@ -582,6 +582,9 @@ class Backups:
                     db.execute(f"DELETE FROM {table}")
             settings = {**bundle.settings, "search_enabled": False, "web_read_enabled": False, "weather_enabled": False, "currency_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions")}}
             settings.update({field: previous["settings"][field] for field in (*ACCESS_FIELDS, "command_understanding", "task_understanding", "plan_understanding", "embedding_enabled", "embedding_model", "embedding_base_url")})
+            # Imported settings cannot select another profile's registration.
+            # OAuth tokens themselves never enter the archive.
+            settings["chatgpt_connection"] = previous["settings"].get("chatgpt_connection", "")
             db.execute("INSERT OR REPLACE INTO config VALUES (1,?)", (Settings.model_validate(settings).model_dump_json(),))
             db.execute("INSERT INTO actions (id,kind,target,status,created) VALUES (?,?,?,?,?)", (uuid.uuid4().hex, "backup", "restore", "restored", now()))
         return {"recovery_path": str(path.resolve()), "counts": {name: len(rows) for name, rows in tables.items()}, "connections": connections, "aliases": aliases}

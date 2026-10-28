@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { scopedRequest } from "./api";
+import { scopedRequest, errorText } from "./api";
 
 type Preview = {
   ticket: string;
@@ -77,7 +77,7 @@ export function MailSend({
       })
       .catch((err) => {
         if (!controller.signal.aborted && revision === deliveryVersion.current)
-          setError(String(err));
+          setError(errorText(err));
       });
     return () => controller.abort();
   }, [bound, visible, draft.id, request]);

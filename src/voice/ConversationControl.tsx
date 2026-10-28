@@ -72,7 +72,7 @@ export function ConversationControl({
         <button
           className="outline speech-stop"
           onClick={onInterrupt}
-          title="Escape — остановить; Ctrl+Shift+Esc — из любого приложения"
+          title="Escape — остановить; Ctrl+Alt+Esc — из любого приложения"
           aria-label={speaking ? "■ Остановить озвучку" : "Перебить"}
         >
           {toolbar ? "■" : speaking ? "■ Остановить озвучку" : "Перебить"}

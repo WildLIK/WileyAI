@@ -12,18 +12,30 @@ export interface HistoryFocus {
   terms: string[];
 }
 
+const visuallyHidden = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+} as const;
+
 export function ChatMessages({
   children,
   chat,
   requestKey,
   target,
   onLatest,
+  status = "",
 }: {
   children: ReactNode;
   chat: string;
   requestKey: number;
   target?: HistoryFocus | null;
   onLatest?: () => void;
+  /** Short progress text for screen readers; streamed tokens are not announced. */
+  status?: string;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -89,13 +101,11 @@ export function ChatMessages({
   }, []);
   return (
     <div className="message-scroll-area">
-      <div
-        className="messages"
-        aria-live="polite"
-        ref={viewport}
-        onScroll={update}
-      >
+      <div className="messages" ref={viewport} onScroll={update}>
         <div ref={content}>{children}</div>
+      </div>
+      <div aria-live="polite" style={visuallyHidden}>
+        {status}
       </div>
       {below && (
         <button

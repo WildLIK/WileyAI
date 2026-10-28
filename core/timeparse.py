@@ -74,6 +74,8 @@ def parse_time(text: str, now: datetime, bare: bool = False, clock_context: bool
         spans.append((match.start(), end))
         value = value[:match.start()] + " " * (end - match.start()) + value[end:]
 
+    # «в 10.30» is a clock time; «10.05», «на 10.05» and «в 10.05.2027» stay dates.
+    value = re.sub(r"(\bв\s+(?:[01]?\d|2[0-3]))\.([0-5]\d)(?![.:\d])", r"\1:\2", value)
     clock_pattern = rf"\b(?:в|на)\s+({INTEGER})(?::([0-9]{{2}})|\s+({INTEGER}))?(?:\s+час(?:а|ов)?)?(?:\s+(утра|вечера|дня|ночи))?\b(?![.:]\d)"
     clocks = list(re.finditer(clock_pattern, value))
     if bare and not clocks:
@@ -115,7 +117,11 @@ def parse_time(text: str, now: datetime, bare: bool = False, clock_context: bool
         if match[1]:
             result.day = now.date() + timedelta(days={"сегодня": 0, "завтра": 1, "послезавтра": 2}[match[1]])
         elif match[2]:
-            result.day = now.date() + timedelta(days=(WEEKDAYS[match[2]] - now.weekday()) % 7)
+            ahead = (WEEKDAYS[match[2]] - now.weekday()) % 7
+            # «в понедельник в 9» said on Monday after 9:00 means next Monday.
+            if not ahead and result.clock is not None and datetime.combine(now.date(), result.clock, now.tzinfo) <= now:
+                ahead = 7
+            result.day = now.date() + timedelta(days=ahead)
         else:
             try:
                 result.day = date(int(match[5] or now.year), int(match[4]), int(match[3]))

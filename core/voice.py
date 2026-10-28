@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -21,8 +22,61 @@ from .speech_numbers import silero_numbers
 from .qwen import QwenSpeech
 from .cloud_speech import CloudSpeech
 from .openvoice import OpenVoice, LOCAL_ENGINES
+from . import gigaam
 
+# Published Silero checkpoints. A changed file is rejected rather than loaded with torch.
+SILERO_SHA256 = {
+    "v5_ru": "7ba04d42340fe0398042eed2e0d12d62e23096d626b1b9feff4dcb1309197ab4",
+    "v5_6_ru": "04cc9b1d08ce38bcaa9d02c488d80d3e6806d17f7eaa7c95982f36a3cbf50b2e",
+}
 POWERSHELL = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe") if os.name == "nt" else "powershell.exe"
+
+
+# Whisper's well-known inventions on noise and music (subtitle credits, outros).
+# Only a whole transcript made of them is dropped; real speech never matches.
+PHANTOMS = re.compile(
+    r"(?:продолжение следует|субтитр\w*(?: (?:сделал|создавал|подготовил\w*|делал))?|редактор субтитров|корректор|"
+    r"подписывайтесь(?: на канал)?|подпишись(?: на канал)?|ставьте лайк\w*|"
+    r"спасибо за (?:просмотр|внимание)|благодарю за (?:просмотр|внимание)|до (?:новых )?встреч\w*|"
+    r"музыка|аплодисменты|смех|dimatorzok|[а-яa-z]\. ?[а-яa-z]+(?:ова|ая|ев|ов)|amara\.org|\W)+",
+    re.I,
+)
+
+
+def recognized(text: str, prompt: str) -> str:
+    """Drop transcripts that are only a known hallucination or a replay of the prompt."""
+    value = text.strip()
+    if not value or PHANTOMS.fullmatch(value):
+        return ""
+    words = re.findall(r"\w+", value.casefold())
+    # A long exact copy of the vocabulary prompt is not something the user said.
+    if len(words) >= 8 and " ".join(words) in " ".join(re.findall(r"\w+", prompt.casefold())):
+        return ""
+    return value
+
+
+def speech_prompt(name: str) -> str:
+    """Style the prompt like the commands themselves: the name, a comma, an imperative."""
+    name = name.strip() or "Уайли"
+    return (f"{name}, прибавь громкость на десять. {name}, убавь громкость. {name}, продолжи музыку. "
+            f"{name}, поставь на паузу. {name}, следующий трек. {name}, открой Telegram. "
+            f"{name}, напомни через час. {name}, создай заметку. "
+            "Яндекс Музыка, Яндекс Браузер, AIMP, Chrome, Firefox.")
+
+
+def pcm16k(data: bytes):
+    """16 kHz mono PCM16 WAV (what the conversation sends) without ffmpeg or a temp file."""
+    if data[:4] != b"RIFF":
+        return None
+    try:
+        import numpy
+        with wave.open(io.BytesIO(data)) as source:
+            if source.getframerate() != 16000 or source.getnchannels() != 1 or source.getsampwidth() != 2:
+                return None
+            raw = source.readframes(source.getnframes())
+        return numpy.frombuffer(raw, "<i2").astype(numpy.float32) / 32768
+    except (ImportError, wave.Error, EOFError):
+        return None
 
 
 class SpeechCancelled(ValueError):
@@ -57,9 +111,17 @@ class Voice:
         self.download_lock = threading.Lock()
         self.render_lock = asyncio.Lock()
         self.monitor = None
+        self.system_voices = None
 
-    def available(self):
+    def available(self, model="small"):
+        if model == gigaam.MODEL_ID:
+            return gigaam.available()
         return importlib.util.find_spec("faster_whisper") is not None
+
+    def stt_installed(self, model):
+        if model == gigaam.MODEL_ID:
+            return gigaam.installed(self.root)
+        return model in {"tiny", "base", "small"} and (self.root / "models/whisper" / model / "model.bin").is_file()
 
     @contextmanager
     def _using(self, resource):
@@ -71,6 +133,11 @@ class Voice:
             self.last_used[resource] = self._clock()
 
     def _load_stt(self, model: str):
+        if model == gigaam.MODEL_ID:
+            if model not in self.models:
+                self.models.clear()
+                self.models[model] = gigaam.GigaAM(self.root)
+            return
         if not self.available():
             raise ValueError("Установите компонент Whisper в разделе «Модели → Компоненты» и перезапустите WileyAI.")
         from faster_whisper import WhisperModel
@@ -79,29 +146,47 @@ class Voice:
             raise ValueError("Сначала скачайте выбранную модель Whisper в разделе «Модели».")
         if model not in self.models:
             self.models.clear()
-            self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8")
+            # CTranslate2 defaults to 4 threads; physical cores (capped) cut a phrase by about a quarter.
+            import psutil
+            threads = min(16, psutil.cpu_count(logical=False) or 4)
+            self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=threads)
 
     def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate", environment: str = "normal") -> str:
         with self.lock, self._using("stt"):
             self._load_stt(model)
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
-                file.write(data)
-                path = file.name
+            if model == gigaam.MODEL_ID:
+                return self.models[model].transcribe(data, pcm16k(data), environment)
+            # A fixed Russian vocabulary helps short device commands. Never use
+            # the previous chat/document as a prompt or rewrite the transcript.
+            prompt = speech_prompt(hint)
+            options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
+            audio = pcm16k(data)
+            path = None
+            if audio is None:  # Recorded webm/ogg: decoded by faster-whisper from a file.
+                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
+                    file.write(data)
+                    path = file.name
             try:
-                # A fixed Russian vocabulary helps short device commands. Never use
-                # the previous chat/document as a prompt or rewrite the transcript.
-                vocabulary = "Команды: прибавь громкость на десять, убавь громкость, продолжи музыку, играй музыку, поставь на паузу, следующий трек, найди песню. Открой приложение, папку. Напомни. Яндекс Браузер, Яндекс Музыка, AIMP, Telegram, Chrome, Firefox, Edge."
-                options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
                 segments, _ = self.models[model].transcribe(
-                    path, language="ru", vad_filter=True,
+                    path or audio, language="ru", vad_filter=True,
                     beam_size={"fast": 1, "balanced": 3, "accurate": 5}.get(quality, 5),
                     temperature=0.0, condition_on_previous_text=False,
-                    initial_prompt=(hint[:60] + ". " + vocabulary) if hint else vocabulary, **options)
-                return " ".join(segment.text.strip() for segment in segments).strip()
+                    initial_prompt=prompt, **options)
+                # Whisper itself rates a segment as non-speech: noise, breath, music.
+                text = " ".join(segment.text.strip() for segment in segments
+                                if not (getattr(segment, "no_speech_prob", 0) > 0.7 and getattr(segment, "avg_logprob", 0) < -0.5))
+                return recognized(text, prompt)
             finally:
-                Path(path).unlink(missing_ok=True)
+                if path:
+                    Path(path).unlink(missing_ok=True)
 
     def download(self, model: str):
+        if model == gigaam.MODEL_ID:
+            if not self.available(model):
+                raise ValueError("Сначала установите компонент GigaAM ONNX в разделе «Модели → Компоненты» и перезапустите WileyAI.")
+            with self.download_lock:
+                gigaam.download(self.root)
+            return
         if not self.available():
             raise ValueError("Для Whisper сначала установите компонент в разделе «Модели → Компоненты»")
         from faster_whisper.utils import download_model
@@ -175,7 +260,7 @@ class Voice:
                             raise ValueError("Файл Silero превышает ожидаемый размер")
                         digest.update(chunk)
                         file.write(chunk)
-            if version == "v5_6_ru" and digest.hexdigest() != "04cc9b1d08ce38bcaa9d02c488d80d3e6806d17f7eaa7c95982f36a3cbf50b2e":
+            if digest.hexdigest() != SILERO_SHA256[version]:
                 raise ValueError("Контрольная сумма Silero не совпала. Повторите загрузку")
             partial.replace(target)
         finally:
@@ -226,15 +311,27 @@ class Voice:
             self.last_used["piper" if engine == "piper" else "silero"] = self._clock()
             self.tts_lock.release()
 
-    async def voices(self) -> list[dict]:
+    async def voices(self, refresh: bool = False) -> list[dict]:
+        """Installed SAPI voices, cached for the process; `refresh` re-reads them after an install."""
         if os.name != "nt":
             return []
+        if self.system_voices is not None and not refresh:
+            return list(self.system_voices)
         process = await asyncio.create_subprocess_exec(POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; @($s.GetInstalledVoices() | ForEach-Object { @{name=$_.VoiceInfo.Name; language=$_.VoiceInfo.Culture.Name} }) | ConvertTo-Json -Compress", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
-        out, _ = await process.communicate()
+        try:
+            out, _ = await asyncio.wait_for(process.communicate(), 10)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            return []
+        finally:
+            if process.returncode is None:
+                process.kill()
         if process.returncode:
             return []
         data = json.loads(out.decode("utf-8-sig") or "[]")
-        return data if isinstance(data, list) else [data]
+        self.system_voices = data if isinstance(data, list) else [data]
+        return list(self.system_voices)
 
     async def stop(self, request_id: str | None = None, preserve_session: str | None = None):
         await self.cloud.stop(request_id)
@@ -274,7 +371,7 @@ class Voice:
             expired = lambda key: idle_seconds is None or now - self.last_used[key] >= idle_seconds
             released = []
             if expired("stt"):
-                released.extend("Whisper " + name for name in self.models)
+                released.extend(gigaam.MODEL_NAME if name == gigaam.MODEL_ID else "Whisper " + name for name in self.models)
                 self.models.clear()
             if self.tts_model is not None and expired("silero"):
                 released.append("Silero 5.6" if self.tts_version == "v5_6_ru" else "Silero 5")

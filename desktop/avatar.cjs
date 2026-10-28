@@ -125,7 +125,7 @@ class AvatarDemos {
   }
   update(sender, value, renew = false) {
     if (renew && sender !== this.sender) return;
-    if (value === null) return this.clear();
+    if (value === null) return this.release(sender);
     if (
       !value ||
       typeof value.strength !== "number" ||
@@ -267,7 +267,13 @@ function installAvatar({
   });
   ipcMain.handle("avatar-demo-update", (event, value, renew) => {
     trusted(event);
-    if (!sleeping && !locked)
+    // Only the owner ends its preview, except the avatar's own "Авто" button.
+    if (
+      value === null &&
+      BrowserWindow.fromWebContents(event.sender) === windows.get("avatar")
+    )
+      demos.clear();
+    else if (!sleeping && !locked)
       demos.update(event.sender.id, value, Boolean(renew));
     return demos.state(event.sender.id);
   });
@@ -317,16 +323,18 @@ function installAvatar({
     if (typeof enabled !== "boolean")
       throw new Error("Некорректное слежение за указателем");
     if (enabled)
-      pointerWindows.set(
-        event.sender.id,
-        BrowserWindow.fromWebContents(event.sender),
-      );
+      pointerWindows.set(event.sender.id, {
+        window: BrowserWindow.fromWebContents(event.sender),
+        last: "",
+        at: 0,
+      });
     else pointerWindows.delete(event.sender.id);
   });
   setInterval(() => {
     if (sleeping || locked || !pointerWindows.size) return;
     let point;
-    for (const [id, window] of pointerWindows) {
+    for (const [id, watched] of pointerWindows) {
+      const { window } = watched;
       if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
         pointerWindows.delete(id);
         continue;
@@ -335,12 +343,20 @@ function installAvatar({
       point ||= screen.getCursorScreenPoint();
       const bounds = window.getContentBounds();
       const display = screen.getDisplayMatching(bounds).workArea;
-      sendToWindow(window, "avatar-pointer", {
+      const value = {
         x: point.x - bounds.x,
         y: point.y - bounds.y,
         width: display.width,
         height: display.height,
-      });
+      };
+      // An idle cursor needs no message ten times a second; a slow refresh
+      // still follows the head when the model itself moves or zooms.
+      const key = `${value.x},${value.y},${value.width},${value.height}`;
+      const now = Date.now();
+      if (key === watched.last && now - watched.at < 1000) continue;
+      watched.last = key;
+      watched.at = now;
+      sendToWindow(window, "avatar-pointer", value);
     }
   }, 100).unref();
   ipcMain.handle("avatar-next-display", (event) => {
@@ -426,7 +442,7 @@ function installAvatar({
         },
       );
       window.on("moved", () => activity(window));
-      window.once("ready-to-show", keepVisible);
+      window.once("ready-to-show", () => keepVisible());
     },
   };
 }

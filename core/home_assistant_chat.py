@@ -43,6 +43,7 @@ async def handle(home, store, command, progress):
     if not command: return None
     if command["kind"] == "help": return "Команды: «умный дом, включи Кухня», «умный дом, выключи Кухня», «умный дом, яркость Кухня на 30», «проверь умный дом». Действие сначала показывается для подтверждения."
     if command["kind"] == "cancel": return "Подготовленное действие умного дома отменено. Команда устройству не отправлялась."
+    if command["kind"] in {"brightness", "speed"} and not 0 <= command["value"] <= 100: return "Укажите " + ("яркость" if command["kind"] == "brightness" else "скорость") + " в процентах от 0 до 100. Команда устройству не отправлялась."
     if pending and (pending["expires"] < time.monotonic() or pending["scope"] != store.scope_id or pending["epoch"] != home.read().get("epoch")): pending = None
     async with home.lock:
         if command["kind"] == "confirm":

@@ -32,7 +32,7 @@ import { BackupPanel } from "./Backups";
 import { ComponentPanel } from "./Components";
 import { UpdateNotice, UpdatesPanel } from "./Updates";
 import { SetupWizard, type SetupProgress } from "./Setup";
-import { SearchSettings, SearchSources } from "./WebSearch";
+import { SearchSettings } from "./WebSearch";
 import { SemanticSearch } from "./SemanticSearch";
 import { BackgroundSettings } from "./BackgroundSettings";
 import { WeatherBar } from "./WeatherBar";
@@ -53,17 +53,19 @@ import { HomeAssistantPanel } from "./HomeAssistant";
 import { DocumentPanel } from "./Documents";
 import { MonitorPanel, ResourceBadge } from "./Monitor";
 import { SettingsNavigation, type SettingsSection } from "./SettingsNavigation";
-import { DocumentContext } from "./DocumentContext";
-import { DocumentReadingProgress } from "./DocumentReadingProgress";
 import { AppearancePanel, ThemeSwitch } from "./AppearancePanel";
 import { applyAppearance, type Appearance } from "./appearance";
 import { ProcessStatus, type ProcessKind } from "./ProcessStatus";
 import { CloudSpeechSettings } from "./voice/CloudSpeech";
+import { ChatGPTConnection } from "./ChatGPTConnection";
+import { MobilePanel } from "./MobilePanel";
 import { OpenVoiceSettings } from "./voice/OpenVoice";
 import { usesOpenVoice, selectSpeechEngine } from "./voice/speechEngine";
 import { ChatMessages, type HistoryFocus } from "./ChatMessages";
 import { HistorySearch, type HistoryHit } from "./HistorySearch";
-import { historyParts } from "./historyText";
+import { MessageItem, StreamingAnswer } from "./MessageItem";
+import { createAnswerStore } from "./answerStore";
+import { poll } from "./polling";
 import {
   Conversation,
   phaseLabels,
@@ -111,12 +113,15 @@ const tabs = [
   { id: "monitor", icon: "▥", label: "Нагрузка" },
   { id: "settings", icon: "⚙", label: "Настройки" },
 ];
-const stamp = (value: string) =>
-  new Date(value).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const withMessage = (items: Message[], message: Message) =>
+  items.some((item) => item.id === message.id) ? items : [...items, message];
 const attachmentKey = (chat: string) => "wiley-attachments-" + chat;
+/** A stable function that always calls the latest render's handler. */
+function useHandler<T extends unknown[], R>(handler: (...args: T) => R) {
+  const latest = useRef(handler);
+  latest.current = handler;
+  return useCallback((...args: T) => latest.current(...args), []);
+}
 function readAttachments(chat: string): string[] {
   try {
     const ids: unknown = JSON.parse(
@@ -177,6 +182,9 @@ function Avatar({
 
 export function App() {
   const view = new URLSearchParams(location.search).get("view") || "chat";
+  // The avatar window shows no history, memory or catalogs; it loads only
+  // what voice turns need. The settings window can open every tab.
+  const fullData = view !== "avatar";
   const [tab, setTab] = useState(view === "settings" ? "settings" : "chat");
   const [settings, setSettings] = useState<Settings>();
   const [appearanceSaving, setAppearanceSaving] = useState(false);
@@ -295,7 +303,7 @@ export function App() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const chatDrafts = useRef(new Map<string, string>());
-  const [answer, setAnswer] = useState("");
+  const [answerStore] = useState(createAnswerStore);
   const [busy, setBusy] = useState(false);
   const [searchNext, setSearchNext] = useState(false);
   const [stage, setStage] = useState("");
@@ -413,6 +421,17 @@ export function App() {
   // Workspace siblings share one key namespace, including the cached panels.
   const pageKey = (page: string) =>
     JSON.stringify([page, restoredVersion, activeChatId, scopeName]);
+  // Mail and Telegram keep unsaved drafts and in-flight sends: they remount
+  // only for another chat or space, or after a backup restore, not on renames,
+  // chat reloads or space-list updates.
+  const [backupVersion, setBackupVersion] = useState(0);
+  const panelKey = (page: string) =>
+    JSON.stringify([
+      page,
+      backupVersion,
+      activeChatId,
+      currentChat?.project_id ?? null,
+    ]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [modelCategory, setModelCategory] = useState("llm");
   const [installed, setInstalled] = useState<{ id: string; size: number }[]>(
@@ -483,6 +502,12 @@ export function App() {
     controller: AbortController;
   } | null>(null);
   const conversationEpoch = useRef(0);
+  // One microphone user at a time, claimed before the first await so two
+  // quick clicks cannot open the conversation and a recording together.
+  const micOwner = useRef<{ kind: "conversation" | "recording" } | null>(null);
+  const releaseMic = (owner: { kind: string } | null) => {
+    if (owner && micOwner.current === owner) micOwner.current = null;
+  };
   const recorder = useRef<MediaRecorder | null>(null);
   const audioStream = useRef<MediaStream | null>(null);
   const manualAbort = useRef<AbortController | null>(null);
@@ -497,12 +522,12 @@ export function App() {
   const upload = useRef<HTMLInputElement>(null);
   const channel = useRef<BroadcastChannel | null>(null);
 
-  const fail = (error: unknown) => {
+  const fail = useCallback((error: unknown) => {
     if (error instanceof DOMException && error.name === "AbortError") return;
     setError(
       error instanceof Error ? error.message : "Не удалось выполнить действие",
     );
-  };
+  }, []);
   const run = async (action: () => Promise<void>) => {
     setError("");
     try {
@@ -511,6 +536,14 @@ export function App() {
       fail(error);
     }
   };
+  // Stable message callbacks keep unchanged chat rows from re-rendering.
+  const speakMessage = useHandler((text: string) => run(() => speak(text)));
+  const continueAnswer = useHandler(
+    () =>
+      void send(
+        "Продолжи предыдущий ответ с места остановки, без повторения уже написанного.",
+      ),
+  );
   const refreshModels = useCallback(async () => {
     const epoch = ++modelRefreshEpoch.current;
     const dataVersion = dataEpoch.current;
@@ -531,7 +564,7 @@ export function App() {
   const refreshMemories = useCallback(async () => {
     const epoch = ++memoryRefreshEpoch.current;
     const id = activeChatRef.current;
-    if (!id) return;
+    if (!id || !fullData) return;
     const [facts, candidates, history] = await Promise.all([
       request<Memory[]>(scoped("/memories", id)),
       request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
@@ -601,11 +634,14 @@ export function App() {
     setChatLoading(true);
     try {
       const epoch = dataEpoch.current;
+      // Only the latest refresh applies its results.
+      const stale = () =>
+        epoch !== dataEpoch.current || loading !== chatLoadEpoch.current;
       const [chatList, projectList] = await Promise.all([
         request<Chat[]>("/conversations"),
         request<Project[]>("/projects"),
       ]);
-      if (epoch !== dataEpoch.current) return;
+      if (stale()) return;
       setChats(chatList);
       setProjects(projectList);
       const id = chatList.some((chat) => chat.id === activeChatRef.current)
@@ -641,8 +677,8 @@ export function App() {
         candidates,
       ] = await Promise.all([
         request<Settings>("/settings"),
-        request<Message[]>(messagePath(id)),
-        request<Memory[]>(scoped("/memories", id)),
+        fullData ? request<Message[]>(messagePath(id)) : [],
+        fullData ? request<Memory[]>(scoped("/memories", id)) : [],
         request<Doc[]>(
           scoped(
             "/documents?include=" +
@@ -650,12 +686,14 @@ export function App() {
             id,
           ),
         ),
-        request<CatalogItem[]>("/catalog"),
-        request<{ custom: Alias[] }>("/aliases"),
+        fullData ? request<CatalogItem[]>("/catalog") : [],
+        fullData ? request<{ custom: Alias[] }>("/aliases") : { custom: [] },
         request<VoiceInfo>("/voice"),
-        request<MemoryCandidate[]>(scoped("/memory-candidates", id)),
+        fullData
+          ? request<MemoryCandidate[]>(scoped("/memory-candidates", id))
+          : [],
       ]);
-      if (epoch !== dataEpoch.current) return;
+      if (stale()) return;
       if (configEpoch === settingsEpoch.current) acceptSettings(config);
       setMessages(history);
       setMemories(facts);
@@ -667,7 +705,7 @@ export function App() {
       setCatalog(items);
       setAliasList(aliases.custom);
       setVoice(voices);
-      void refreshModels().catch(fail);
+      if (fullData) void refreshModels().catch(fail);
     } finally {
       if (loading === chatLoadEpoch.current) {
         chatLoadingRef.current = false;
@@ -775,7 +813,11 @@ export function App() {
         event.ctrlKey ||
         event.shiftKey ||
         event.altKey ||
-        event.metaKey
+        event.metaKey ||
+        event.isComposing ||
+        event.defaultPrevented ||
+        // Escape closes an open dialog first; it must not also stop speech.
+        document.querySelector('[role="dialog"], dialog[open]')
       )
         return;
       interruptLocal();
@@ -785,6 +827,8 @@ export function App() {
     return () => window.removeEventListener("keydown", keydown);
   }, [interruptLocal]);
   const endConversation = useCallback(async () => {
+    const owner =
+      micOwner.current?.kind === "conversation" ? micOwner.current : null;
     conversationEpoch.current++;
     const starting = conversationStarting.current;
     conversationStarting.current = null;
@@ -795,12 +839,16 @@ export function App() {
     const current = conversationRef.current;
     conversationRef.current = null;
     stopAudio();
-    if (current) {
-      try {
-        await current.session.stop();
-      } finally {
-        await window.wiley.releaseConversation(current.lease);
+    try {
+      if (current) {
+        try {
+          await current.session.stop();
+        } finally {
+          await window.wiley.releaseConversation(current.lease);
+        }
       }
+    } finally {
+      releaseMic(owner);
     }
   }, [stopAudio]);
   const stop = useCallback(() => {
@@ -827,7 +875,7 @@ export function App() {
           .then((config) => {
             if (epoch === dataEpoch.current) {
               if (configEpoch === settingsEpoch.current) acceptSettings(config);
-              void refreshModels().catch(fail);
+              if (fullData) void refreshModels().catch(fail);
             }
           })
           .catch(fail);
@@ -864,11 +912,15 @@ export function App() {
       }
       if (event.data.type === "chat-updated") {
         const epoch = dataEpoch.current;
-        void request<Message[]>(messagePath(activeChatRef.current))
-          .then((history) => {
-            if (epoch === dataEpoch.current) setMessages(history);
-          })
-          .catch(fail);
+        // A reply streaming here appends its own messages; replacing the list
+        // now would duplicate them. This window refreshes after its reply.
+        if (fullData && !busyRef.current)
+          void request<Message[]>(messagePath(activeChatRef.current))
+            .then((history) => {
+              if (epoch === dataEpoch.current && !busyRef.current)
+                setMessages(history);
+            })
+            .catch(fail);
         void refreshMemories().catch(fail);
         void request<Chat[]>("/conversations").then(setChats).catch(fail);
       }
@@ -909,6 +961,7 @@ export function App() {
       setSearchNext(false);
       setAlias({ name: "", kind: "folder", target: "" });
       setRestoredVersion((value) => value + 1);
+      setBackupVersion((value) => value + 1);
       setError("");
       memoryRefreshEpoch.current++;
       void refresh().catch(fail);
@@ -937,19 +990,27 @@ export function App() {
       }
     };
   }, [refresh, refreshMemories, refreshDocuments, selectChat, stop]);
+  const jobsActive = jobs.some((job) =>
+    ["queued", "running"].includes(job.status),
+  );
   useEffect(() => {
-    if (!jobs.some((job) => ["queued", "running"].includes(job.status))) return;
-    const timer = setInterval(() => {
-      request<Job[]>("/jobs")
-        .then((data) => {
+    if (!jobsActive) return;
+    return poll(
+      async (signal) => {
+        try {
+          const data = await request<Job[]>("/jobs", "GET", undefined, signal);
+          if (signal.aborted) return;
           setJobs(data);
           if (!data.some((job) => ["queued", "running"].includes(job.status)))
-            void refreshModels();
-        })
-        .catch(fail);
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [jobs, refreshModels]);
+            void refreshModels().catch(fail);
+        } catch (error) {
+          if (!signal.aborted) fail(error);
+        }
+      },
+      1200,
+      { immediate: false },
+    );
+  }, [jobsActive, refreshModels, fail]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 5000);
@@ -1170,7 +1231,7 @@ export function App() {
     }
     setError("");
     setDraft("");
-    setAnswer("");
+    answerStore.clear();
     setReplyLimit("");
     stopAudio();
     setBusy(true);
@@ -1215,17 +1276,17 @@ export function App() {
       }
       await stream(
         text,
-        selectedDocs,
+        selectedDocsRef.current,
         controller.signal,
         (event) => {
           if (chatId !== activeChatRef.current) return;
           if (event.type === "user" && event.message) {
             userAccepted = true;
             setScrollRequest((value) => value + 1);
-            setMessages((items) => [...items, event.message!]);
+            setMessages((items) => withMessage(items, event.message!));
           }
           if (event.type === "delta" && event.text) {
-            setAnswer((value) => value + event.text);
+            answerStore.append(event.text);
             startOutput()?.push(event.text);
             liveReaction = (liveReaction + event.text).slice(-1200);
             if (!modelMood && /[.!?…]\s*$/.test(liveReaction)) {
@@ -1273,8 +1334,8 @@ export function App() {
           if (event.type === "done" && event.message) {
             completed = event.message.content;
             if (!modelMood) reactToTurn(completed);
-            setMessages((items) => [...items, event.message!]);
-            setAnswer("");
+            setMessages((items) => withMessage(items, event.message!));
+            answerStore.clear();
           }
         },
         options.conversation ? "conversation" : "text",
@@ -1322,7 +1383,7 @@ export function App() {
       setBusy(false);
       setReadingProgress(null);
       busyRef.current = false;
-      setAnswer("");
+      answerStore.clear();
       abort.current = null;
       void refreshMemories().catch(fail);
       void request<Chat[]>("/conversations").then(setChats).catch(fail);
@@ -1331,12 +1392,14 @@ export function App() {
     }
   }
   async function toggleConversation() {
-    await voiceSave.current;
     if (conversation.active) {
+      await voiceSave.current;
       await window.wiley.stopConversation();
       return;
     }
     if (
+      micOwner.current ||
+      conversationStarting.current ||
       conversationRef.current ||
       chatLoadingRef.current ||
       busyRef.current ||
@@ -1345,12 +1408,23 @@ export function App() {
       speaking
     )
       throw new Error("Дождитесь текущего действия перед началом разговора.");
+    const owner = { kind: "conversation" as const };
+    micOwner.current = owner;
+    let started: Conversation | null = null;
+    try {
+      await voiceSave.current;
+      started = await startConversation(owner);
+    } finally {
+      if (!started?.active) releaseMic(owner);
+    }
+  }
+  async function startConversation(owner: { kind: "conversation" }) {
     const epoch = ++conversationEpoch.current;
     const lease = await window.wiley.acquireConversation();
     const controller = new AbortController();
     if (epoch !== conversationEpoch.current) {
       await window.wiley.releaseConversation(lease);
-      return;
+      return null;
     }
     conversationStarting.current = { lease, controller };
     let session: Conversation | null = null;
@@ -1361,7 +1435,18 @@ export function App() {
         undefined,
         controller.signal,
       );
-      if (epoch !== conversationEpoch.current) return;
+      if (epoch !== conversationEpoch.current) return null;
+      const transcribe = async (audio: Blob, signal: AbortSignal) => {
+        const data = new FormData();
+        data.append("file", audio, "utterance.wav");
+        const result = await request<{ text: string }>(
+          "/voice/transcribe",
+          "POST",
+          data,
+          signal,
+        );
+        return result.text;
+      };
       session = new Conversation({
         capture: new Microphone(
           config.audio_input_device_id,
@@ -1371,26 +1456,19 @@ export function App() {
         onBarge: config.conversation_barge_in
           ? async (audio, signal, playback) => {
               const began = performance.now();
-              const data = new FormData();
-              data.append("file", audio, "barge.wav");
-              const result = await request<{ text: string }>(
-                "/voice/transcribe",
-                "POST",
-                data,
-                signal,
-              );
+              const text = await transcribe(audio, signal);
               if (
-                activated(result.text, config.conversation_wake_word) ===
-                  null ||
-                playbackEcho(result.text, playback)
+                activated(text, config.conversation_wake_word) === null ||
+                playbackEcho(text, playback)
               )
                 return null;
               setNotice(
                 `Обращение распознано за ${Math.round(performance.now() - began)} мс. Прерываю текущий ответ.`,
               );
-              return result.text;
+              return text;
             }
           : undefined,
+        transcribe,
         onPending: (count, full) => {
           if (count)
             setNotice(
@@ -1409,6 +1487,8 @@ export function App() {
           threshold: config.conversation_threshold,
           silenceMs: config.conversation_silence_ms,
           noiseCalibrationMs: config.stt_environment === "music" ? 600 : 0,
+          // Drum hits and short claps are not phrases worth recognizing.
+          minimumSpeechMs: config.stt_environment === "music" ? 300 : 160,
           maximumSpeechMs: config.conversation_max_seconds * 1000,
         },
         prepare: async (signal) => {
@@ -1421,23 +1501,15 @@ export function App() {
         onError: (error) => {
           if (conversationRef.current?.session === session)
             conversationRef.current = null;
+          releaseMic(owner);
           fail(error);
         },
         onTurn: async (audio, signal, phase, verifiedText) => {
-          const data = new FormData();
-          data.append("file", audio, "utterance.wav");
-          const result = verifiedText
-            ? { text: verifiedText }
-            : await request<{ text: string }>(
-                "/voice/transcribe",
-                "POST",
-                data,
-                signal,
-              );
+          const heard = verifiedText ?? (await transcribe(audio, signal));
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
           const text = activated(
-            result.text,
+            heard,
             config.conversation_wake_word,
             config.conversation_wake_required || config.conversation_barge_in,
           );
@@ -1484,6 +1556,7 @@ export function App() {
       conversationStarting.current = null;
       conversationRef.current = { session, lease };
       await session.start();
+      return session;
     } catch (error) {
       const cancelled =
         controller.signal.aborted || epoch !== conversationEpoch.current;
@@ -1491,6 +1564,7 @@ export function App() {
         await endConversation();
         throw error;
       }
+      return null;
     } finally {
       if (conversationStarting.current?.lease === lease)
         conversationStarting.current = null;
@@ -1507,14 +1581,25 @@ export function App() {
       return;
     }
     if (chatLoadingRef.current) return;
-    if (conversation.active || conversationRef.current)
+    if (
+      conversation.active ||
+      conversationRef.current ||
+      conversationStarting.current ||
+      micOwner.current?.kind === "conversation"
+    )
       throw new Error("Сначала завершите режим разговора.");
-    if (!voice.available)
-      throw new Error(
-        "Сначала установите компонент Whisper в разделе «Модели → Компоненты», затем перезапустите приложение.",
-      );
-    if (!voice.installed_stt.includes(settings!.stt_model))
-      throw new Error("Скачайте выбранную модель Whisper в разделе «Модели».");
+    // A second click while the microphone is still opening is ignored.
+    if (micOwner.current) return;
+    const owner = { kind: "recording" as const };
+    micOwner.current = owner;
+    let started = false;
+    try {
+      started = await startRecording(owner);
+    } finally {
+      if (!started) releaseMic(owner);
+    }
+  }
+  async function startRecording(owner: { kind: "recording" }) {
     stopAudio();
     const generation = ++manualGeneration.current;
     manualDiscard.current = false;
@@ -1527,7 +1612,20 @@ export function App() {
       controller.signal,
     );
     controller.signal.throwIfAborted();
-    if (generation !== manualGeneration.current) return;
+    if (generation !== manualGeneration.current) return false;
+    // Recognition uses the saved model, not an unsaved choice in settings.
+    if (
+      !(config.stt_model === "gigaam-v3"
+        ? voice.gigaam_available
+        : voice.available)
+    )
+      throw new Error(
+        `Установите компонент ${config.stt_model === "gigaam-v3" ? "GigaAM ONNX" : "Whisper"} в разделе «Модели → Компоненты» и перезапустите WileyAI.`,
+      );
+    if (!voice.installed_stt.includes(config.stt_model))
+      throw new Error(
+        "Скачайте выбранную модель распознавания в разделе «Модели».",
+      );
     const media = await navigator.mediaDevices
       .getUserMedia(
         microphoneConstraints(
@@ -1540,7 +1638,7 @@ export function App() {
       });
     if (generation !== manualGeneration.current) {
       media.getTracks().forEach((track) => track.stop());
-      return;
+      return false;
     }
     audioStream.current = media;
     const audio = new MediaRecorder(media, { mimeType: "audio/webm" });
@@ -1549,6 +1647,7 @@ export function App() {
     audio.ondataavailable = (event) => chunks.push(event.data);
     audio.onstop = () => {
       media.getTracks().forEach((track) => track.stop());
+      releaseMic(owner);
       setRecording(false);
       if (manualDiscard.current || generation !== manualGeneration.current)
         return;
@@ -1572,7 +1671,13 @@ export function App() {
             generation !== manualGeneration.current
           )
             return;
-          setDraft(result.text);
+          setDraft(
+            activated(
+              result.text,
+              settings?.conversation_wake_word || "Уайли",
+              false,
+            ) || "",
+          );
           input.current?.focus();
           if (!result.text)
             setNotice("Речь не распознана. Попробуйте ещё раз.");
@@ -1580,8 +1685,14 @@ export function App() {
         .catch(fail)
         .finally(() => setUploading(false));
     };
-    audio.start();
+    try {
+      audio.start();
+    } catch (error) {
+      media.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     setRecording(true);
+    return true;
   }
   async function download(item: CatalogItem) {
     if (item.kind === "stt" || item.kind === "tts") {
@@ -1679,7 +1790,7 @@ export function App() {
       kind: "download",
       label: "Загружаю голосовую модель…",
     });
-  if (jobs.some((job) => ["queued", "running"].includes(job.status)))
+  if (jobsActive)
     activity.push({
       id: "model-download",
       kind: "download",
@@ -1799,6 +1910,7 @@ export function App() {
       </div>
     );
 
+  const lastMessageId = messages.at(-1)?.id;
   const headerActivity = activity.find(
     (item) =>
       item.id !== "listen" && (!conversation.active || item.id !== "voice"),
@@ -1826,13 +1938,6 @@ export function App() {
               aria-label={item.icon + " " + item.label}
               title={item.label}
               onClick={() => {
-                if (
-                  item.id !== tab &&
-                  !window.dispatchEvent(
-                    new Event("wiley-before-navigation", { cancelable: true }),
-                  )
-                )
-                  return;
                 setTab(item.id);
                 setError("");
               }}
@@ -2037,6 +2142,7 @@ export function App() {
                 chat={activeChatId}
                 requestKey={scrollRequest}
                 target={historyFocus}
+                status={busy ? stage || "Готовлю ответ…" : ""}
                 onLatest={
                   historyWindowVisible
                     ? () => void run(returnToLatest)
@@ -2072,128 +2178,44 @@ export function App() {
                     </div>
                   </div>
                 )}
-                {messages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={
-                      "message " +
-                      message.role +
-                      (historyFocus?.id === message.id ? " history-hit" : "")
-                    }
-                    data-message-id={message.id}
-                    tabIndex={historyFocus?.id === message.id ? -1 : undefined}
-                  >
-                    <div className="message-avatar">
-                      {message.role === "user" ? "Вы" : "W"}
-                    </div>
-                    <div className="message-body">
-                      <div className="message-meta">
-                        {message.role === "user" ? "Вы" : settings.name}
-                        <time>{stamp(message.created)}</time>
-                        {message.role === "assistant" && (
-                          <button
-                            className="speak-button"
-                            aria-label="Озвучить ответ"
-                            onClick={() => run(() => speak(message.content))}
-                          >
-                            ♪
-                          </button>
-                        )}
-                      </div>
-                      <div className="message-text">
-                        {historyFocus?.id === message.id
-                          ? historyParts(
-                              message.content,
-                              historyFocus.terms,
-                            ).map((part, index) =>
-                              part.match ? (
-                                <mark data-history-match key={index}>
-                                  {part.text}
-                                </mark>
-                              ) : (
-                                part.text
-                              ),
-                            )
-                          : message.content}
-                      </div>
-                      {message.role === "assistant" &&
-                        message.id === messages.at(-1)?.id &&
-                        !message.content.endsWith(
-                          "[Генерация остановлена из-за повторов.]",
-                        ) &&
-                        !busy &&
-                        !historyWindowVisible && (
-                          <div className="button-row">
-                            <button
-                              className="subtle"
-                              disabled={conversation.active || chatLoading}
-                              onClick={() =>
-                                void send(
-                                  "Продолжи предыдущий ответ с места остановки, без повторения уже написанного.",
-                                )
-                              }
-                            >
-                              Продолжить ответ
-                            </button>
-                            {replyLimit && (
-                              <small role="status">{replyLimit}</small>
-                            )}
-                          </div>
-                        )}
-                      <SearchSources
-                        message={message}
-                        onError={fail}
-                        onNotice={setNotice}
-                      />
-                      <DocumentContext message={message} />
-                      {Boolean(message.memory_context?.length) && (
-                        <details className="memory-context">
-                          <summary>Передано в контекст из памяти</summary>
-                          <ul>
-                            {message.memory_context!.map((item) => (
-                              <li key={item.id}>{item.content}</li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
-                    </div>
-                  </article>
-                ))}
+                {messages.map((message) => {
+                  const canContinue =
+                    message.role === "assistant" &&
+                    message.id === lastMessageId &&
+                    !message.content.endsWith(
+                      "[Генерация остановлена из-за повторов.]",
+                    ) &&
+                    !busy &&
+                    !historyWindowVisible;
+                  return (
+                    <MessageItem
+                      key={message.id}
+                      message={message}
+                      name={settings.name}
+                      focus={
+                        historyFocus?.id === message.id ? historyFocus : null
+                      }
+                      speakDisabled={busy}
+                      continuable={canContinue}
+                      continueDisabled={
+                        canContinue && (conversation.active || chatLoading)
+                      }
+                      limit={canContinue ? replyLimit : ""}
+                      onSpeak={speakMessage}
+                      onContinue={continueAnswer}
+                      onError={fail}
+                      onNotice={setNotice}
+                    />
+                  );
+                })}
                 {busy && (
-                  <article className="message assistant" aria-busy="true">
-                    <div className="message-avatar">W</div>
-                    <div className="message-body">
-                      <div className="message-meta">
-                        {settings.name}
-                        <span className="thinking">{stage}</span>
-                      </div>
-                      <div className="message-text">
-                        <ProcessStatus
-                          kind={
-                            readingProgress
-                              ? "document"
-                              : /ищу|поиск/i.test(stage)
-                                ? "search"
-                                : "brain"
-                          }
-                          label={stage || "Готовлю ответ…"}
-                          detail={
-                            answer
-                              ? "Ответ появляется по мере готовности"
-                              : "Обрабатываю запрос"
-                          }
-                          compact={Boolean(answer)}
-                        />
-                        {readingProgress && (
-                          <DocumentReadingProgress
-                            value={readingProgress}
-                            onStop={stop}
-                          />
-                        )}
-                        {answer}
-                      </div>
-                    </div>
-                  </article>
+                  <StreamingAnswer
+                    store={answerStore}
+                    name={settings.name}
+                    stage={stage}
+                    readingProgress={readingProgress}
+                    onStop={stop}
+                  />
                 )}
                 <MemorySuggestions
                   key={restoredVersion}
@@ -2385,9 +2407,19 @@ export function App() {
                     <i />
                     {settings.provider === "ollama"
                       ? "Локальная модель · "
-                      : "Внешний провайдер · "}
+                      : settings.provider === "chatgpt"
+                        ? "Используется план ChatGPT · "
+                        : "Внешний провайдер · "}
                     {settings.model}
                   </span>
+                  {settings.provider === "chatgpt" && (
+                    <button
+                      className="text"
+                      onClick={() => run(() => window.wiley.chatgptUsage())}
+                    >
+                      Лимиты ChatGPT
+                    </button>
+                  )}
                   <span>{scopeName}</span>
                 </div>
               </div>
@@ -2835,9 +2867,9 @@ export function App() {
             scopeName={scopeName}
           />
         )}
-        {activeChatId && !chatLoading && (
+        {activeChatId && (
           <TelegramPanel
-            key={pageKey("telegram")}
+            key={panelKey("telegram")}
             conversationId={activeChatId}
             visible={tab === "telegram"}
           />
@@ -2848,9 +2880,9 @@ export function App() {
             conversationId={activeChatId}
           />
         )}
-        {activeChatId && !chatLoading && (
+        {activeChatId && (
           <MailPanel
-            key={pageKey("mail")}
+            key={panelKey("mail")}
             conversationId={activeChatId}
             scopeName={scopeName}
             visible={tab === "mail"}
@@ -3083,6 +3115,9 @@ export function App() {
                 onChange={setSettingsSection}
               />
               <div className="settings-content">
+                <div id="settings-panel-mobile" role="tabpanel" aria-labelledby="settings-tab-mobile" hidden={settingsSection !== "mobile"} className="settings-panel">
+                  {settingsSection === "mobile" && <MobilePanel />}
+                </div>
                 <div
                   id="settings-panel-appearance"
                   role="tabpanel"
@@ -3223,7 +3258,9 @@ export function App() {
                       <select
                         aria-label="Движок"
                         value={settings.provider}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          setApiKey("");
+                          setKeyTouched(false);
                           setSettings({
                             ...settings,
                             provider: event.target
@@ -3231,55 +3268,92 @@ export function App() {
                             base_url:
                               event.target.value === "ollama"
                                 ? "http://127.0.0.1:11434"
-                                : "https://example.com/v1",
-                          })
-                        }
+                                : event.target.value === "chatgpt"
+                                  ? "https://api.openai.com/v1"
+                                  : "https://example.com/v1",
+                            model:
+                              event.target.value === "chatgpt"
+                                ? ""
+                                : settings.model,
+                          });
+                        }}
                       >
                         <option value="ollama">Ollama</option>
                         <option value="compatible">Совместимый API</option>
+                        <option value="chatgpt">
+                          ChatGPT · вход через аккаунт
+                        </option>
                       </select>
                     </label>
-                    <label>
-                      Адрес сервера
-                      <input
-                        value={settings.base_url}
-                        onChange={(event) =>
+                    {settings.provider === "chatgpt" ? (
+                      <ChatGPTConnection
+                        model={settings.model}
+                        connectionId={settings.chatgpt_connection}
+                        onSelect={(connection, model) =>
                           setSettings({
                             ...settings,
-                            base_url: event.target.value,
+                            chatgpt_connection: connection,
+                            model,
                           })
                         }
-                      />
-                    </label>
-                    <label>
-                      Идентификатор модели
-                      <input
-                        value={settings.model}
-                        onChange={(event) =>
-                          setSettings({
+                        onConnected={async (connection, model) => {
+                          await save({
                             ...settings,
-                            model: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Ключ API
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        placeholder={
-                          settings.has_api_key
-                            ? "Ключ сохранён в Windows"
-                            : "Если требуется провайдером"
-                        }
-                        value={apiKey}
-                        onChange={(event) => {
-                          setApiKey(event.target.value);
-                          setKeyTouched(true);
+                            provider: "chatgpt",
+                            base_url: "https://api.openai.com/v1",
+                            chatgpt_connection: connection,
+                            model,
+                          });
+                          setNotice(
+                            "ChatGPT подключён. WileyAI использует его ответы, в том числе в голосовом разговоре.",
+                          );
                         }}
                       />
-                    </label>
+                    ) : (
+                      <>
+                        <label>
+                          Адрес сервера
+                          <input
+                            value={settings.base_url}
+                            onChange={(event) =>
+                              setSettings({
+                                ...settings,
+                                base_url: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Идентификатор модели
+                          <input
+                            value={settings.model}
+                            onChange={(event) =>
+                              setSettings({
+                                ...settings,
+                                model: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Ключ API
+                          <input
+                            type="password"
+                            autoComplete="off"
+                            placeholder={
+                              settings.has_api_key
+                                ? "Ключ сохранён в Windows"
+                                : "Если требуется провайдером"
+                            }
+                            value={apiKey}
+                            onChange={(event) => {
+                              setApiKey(event.target.value);
+                              setKeyTouched(true);
+                            }}
+                          />
+                        </label>
+                      </>
+                    )}
                     <label>
                       Контекст, токенов
                       <input
@@ -3296,42 +3370,47 @@ export function App() {
                         }
                       />
                     </label>
-                    <label>
-                      Максимальная длина ответа, токенов
-                      <input
-                        type="number"
-                        min={256}
-                        max={8192}
-                        step={256}
-                        value={settings.response_tokens}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            response_tokens: Number(event.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Профиль производительности
-                      <select
-                        value={settings.profile}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            profile: event.target.value as Settings["profile"],
-                          })
-                        }
-                      >
-                        <option value="eco">
-                          Экономичный · выгрузка через 1 минуту
-                        </option>
-                        <option value="balanced">
-                          Сбалансированный · 5 минут
-                        </option>
-                        <option value="quality">Качество · 15 минут</option>
-                      </select>
-                    </label>
+                    {settings.provider !== "chatgpt" && (
+                      <>
+                        <label>
+                          Максимальная длина ответа, токенов
+                          <input
+                            type="number"
+                            min={256}
+                            max={8192}
+                            step={256}
+                            value={settings.response_tokens}
+                            onChange={(event) =>
+                              setSettings({
+                                ...settings,
+                                response_tokens: Number(event.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Профиль производительности
+                          <select
+                            value={settings.profile}
+                            onChange={(event) =>
+                              setSettings({
+                                ...settings,
+                                profile: event.target
+                                  .value as Settings["profile"],
+                              })
+                            }
+                          >
+                            <option value="eco">
+                              Экономичный · выгрузка через 1 минуту
+                            </option>
+                            <option value="balanced">
+                              Сбалансированный · 5 минут
+                            </option>
+                            <option value="quality">Качество · 15 минут</option>
+                          </select>
+                        </label>
+                      </>
+                    )}
                     <details className="settings-help">
                       <summary>Контекст и подключение</summary>
                       <p className="help">
@@ -3552,7 +3631,7 @@ export function App() {
                       ♪ Прослушать голос
                     </button>
                     <p className="help">
-                      Escape останавливает озвучку. Ctrl+Shift+Esc работает и в
+                      Escape останавливает озвучку. Ctrl+Alt+Esc работает и в
                       других приложениях. Локальные голоса скачиваются в «Модели
                       → Озвучка», облачные настраиваются выше.
                     </p>
@@ -3671,7 +3750,7 @@ export function App() {
                       стоп». Микрофон работает и во время озвучки; совпадения с
                       произносимым текстом отбрасываются. Сначала проверяется
                       обращение, затем отменяются ответ и очередь. Проверка
-                      Whisper добавляет задержку и нагрузку. Распознавание через
+                      Распознавание добавляет задержку и нагрузку. Ввод через
                       колонки зависит от эхоподавления устройства; режим можно
                       выключить. Это не фоновое прослушивание при закрытом
                       разговоре.
@@ -3702,6 +3781,7 @@ export function App() {
                     <label>
                       Модель распознавания
                       <select
+                        aria-label="Модель распознавания"
                         value={settings.stt_model}
                         onChange={(event) =>
                           setSettings({
@@ -3711,9 +3791,11 @@ export function App() {
                           })
                         }
                       >
-                        {["tiny", "base", "small"].map((value) => (
+                        {["tiny", "base", "small", "gigaam-v3"].map((value) => (
                           <option key={value} value={value}>
-                            Whisper {value}
+                            {value === "gigaam-v3"
+                              ? "GigaAM v3 · E2E RNN-T"
+                              : `Whisper ${value}`}
                             {voice.installed_stt.includes(value)
                               ? " · установлена"
                               : " · нужно скачать"}
@@ -3724,7 +3806,9 @@ export function App() {
                     <label>
                       Точность распознавания
                       <select
+                        aria-label="Точность распознавания"
                         value={settings.stt_quality}
+                        disabled={settings.stt_model === "gigaam-v3"}
                         onChange={(event) =>
                           setSettings({
                             ...settings,
@@ -3745,8 +3829,9 @@ export function App() {
                       </select>
                     </label>
                     <p className="help">
-                      «Точнее» проверяет больше вариантов и может работать
-                      дольше. Для русского языка рекомендуем Whisper small.
+                      {settings.stt_model === "gigaam-v3"
+                        ? "GigaAM распознаёт русскую речь локально на процессоре и расставляет знаки препинания. Режимы точности Whisper к нему не применяются. Сначала установите компонент GigaAM ONNX и скачайте веса в разделе «Модели». "
+                        : "«Точнее» проверяет больше вариантов и может работать дольше. "}
                       После записи распознанный текст появится в поле сообщения:
                       его можно исправить перед отправкой.
                     </p>
@@ -3792,7 +3877,7 @@ export function App() {
                   <div className="card voice-resources">
                     <h2>Память моделей речи</h2>
                     <label>
-                      Автовыгрузка Whisper, Silero и Piper
+                      Автовыгрузка Whisper, GigaAM, Silero и Piper
                       <select
                         aria-label="Автовыгрузка Whisper, Silero и Piper"
                         value={settings.voice_idle_timeout}
@@ -4088,7 +4173,7 @@ export function App() {
                     <p className="help">
                       Ctrl + Shift + Space — открыть чат.
                       <br />
-                      Ctrl + Shift + Esc — остановить ответ и озвучку, вернуть
+                      Ctrl + Alt + Esc — остановить ответ и озвучку, вернуть
                       клики аватару.
                     </p>
                   </div>

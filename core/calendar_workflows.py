@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import re
 
 from .calendar import Calendar, EventBody, calendar_zone, instant
+from .calendar_repeats import occurrences
 from .timeparse import parse_time, due_time, describe_due, NUMBER
 from .workflows import Result, CONTEXT_SECONDS
 
@@ -195,10 +196,21 @@ class CalendarWorkflows:
         context.update(last_id=item["id"], last_updated=item["updated"])
         remember()
         self.store.audit("calendar", item["id"], "created")
-        overlap = self.calendar.list(item["starts_at"], item["ends_at"])["total"] > 1
+        overlap = self._overlaps(item)
         return Result(f"Создал встречу «{item['title']}» — {describe_due(begin)}, на {draft['minutes']:g} мин."
                       + (" Есть пересечение с другим событием." if overlap else "")
                       + " Локальный календарь; " + self._reminder_text(item).lower(), ["calendar"])
+
+    def _overlaps(self, item):
+        """Stops at the first other event in the new event's span instead of expanding every series."""
+        start, end = instant(item["starts_at"]), instant(item["ends_at"])
+        with self.store.db() as db:
+            rows = db.execute("SELECT * FROM calendar_events WHERE scope_id=? AND id<>? AND starts_at<? AND (ends_at>? OR recurrence IS NOT NULL)",
+                              (self.store.scope_id, item["id"], item["ends_at"], item["starts_at"])).fetchall()
+        try:
+            return any(next(occurrences(dict(row), start, end), None) for row in rows)
+        except ValueError:
+            return False  # The event is already saved; an unreadable series must not turn this into an error.
 
     @staticmethod
     def _reminder_minutes(value, now):

@@ -1,5 +1,6 @@
 """Model-assisted task plans. Only validated, visible plans can mutate the store."""
 import asyncio
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 import json
@@ -57,6 +58,8 @@ class Plan(BaseModel):
     due: str = ""
     offset_from_due: bool = False
     offset_sign: Literal[-1, 1] = 1
+    # Day/week shifts keep the local wall-clock time across DST changes.
+    offset_calendar: bool = False
 
 
 class Pending(BaseModel):
@@ -119,14 +122,26 @@ def allowed_actions(text, prior=None):
     return set(Decision.model_fields["action"].annotation.__args__)
 
 
+DAY_UNITS = r"\bна\s+(?:(?!час)\S+\s+){0,2}?(?:день|дня|дней|недел[юиь]|недель)\b"
+DAY_SHIFT = DAY_UNITS + r"\s+(?:позже|раньше)\b"
+
+
+def relative_shift(d, text):
+    """«на N минут/дней позже» shifts the old due; returns (offset_from_due, offset_calendar)."""
+    offset = bool(d.action == "move" and d.seconds is not None and re.search(r"\bна\s+.{0,50}(?:секунд|минут|час|день|дня|дней|недел)", text, re.I) and not re.search(r"\bчерез\b", text, re.I))
+    return offset, offset and bool(re.search(DAY_UNITS, text, re.I))
+
+
 def clock_now(zone, now=None):
     return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(zone or "UTC"))
 
 
 def catalog(store, text, budget=7000):
-    words = set(re.findall(r"\w{3,}", normalize(text)))
+    # Each distinct query word scores once when a title word shares its 4-letter prefix.
+    prefixes = Counter(word[:4] for word in set(re.findall(r"\w{3,}", normalize(text))))
     def score(title):
-        return sum(any(word[:4] == other[:4] for other in re.findall(r"\w+", normalize(title))) for word in words)
+        found = {other[:4] for other in re.findall(r"\w+", normalize(title))}
+        return sum(count for prefix, count in prefixes.items() if prefix in found)
     # Query the full project scope, then send at most 40 relevant records and a
     # bounded number of characters. Never include documents, notes or other projects.
     with store.db() as db:
@@ -183,7 +198,12 @@ def validate_time(plan, now):
     elif plan.offset_from_due:
         if not plan.targets[0].due or d.seconds is None:
             raise ValueError("У записи нет срока для сдвига. Назовите новую дату и время.")
-        due = datetime.fromisoformat(plan.targets[0].due) + timedelta(seconds=d.seconds * plan.offset_sign)
+        due = datetime.fromisoformat(plan.targets[0].due)
+        days, seconds = divmod(d.seconds, 86400) if plan.offset_calendar else (0, d.seconds)
+        if days:
+            # Aware arithmetic in the local zone moves the date and keeps the wall clock.
+            due = due.astimezone(now.tzinfo) + timedelta(days=days * plan.offset_sign)
+        due = due.astimezone(timezone.utc) + timedelta(seconds=seconds * plan.offset_sign)
         plan.due = due.astimezone(timezone.utc).isoformat()
     else:
         anchor = datetime.fromisoformat(plan.anchor).astimezone(now.tzinfo)
@@ -203,6 +223,9 @@ def validate_source(d, text, now, *, check_repeat=True):
     source = parse_time(text, now, clock_context=d.kind != "timer", allow_recurrence=True)
     if source.error:
         raise ValueError(source.error)
+    # «на 2 дня позже» is a shift; the parser would otherwise read «2 дня» as 14:00.
+    if re.search(DAY_SHIFT, text, re.I):
+        source.clock = None
     if source.clock and d.clock and source.clock.strftime("%H:%M") != d.clock:
         raise ValueError("Предложенное время не совпадает с названным. Повторите срок.")
     if source.day and d.day and not re.search(r"следующ|ближайш", text, re.I) and source.day.isoformat() != d.day:
@@ -219,7 +242,7 @@ def validate_source(d, text, now, *, check_repeat=True):
         if not float(source.seconds).is_integer():
             raise ValueError("Для плана укажите интервал целым числом секунд.")
         d.seconds = int(source.seconds)
-    elif d.seconds is not None and not re.search(r"\b(?:через|на)\s+.{1,35}(?:час|минут|секунд|дня|дней|недел)", text, re.I):
+    elif d.seconds is not None and not re.search(r"\b(?:через|на)\s+.{0,35}(?:час|минут|секунд|день|дня|дней|недел)", text, re.I):
         d.seconds = None
     if d.day and not source.day and not re.search(r"\d{4}-\d\d-\d\d|\d{1,2}\.\d{1,2}|сегодня|завтра|следующ|ближайш|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|дня|дней|недел|месяц|январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр", text, re.I):
         d.day = ""
@@ -274,7 +297,7 @@ def present(plan, now):
 
 async def propose(store, settings, text, zone=None, now=None, prior=None):
     now = clock_now(zone or (prior.zone if prior else None), now)
-    public, allowed = catalog(store, text, min(7000, max(0, settings.context_tokens * 2 - len(text) - 4500)))
+    public, allowed = await asyncio.to_thread(catalog, store, text, min(7000, max(0, settings.context_tokens * 2 - len(text) - 4500)))
     if prior:
         allowed = {item.id: item.model_dump() for item in prior.targets}
         public = [item.model_dump() for item in prior.targets]
@@ -321,8 +344,8 @@ async def propose(store, settings, text, zone=None, now=None, prior=None):
             raise ValueError("Уточнение изменило исходное действие. Повторите просьбу целиком.")
         if prior and prior.due and any(getattr(d, key) != getattr(prior.decision, key) for key in ("day", "clock", "seconds", "repeat", "weekdays")):
             raise ValueError("Уточнение изменило уже выбранный срок. Повторите просьбу целиком.")
-        offset = bool(d.action == "move" and d.seconds is not None and re.search(r"\bна\s+.{0,50}(?:секунд|минут|час|дня|дней|недел)", text, re.I) and not re.search(r"\bчерез\b", text, re.I))
-        plan = Plan(decision=d, targets=[Snapshot.model_validate(allowed[key]) for key in d.candidates], zone=zone or (prior.zone if prior else "UTC"), anchor=now.isoformat(), scope_id=store.scope_id, due=prior.due if prior else "", offset_from_due=offset or bool(prior and prior.offset_from_due), offset_sign=-1 if re.search(r"\bраньше\b", text, re.I) else prior.offset_sign if prior else 1)
+        offset, calendar = relative_shift(d, text)
+        plan = Plan(decision=d, targets=[Snapshot.model_validate(allowed[key]) for key in d.candidates], zone=zone or (prior.zone if prior else "UTC"), anchor=now.isoformat(), scope_id=store.scope_id, due=prior.due if prior else "", offset_from_due=offset or bool(prior and prior.offset_from_due), offset_sign=-1 if re.search(r"\bраньше\b", text, re.I) else prior.offset_sign if prior else 1, offset_calendar=calendar or bool(prior and prior.offset_calendar))
         validate_time(plan, now)
         if d.action == "find":
             for item in plan.targets:

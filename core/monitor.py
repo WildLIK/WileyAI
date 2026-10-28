@@ -5,6 +5,7 @@ import asyncio
 import csv
 import ctypes
 import io
+import logging
 import os
 import shutil
 import subprocess
@@ -17,6 +18,8 @@ import psutil
 
 
 INTERVAL = 2
+IDLE_INTERVAL = 10  # Nobody is looking: sample rarely and skip driver/socket probes.
+DEMAND = 30
 HISTORY = 300
 
 
@@ -115,6 +118,8 @@ class Monitor:
         self.gpu = {"devices": [], "processes": {}, "note": "Ожидаю данные драйвера…"}
         self.ollama = {"models": [], "error": None, "local": True, "url": ""}
         self.optional_at = 0
+        self.requested_at = None
+        self.wake = None
         self.external = []
         self.external_url = ""
         self.cores = psutil.cpu_count() or 1
@@ -149,6 +154,15 @@ class Monitor:
                 self.calls[key] = {"count": old["count"] + 1, "seconds": old["seconds"] + time.monotonic() - began}
                 if len(self.calls) > 64:
                     self.calls.pop(next(iter(self.calls)))
+
+    def requested(self):
+        """Called by /monitor. Wakes an idle loop so the next snapshot is fresh and complete."""
+        if not self.watched() and self.wake is not None:
+            self.wake.set()
+        self.requested_at = time.monotonic()
+
+    def watched(self):
+        return self.requested_at is not None and time.monotonic() - self.requested_at < DEMAND
 
     def call(self, key, function, *args):
         # Enclose the actual native work even if its HTTP caller disconnects.
@@ -301,7 +315,7 @@ class Monitor:
                                        "shared": "core" if engine.startswith("silero") or engine == "piper" else None}
         used_stt = {key[4:] for key in calls.keys() | active.keys() if key.startswith("stt:")}
         for model in {*self.voice.models, config.stt_model, *used_stt}:
-            models["stt:" + model] = {"name": "Whisper " + model, "category": "Распознавание голоса", "loaded": model in self.voice.models, "shared": "core"}
+            models["stt:" + model] = {"name": "GigaAM v3 E2E RNN-T" if model == "gigaam-v3" else "Whisper " + model, "category": "Распознавание голоса", "loaded": model in self.voice.models, "shared": "core"}
         if config.tts_engine == "cloud":
             models["cloud_tts:" + config.tts_service + ":" + config.tts_model] = {"name": config.tts_model, "category": "Озвучка", "location": "cloud"}
         models.update(metadata)
@@ -341,16 +355,25 @@ class Monitor:
                 "history": list(self.history), "ollama_note": self.ollama["error"]}
 
     async def run(self):
+        self.wake = asyncio.Event()
         while True:
             began = time.monotonic()
-            if began - self.optional_at >= 6:
-                self.optional_at = began
-                gpu, _ = await asyncio.gather(asyncio.to_thread(gpu_snapshot), self.ollama_snapshot())
-                self.gpu = gpu
-                self.external = await asyncio.to_thread(self.external_ollama)
-                self.external_url = self.ollama["url"]
+            watched = self.watched()
             try:
+                # nvidia-smi, /api/ps and the socket table only matter while someone looks.
+                if watched and began - self.optional_at >= 6:
+                    self.optional_at = began
+                    gpu, _ = await asyncio.gather(asyncio.to_thread(gpu_snapshot), self.ollama_snapshot())
+                    self.gpu = gpu
+                    self.external = await asyncio.to_thread(self.external_ollama)
+                    self.external_url = self.ollama["url"]
                 self.latest = await asyncio.to_thread(self.sample)
             except (psutil.Error, OSError):
                 pass  # A process may disappear during a sample; retain the last good snapshot.
-            await asyncio.sleep(max(.1, INTERVAL - (time.monotonic() - began)))
+            except Exception:
+                logging.getLogger(__name__).exception("Resource sample failed")
+            self.wake.clear()
+            try:
+                await asyncio.wait_for(self.wake.wait(), max(.1, (INTERVAL if self.watched() else IDLE_INTERVAL) - (time.monotonic() - began)))
+            except TimeoutError:
+                pass

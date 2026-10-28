@@ -226,3 +226,12 @@ def test_api_chat_crud_and_interrupting_a_clarification(tmp_path, monkeypatch):
         assert api.delete("/calendar/events/" + event["id"], params={"expected_updated": event["updated"]}).status_code == 400
         assert api.delete("/calendar/events/" + event["id"]).status_code == 200
         assert api.get("/calendar/events", params={"start": "bad", "end": RANGE[1]}).status_code == 400
+
+
+def test_created_meeting_reports_overlap_with_series_but_not_with_itself(tmp_path):
+    store = Store(tmp_path)
+    workflows = CalendarWorkflows(store)
+    assert "пересечение" not in workflows.handle("создай встречу Обзор завтра в 10", ZONE, NOW).text
+    Calendar(store).save(body(title="Планёрка", starts_at="2026-10-01T15:00", ends_at="2026-10-01T16:00", recurrence={"rule": "daily"}))
+    assert "пересечение" in workflows.handle("создай встречу Звонок завтра в 15:30", ZONE, NOW).text
+    assert "пересечение" not in workflows.handle("создай встречу Ужин завтра в 18", ZONE, NOW).text

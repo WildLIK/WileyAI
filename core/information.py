@@ -25,7 +25,9 @@ def request(text, name="Уайли"):
         return forecast
     if re.fullmatch(r"(?:(?:какой|покажи|скажи|узнай)(?: мне)?\s+)?курс(?:ы)?\s+(?:валют|[а-яёa-z ,]+)(?:\s+сегодня)?[?.!]*", value, re.I):
         names = [code for code, pattern in CURRENCIES.items() if re.search(r"\b(?:" + pattern + r")\b", value, re.I)]
-        return {"kind": "currency", "codes": names or (["USD", "EUR", "CNY"] if re.search(r"\bвалют\b", value, re.I) else []), "raw": value}
+        if not names and not re.search(r"\bвалют", value, re.I):
+            return None  # «Какой курс лечения…» is not a currency request.
+        return {"kind": "currency", "codes": names or ["USD", "EUR", "CNY"], "raw": value}
     return None
 
 
@@ -41,7 +43,7 @@ async def weather(settings, item):
 
 
 async def currency(settings, item):
-    if not item["codes"] or re.search(r"\b(?:вчера|завтра|к|на|за)\b|\d", item["raw"], re.I):
+    if not item["codes"] or re.search(r"\b(?:вчера|завтра|к(?!\s+рубл)|на|за)\b|\d", item["raw"], re.I):
         raise websearch.SearchError("Поддержан текущий официальный курс к рублю: «Курс доллара», «Курс евро» или «Курсы валют»")
     _, _, _, raw = await webfetch.read(CBR, "application/xml,text/xml", limit=512 * 1024, dns_mode=settings.web_dns)
     # ElementTree does not fetch external entities. Reject internal declarations

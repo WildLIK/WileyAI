@@ -27,8 +27,8 @@ class EventRepeat(RepeatRule):
                 raise ValueError("Дата исключения нужна в формате ГГГГ-ММ-ДД")
         return self
 
-    def matches(self, day, first):
-        return (day.day == (civil_calendar.monthrange(day.year, day.month)[1] if self.monthday == -1 else self.monthday or first.day)) if self.rule == "monthly" else day.weekday() in self.days()
+    def matches(self, day, first, days=None):
+        return (day.day == (civil_calendar.monthrange(day.year, day.month)[1] if self.monthday == -1 else self.monthday or first.day)) if self.rule == "monthly" else day.weekday() in (days if days is not None else self.days())
 
     @field_validator("until")
     @classmethod
@@ -63,8 +63,9 @@ def occurrences(event, start, end):
     finish = min(end.astimezone(zone).date() + timedelta(days=1), date.max - timedelta(days=1))
     if rule.until:
         finish = min(finish, date.fromisoformat(rule.until))
+    days, excluded = rule.days(), set(rule.excluded)
     while day <= finish:
-        if rule.matches(day, local_start.date()) and day.isoformat() not in rule.excluded:
+        if rule.matches(day, local_start.date(), days) and day.isoformat() not in excluded:
             begin = wall_time(day, local_start.timetz(), zone)
             stop = wall_time(day + length, local_end.timetz(), zone)
             if begin and stop:

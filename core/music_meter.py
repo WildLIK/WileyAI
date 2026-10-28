@@ -206,8 +206,9 @@ class MusicMeter:
             try:
                 with session_meters() as meters:
                     until = time.monotonic() + 1.5
+                    # The setting is re-read once per 1.5 s session cycle, not on every 50 ms sample.
                     while not self.closed.is_set() and time.monotonic() < until:
-                        if not self.clients or not self.enabled():
+                        if not self.clients:
                             break
                         self.value = rhythm.update(peaks(meters), time.monotonic())
                         self.closed.wait(.05)
