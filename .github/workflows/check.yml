@@ -86,6 +86,7 @@ jobs:
     runs-on: windows-latest
     env:
       WILEYAI_VRM_TEST_PATH: ${{ github.workspace }}/assets/avatars/Fairy_Assistant.vrm
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,7 +97,7 @@ jobs:
         with:
           enable-cache: true
           version: '0.11.29'
-      - run: uv sync --locked --extra dev
+      - run: uv sync --locked --extra dev --extra gigaam
       - run: npm ci
       - run: npx playwright install chromium
       - run: npm run check
