@@ -26,13 +26,14 @@ def test_spoken_mapping_does_not_override_literal_custom_name():
     assert commands.resolve("Открой мозилла", aliases).target == "https://example.com"
 
 
-def test_menu_scan_excludes_uninstall_and_non_known_links_and_is_bounded(tmp_path):
+def test_menu_scan_excludes_uninstall_but_keeps_unknown_links_and_is_bounded(tmp_path):
     (tmp_path / "Telegram.lnk").touch()
     (tmp_path / "Uninstall Telegram.lnk").touch()
     (tmp_path / "Personal Document.lnk").touch()
     (tmp_path / "Adobe Photoshop 2026.lnk").touch()
     links, limited = discovery.menu_links([tmp_path])
-    assert {spec.id for spec, _ in links} == {"telegram", "photoshop"}
+    assert {spec.id for spec, _ in links if spec} == {"telegram", "photoshop"}
+    assert any(spec is None and path.stem == "Personal Document" for spec, path in links)
     assert not limited
     assert discovery.menu_links([tmp_path], limit=1)[1]
     assert discovery.menu_links([tmp_path], seconds=0)[1]
@@ -56,12 +57,14 @@ def test_discovery_deduplicates_and_prefers_valid_shortcuts_without_running_them
     dead = tmp_path / "Google Chrome.lnk"
     dead.touch()
     monkeypatch.setattr(discovery, "registry_candidates", lambda: [discovery.Candidate("telegram", str(exe), "registry")])
+    monkeypatch.setattr(discovery, "installed_registry_candidates", lambda: [])
+    monkeypatch.setattr(discovery, "packaged_candidates", lambda: [])
     monkeypatch.setattr(discovery, "location_candidates", lambda: [discovery.Candidate("telegram", str(exe), "folder")])
     monkeypatch.setattr(discovery, "menu_links", lambda roots: ([(shortcut_spec("Telegram"), link), (shortcut_spec("Google Chrome"), dead)], False))
     monkeypatch.setattr(discovery, "shortcut_targets", lambda paths: {str(link): str(exe), str(dead): str(tmp_path / "missing.exe")})
     result = discovery.discover()
     assert len(result["items"]) == 1
-    assert result["items"][0]["target"] == str(link)
+    assert result["items"][0]["target"] == str(exe)
     assert result["items"][0]["category"] == "messengers"
     assert result["items"][0]["source"] == "Ярлык меню «Пуск»"
     assert result["warnings"] == []
@@ -135,8 +138,8 @@ def test_find_known_app_checks_saved_file_and_refreshes_stale_path(tmp_path, mon
     calls = []
     monkeypatch.setattr(discovery, "discover", lambda: calls.append(1) or {"supported": True, "items": [item] if path.exists() else []})
     scanner = discovery.ApplicationScanner(tmp_path)
-    assert scanner.find("Яндекс Праузер") == item and calls == [1]
-    assert discovery.ApplicationScanner(tmp_path).find("Яндекс, браузер") == item and calls == [1]
+    assert scanner.find("Яндекс Праузер")["target"] == str(path) and calls == [1]
+    assert discovery.ApplicationScanner(tmp_path).find("Яндекс, браузер")["target"] == str(path) and calls == [1]
     assert scanner.find("Случайная программа") is None and calls == [1]
     path.unlink()
     assert scanner.find("Яндекс Браузер") is None and calls == [1, 1]
@@ -149,8 +152,8 @@ def test_direct_browser_request_discovers_without_manual_import_and_uses_verifie
     app = create_app(tmp_path, "applications-launch-0123456789")
     def find(name):
         calls.append(name)
-        return {"name": name, "target": str(path)}
-    monkeypatch.setattr(app.state.applications, "find", find)
+        return [{"name": name, "target": str(path), "source": "test"}]
+    monkeypatch.setattr(app.state.applications, "find_matches", find)
     monkeypatch.setattr(commands, "execute", lambda command, **kw: launches.append(command) or "Процесс подтверждён: PID 123.")
     async def forbidden(*args):
         pytest.fail("A native app lookup must not call the model")
@@ -169,13 +172,14 @@ def test_direct_browser_request_discovers_without_manual_import_and_uses_verifie
         api.post("/chat", json={"text": "Открой Яндекс Браузер"})
         assert len(launches) == 1 and len(calls) == 2
         store.patch_settings({"allow_app_open": True})
-        monkeypatch.setattr(app.state.applications, "find", lambda name: None)
+        monkeypatch.setattr(app.state.applications, "find_matches", lambda name: [])
         assert "Ничего не запущено" in api.post("/chat", json={"text": "Открой Яндекс Браузер"}).text
         assert len(launches) == 1
 
 
 @pytest.mark.parametrize("cancel", [True, False])
-def test_browser_discovery_cannot_launch_after_stop_or_permission_revocation(tmp_path, monkeypatch, cancel):
+@pytest.mark.parametrize("app_name", ["Яндекс Праузер", "RPGReactor"])
+def test_browser_discovery_cannot_launch_after_stop_or_permission_revocation(tmp_path, monkeypatch, cancel, app_name):
     path = tmp_path / "browser.exe"
     path.touch()
     app = create_app(tmp_path, "app-lookup-cancel-0123456789")
@@ -184,12 +188,12 @@ def test_browser_discovery_cannot_launch_after_stop_or_permission_revocation(tmp
     def find(name):
         started.set()
         assert release.wait(5)
-        return {"name": name, "target": str(path)}
-    monkeypatch.setattr(app.state.applications, "find", find)
+        return [{"name": name, "target": str(path), "source": "test"}]
+    monkeypatch.setattr(app.state.applications, "find_matches", find)
     monkeypatch.setattr(commands, "execute", lambda command, **kw: launches.append(command) or "launched")
     with TestClient(app, headers={"Authorization": "Bearer app-lookup-cancel-0123456789"}) as api:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(api.post, "/chat", json={"text": "Открой Яндекс Праузер", "request_id": "browser-lookup"})
+            future = pool.submit(api.post, "/chat", json={"text": "Открой " + app_name, "request_id": "browser-lookup"})
             try:
                 assert started.wait(5)
                 if cancel:

@@ -36,6 +36,7 @@ export interface Settings {
   tts_device: "auto" | "cpu" | "cuda";
   tts_voice: string;
   speak_answers: boolean;
+  action_speech: "brief" | "full" | "off";
   memory_suggestions: boolean;
   allow_file_open: boolean;
   allow_app_open: boolean;
@@ -70,6 +71,7 @@ export interface Settings {
   conversation_silence_ms: number;
   conversation_threshold: number;
   stt_environment: "normal" | "music";
+  voice_diagnostics: boolean;
   conversation_listen_while_thinking: boolean;
   conversation_barge_in: boolean;
   conversation_wake_required: boolean;
@@ -103,6 +105,7 @@ export type SpeechSettings = Pick<
   | "tts_voice"
   | "tts_device"
   | "speak_answers"
+  | "action_speech"
   | "openvoice_enabled"
   | "openvoice_voice"
 > &
@@ -515,6 +518,8 @@ export async function stream(
   signal: AbortSignal,
   onEvent: (event: {
     type: string;
+    mode?: string;
+    action?: { action: string; status: string; target: string; display: string; spoken: string; details?: Record<string, unknown> };
     emotion?: import("./avatarBehavior").AvatarEmotion;
     gesture?: import("./avatarBehavior").AvatarGesture;
     text?: string;

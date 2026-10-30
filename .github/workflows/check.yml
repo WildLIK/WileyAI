@@ -13,6 +13,73 @@ permissions:
   contents: read
 
 jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: pip install -r deploy/gateway/requirements.txt pytest
+      - run: python -m pytest tests/test_gateway.py tests/test_gateway_wire.py -q
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.2.13676358' 'cmake;3.31.6'
+      - run: python3 scripts/prepare-android-native.py
+      - name: Ephemeral CI signing key
+        run: |
+          mkdir -p local/android-signing
+          keytool -genkeypair -keystore local/android-signing/wiley-debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=WileyAI CI'
+      - run: gradle -p android --no-daemon assembleDebug lintDebug assembleDebugAndroidTest
+      - name: Phone routing JVM probe
+        run: |
+          mkdir -p android/app/build/probe
+          javac -encoding UTF-8 -d android/app/build/probe android/app/src/main/java/ru/wildlik/wileyai/mobile/SpokenNames.java android/app/src/main/java/ru/wildlik/wileyai/mobile/PhoneCommands.java android/app/src/main/java/ru/wildlik/wileyai/mobile/MediaCommands.java android/app/src/main/java/ru/wildlik/wileyai/mobile/ConversationMode.java android/app/src/main/java/ru/wildlik/wileyai/mobile/WakePhrase.java tests/android/PhoneCommandsProbe.java tests/android/MediaCommandsProbe.java
+          java -cp android/app/build/probe PhoneCommandsProbe
+          for scenario in transport routing search seek reject conversation wake-conversation; do
+            java -cp android/app/build/probe MediaCommandsProbe "$scenario"
+          done
+      - name: Speech installer and app catalog JVM probes
+        run: |
+          javac -encoding UTF-8 -d android/app/build/probe android/app/src/main/java/ru/wildlik/wileyai/mobile/SpokenNames.java android/app/src/main/java/ru/wildlik/wileyai/mobile/AppRegistry.java android/app/src/main/java/ru/wildlik/wileyai/mobile/VerifiedModelInstaller.java android/app/src/main/java/ru/wildlik/wileyai/mobile/VoiceLabels.java android/app/src/main/java/ru/wildlik/wileyai/mobile/WakePhrase.java android/app/src/main/java/ru/wildlik/wileyai/mobile/ResumableDownload.java android/app/src/main/java/ru/wildlik/wileyai/mobile/GgufInstaller.java tests/android/SpeechComponentsProbe.java tests/android/DownloadProbe.java tests/android/GgufProbe.java
+          for scenario in wake-phrase reopen replace bad-sha bad-md5 partial-download traversal absolute wrong-root expansion-limit cancelled cancel-after-validation engine-failure corrupt-pointer spoken-aliases voice-labels catalog-exact catalog-ambiguous catalog-aliases catalog-rejects-fuzzy catalog-search catalog-removed catalog-nfkc catalog-alias-validation; do
+            java -cp android/app/build/probe SpeechComponentsProbe "$scenario" "android/app/build/model-probe/$scenario"
+          done
+          for scenario in resume short-ranges truncated-fallback redirect range-ignored invalid-range cancelled bounded-retries; do
+            java -cp android/app/build/probe DownloadProbe "$scenario" "android/app/build/download-probe/$scenario"
+          done
+          for scenario in replace short-file bad-sha engine-failure cancel-after-validation cancel-before-publication invalid-pointer; do
+            java -cp android/app/build/probe GgufProbe "$scenario" "android/app/build/gguf-probe/$scenario"
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Android tool plans and OIDC validation
+        run: |
+          python -m pip install pytest PyJWT cryptography
+          python -m pytest tests/test_android_tools.py tests/test_android_identity.py tests/test_android_responses.py -q
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-checks
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/androidTest/debug/*.apk
+            android/app/build/reports/lint-results-debug.*
   windows:
     runs-on: windows-latest
     env:

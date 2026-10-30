@@ -55,13 +55,16 @@ def recognized(text: str, prompt: str) -> str:
     return value
 
 
-def speech_prompt(name: str) -> str:
+def speech_prompt(name: str, vocabulary=()) -> str:
     """Style the prompt like the commands themselves: the name, a comma, an imperative."""
     name = name.strip() or "Уайли"
-    return (f"{name}, прибавь громкость на десять. {name}, убавь громкость. {name}, продолжи музыку. "
+    base = (f"{name}, прибавь громкость на десять. {name}, убавь громкость. {name}, продолжи музыку. "
             f"{name}, поставь на паузу. {name}, следующий трек. {name}, открой Telegram. "
             f"{name}, напомни через час. {name}, создай заметку. "
             "Яндекс Музыка, Яндекс Браузер, AIMP, Chrome, Firefox.")
+    # Only short app names supplied by the local catalog/user; never history.
+    extra = [v.strip() for v in vocabulary[:8] if isinstance(v, str) and re.fullmatch(r"[\w .-]{1,60}", v.strip())]
+    return (base[:600] + (" Приложения: " + ", ".join(extra) if extra else ""))[:800]
 
 
 def pcm16k(data: bytes):
@@ -151,14 +154,14 @@ class Voice:
             threads = min(16, psutil.cpu_count(logical=False) or 4)
             self.models[model] = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=threads)
 
-    def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate", environment: str = "normal") -> str:
+    def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate", environment: str = "normal", vocabulary=()) -> str:
         with self.lock, self._using("stt"):
             self._load_stt(model)
             if model == gigaam.MODEL_ID:
                 return self.models[model].transcribe(data, pcm16k(data), environment)
             # A fixed Russian vocabulary helps short device commands. Never use
             # the previous chat/document as a prompt or rewrite the transcript.
-            prompt = speech_prompt(hint)
+            prompt = speech_prompt(hint, vocabulary)
             options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
             audio = pcm16k(data)
             path = None

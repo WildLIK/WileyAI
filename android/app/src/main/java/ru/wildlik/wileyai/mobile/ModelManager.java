@@ -1,0 +1,16 @@
+package ru.wildlik.wileyai.mobile;
+
+import android.content.Context;
+import org.json.*;
+
+/** Modes are independent. Existing cloud/Gateway profiles stay intact when local is selected. */
+final class ModelManager {
+    private final Context context;private final SettingsRepository settings;
+    ModelManager(Context context){this.context=context;settings=new SettingsRepository(context);}
+    BrainProvider.Kind selected(){if(settings.preferences.getBoolean("gateway_enabled",false))return BrainProvider.Kind.REMOTE_GATEWAY;if(settings.preferences.getBoolean("account_enabled",false))return BrainProvider.Kind.ACCOUNT_OAUTH;if(settings.preferences.getBoolean("cloud_enabled",false)){try{JSONObject profile=settings.readCloud();return profile!=null&&profile.optString("key").isEmpty()?BrainProvider.Kind.DIRECT_CLOUD:BrainProvider.Kind.OFFICIAL_API;}catch(Exception error){return BrainProvider.Kind.OFFICIAL_API;}}return BrainProvider.Kind.LOCAL;}
+    void local(){settings.preferences.edit().putBoolean("cloud_enabled",false).putBoolean("gateway_enabled",false).putBoolean("account_enabled",false).apply();}
+    String label(){try{return switch(selected()){case LOCAL->LlmModels.readActive(context.getFilesDir().toPath().resolve("llm-models"))==null?"Локальная модель не установлена":"Телефон · Qwen3 0.6B";case DIRECT_CLOUD,OFFICIAL_API->"Прямое облако · "+settings.readCloud().optString("model");case ACCOUNT_OAUTH->"ChatGPT · "+(settings.readAccount()==null?"вход требуется":settings.readAccount().optString("model_name","выберите модель"));case REMOTE_GATEWAY->"Gateway · "+settings.readGateway().optString("model_name","выберите модель");};}catch(Exception error){return "Проверьте настройку мозга";}}
+    String binding(){try{return switch(selected()){case LOCAL->"local";case DIRECT_CLOUD,OFFICIAL_API->{JSONObject value=settings.readCloud();yield value==null?"":selected()+":"+value.getString("endpoint")+":"+value.getString("model");}case REMOTE_GATEWAY->{JSONObject value=settings.readGateway();yield value==null?"":selected()+":"+value.getString("url")+":"+value.getString("connection_id")+":"+value.optString("model_id");}case ACCOUNT_OAUTH->{JSONObject value=settings.readAccount();yield value==null?"":"chatgpt-account:"+value.optString("subject")+":"+value.optString("model_id");}};}catch(Exception error){return "";}}
+    boolean toolsAllowed(){return settings.preferences.getBoolean("brain_tools_enabled",true)&&(selected()==BrainProvider.Kind.LOCAL||(!binding().isEmpty()&&binding().equals(settings.preferences.getString("brain_tool_consent_binding",""))));}
+    BrainProvider create()throws Exception{return switch(selected()){case LOCAL->new LocalProvider(context);case DIRECT_CLOUD,OFFICIAL_API->{JSONObject value=settings.readCloud();if(value==null)throw new Exception("Настройте прямое облачное подключение.");yield selected()==BrainProvider.Kind.DIRECT_CLOUD?new DirectCloudProvider(value):new OfficialAPIProvider(value);}case REMOTE_GATEWAY->{JSONObject value=settings.readGateway();if(value==null||value.optString("connection_id").isEmpty()||value.optString("model_id").isEmpty())throw new Exception("Выберите модель дополнительного Gateway.");yield new RemoteGatewayProvider(value);}case ACCOUNT_OAUTH->new AccountOAuthProvider(settings);};}
+}

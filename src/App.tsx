@@ -41,6 +41,7 @@ import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
 import { Applications } from "./Applications";
+import { Pronunciations } from "./Pronunciations";
 import { YandexMusic } from "./YandexMusic";
 import { ActionLog } from "./ActionLog";
 import { PlanHistory } from "./PlanHistory";
@@ -75,6 +76,7 @@ import { Microphone } from "./voice/microphone";
 import { ConversationControl } from "./voice/ConversationControl";
 import { AudioDevices } from "./voice/AudioDevices";
 import { SpeechOutput } from "./voice/output";
+import { TurnSpeech } from "./voice/turnSpeech";
 import {
   avatarPhase,
   avatarReaction,
@@ -236,6 +238,7 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [lastHeard, setLastHeard] = useState("");
   const [replyLimit, setReplyLimit] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -1257,16 +1260,17 @@ export function App() {
     let repeated = false;
     let liveReaction = "";
     let modelMood = false;
-    const startOutput = () => {
+    const startOutput = (force = false) => {
       if (
         !repeated &&
         !output &&
         config &&
-        (options.conversation || config.speak_answers)
+        (force || options.conversation || config.speak_answers)
       )
         output = startSpeech(config, controller.signal, options.onSpeaking);
       return output;
     };
+    const speech = new TurnSpeech<Blob>(config?.action_speech || "brief", startOutput, controller.signal);
     try {
       if (historyWindow.current) {
         const latest = await request<Message[]>(scoped("/messages", chatId));
@@ -1280,6 +1284,9 @@ export function App() {
         controller.signal,
         (event) => {
           if (chatId !== activeChatRef.current) return;
+          speech.event(event);
+          if (event.type === "voice_diagnostic" && config?.voice_diagnostics && event.text)
+            setNotice((value) => `${value} ${event.text}`.trim());
           if (event.type === "user" && event.message) {
             userAccepted = true;
             setScrollRequest((value) => value + 1);
@@ -1287,7 +1294,6 @@ export function App() {
           }
           if (event.type === "delta" && event.text) {
             answerStore.append(event.text);
-            startOutput()?.push(event.text);
             liveReaction = (liveReaction + event.text).slice(-1200);
             if (!modelMood && /[.!?…]\s*$/.test(liveReaction)) {
               reactToTurn(liveReaction);
@@ -1324,7 +1330,7 @@ export function App() {
             setReplyLimit(event.text || "Ответ достиг лимита длины.");
           if (event.type === "repetition") {
             repeated = true;
-            output?.cancel();
+            speech.cancel();
             setError(event.text || "Ответ остановлен из-за повторов модели.");
           }
           if (event.type === "error") {
@@ -1343,19 +1349,24 @@ export function App() {
         chatId,
         !!options.fullDocument,
       );
-      if (streamError) throw new Error(streamError);
+      if (streamError) {
+        speech.finish("");
+        await speech.done;
+        output = undefined;
+        throw new Error(streamError);
+      }
       if (controller.signal.aborted)
         throw new DOMException("Ответ отменён", "AbortError");
-      if (completed && !repeated) startOutput()?.finish(completed);
-      else output?.cancel();
+      if (completed && !repeated) speech.finish(completed);
+      else speech.cancel();
       if (options.conversation) {
         setBusy(false);
         busyRef.current = false;
-        await output?.done;
+        await speech.done;
       }
       return completed;
     } catch (error) {
-      output?.cancel();
+      speech.cancel();
       if (options.conversation) throw error;
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         if (
@@ -1439,12 +1450,15 @@ export function App() {
       const transcribe = async (audio: Blob, signal: AbortSignal) => {
         const data = new FormData();
         data.append("file", audio, "utterance.wav");
-        const result = await request<{ text: string }>(
+        const result = await request<{ text: string; diagnostics?: { engine: string; stt_ms: number } }>(
           "/voice/transcribe",
           "POST",
           data,
           signal,
         );
+        if (config.voice_diagnostics && result.diagnostics && !signal.aborted)
+          setNotice(`Распознано: «${result.text}» · ${result.diagnostics.engine} · ${result.diagnostics.stt_ms} мс. Для проверки команды без запуска откройте «Мои произношения».`);
+        if (!signal.aborted && result.text) setLastHeard(result.text);
         return result.text;
       };
       session = new Conversation({
@@ -1678,6 +1692,7 @@ export function App() {
               false,
             ) || "",
           );
+          if (result.text) setLastHeard(result.text);
           input.current?.focus();
           if (!result.text)
             setNotice("Речь не распознана. Попробуйте ещё раз.");
@@ -2123,6 +2138,7 @@ export function App() {
                   <h1>{currentChat?.title || "Новый чат"}</h1>
                   <small>{scopeName}</small>
                 </div>
+                {lastHeard && <button type="button" onClick={() => { setSettingsSection("microphone"); setTab("settings"); }}>Исправить распознавание</button>}
               </div>
               {historyWindowVisible && (
                 <div className="history-window-banner">
@@ -3614,6 +3630,14 @@ export function App() {
                       />
                       Озвучивать ответы автоматически
                     </label>
+                    <label>
+                      Озвучивание действий
+                      <select aria-label="Озвучивание действий" value={settings.action_speech || "brief"} disabled={speaking || conversation.active || voiceSaving} onChange={(event) => saveVoice({ action_speech: event.target.value as Settings["action_speech"] })}>
+                        <option value="brief">Кратко</option>
+                        <option value="full">Подробно</option>
+                        <option value="off">Без озвучки действий</option>
+                      </select>
+                    </label>
                     <button
                       className="outline"
                       disabled={speaking || conversation.active || voiceSaving}
@@ -3874,6 +3898,8 @@ export function App() {
                       кнопкой; голосовое перебивание ещё не включено.
                     </p>
                   </div>
+                  <div className="card"><label><input type="checkbox" checked={settings.voice_diagnostics} onChange={(event) => setSettings({ ...settings, voice_diagnostics: event.target.checked })} /> Диагностика голосовых команд</label><p className="help">Показывает распознанную фразу, движок и время обработки на экране. Аудио не сохраняется.</p></div>
+                  <Pronunciations onError={fail} heard={lastHeard} />
                   <div className="card voice-resources">
                     <h2>Память моделей речи</h2>
                     <label>

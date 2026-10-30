@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import re
 
 
-CATEGORIES = {"music": "Музыка", "video": "Видео", "work": "Графика и работа", "messengers": "Мессенджеры", "browsers": "Браузеры", "windows": "Программы Windows"}
+CATEGORIES = {"music": "Музыка", "video": "Видео", "work": "Графика и работа", "messengers": "Мессенджеры", "browsers": "Браузеры", "windows": "Программы Windows", "other": "Другие"}
 
 
 @dataclass(frozen=True)

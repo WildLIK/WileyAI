@@ -180,7 +180,7 @@ class AudioTools:
         return result
 
 
-async def run_action(tools, command, progress):
+async def run_action(tools, command, progress, outcomes=None):
     """A dispatched Windows operation finishes before another chat is admitted."""
     operation = asyncio.create_task(asyncio.to_thread(tools.execute, command))
     try:
@@ -193,4 +193,6 @@ async def run_action(tools, command, progress):
                 progress.append(f"Команда звука не выполнена: {error}")
         raise
     progress.append(result["text"])
+    if outcomes is not None:
+        outcomes.append({"action": command.action, "result": result})
     return result["text"]

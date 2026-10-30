@@ -41,6 +41,15 @@ class SavedSpeechVoice(BaseModel):
         return Settings.valid_search_endpoint(value)
 
 
+class Pronunciation(BaseModel):
+    model_config = {"extra": "forbid"}
+    id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    application_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    application_name: str = Field(min_length=1, max_length=150)
+    spoken: str = Field(min_length=1, max_length=100, pattern=r"^[\w .-]+$")
+    enabled: bool = True
+
+
 class Settings(BaseModel):
     ui_theme: Literal["aurora", "ice", "ember", "nebula"] = "aurora"
     ui_motion: Literal["full", "reduced"] = "full"
@@ -60,6 +69,8 @@ class Settings(BaseModel):
     stt_model: Literal["tiny", "base", "small", "gigaam-v3"] = "small"
     stt_quality: Literal["fast", "balanced", "accurate"] = "accurate"
     stt_environment: Literal["normal", "music"] = "normal"
+    pronunciations: list[Pronunciation] = Field(default_factory=list, max_length=500)
+    voice_diagnostics: bool = False
     conversation_listen_while_thinking: bool = True
     conversation_barge_in: bool = False
     conversation_wake_required: bool = False
@@ -80,6 +91,7 @@ class Settings(BaseModel):
     tts_voice: str = Field(default="", max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] = "auto"
     speak_answers: bool = False
+    action_speech: Literal["brief", "full", "off"] = "brief"
     memory_suggestions: bool = True
     allow_file_open: bool = True
     allow_app_open: bool = True
@@ -203,6 +215,7 @@ class VoiceSettings(CloudSettings):
     tts_voice: str | None = Field(default=None, max_length=300)
     tts_device: Literal["auto", "cpu", "cuda"] | None = None
     speak_answers: bool | None = None
+    action_speech: Literal["brief", "full", "off"] | None = None
     openvoice_enabled: bool | None = None
     openvoice_voice: Literal["mita", "kind-mita", "serena", "custom"] | None = None
 

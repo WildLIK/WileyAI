@@ -1,16 +1,50 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- UsageStats is enabled only by the user through special access/AppOps; never granted by the app. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <queries>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <intent><action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" /></intent>
+        <intent><action android:name="android.media.browse.MediaBrowserService" /></intent>
     </queries>
-    <application android:label="WileyAI" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
+    <application android:label="WileyAI" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false" android:enableOnBackInvokedCallback="true">
+        <receiver android:name=".ReminderReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+        <service android:name=".MediaAccessService" android:label="WileyAI · управление музыкой и YouTube" android:exported="false" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+            <meta-data android:name="android.service.notification.default_filter_types" android:value="" />
+            <meta-data android:name="android.service.notification.disabled_filter_types" android:value="conversations,alerting,silent,ongoing" />
+        </service>
+        <service android:name=".WileyVoiceService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/voice_interaction" />
+        </service>
+        <service android:name=".WileySessionService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service android:name=".WileyRecognitionService" android:exported="true" android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE">
+            <intent-filter><action android:name="android.speech.RecognitionService" /></intent-filter>
+        </service>
+        <service android:name=".HandsFreeService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="false" />
+        <activity android:name=".AssistantSettingsActivity" android:exported="true" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter><action android:name="android.intent.action.ASSIST" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

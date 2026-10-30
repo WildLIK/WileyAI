@@ -1,0 +1,41 @@
+{
+  "checked_on": "2026-10-28",
+  "id": "qwen3-0.6b-q4-k-m",
+  "name": "Qwen3 0.6B Q4_K_M",
+  "repository": "unsloth/Qwen3-0.6B-GGUF",
+  "revision": "50968a4468ef4233ed78cd7c3de230dd1d61a56b",
+  "file": "Qwen3-0.6B-Q4_K_M.gguf",
+  "bytes": 396705472,
+  "sha256": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+  "digest_source": "Hugging Face LFS metadata at pinned revision",
+  "model_license": "Apache-2.0",
+  "upstream_model": "https://huggingface.co/Qwen/Qwen3-0.6B",
+  "runtime": "llama.cpp",
+  "runtime_revision": "8642541b255bfb5dc39cd351a178be09013a55d6",
+  "runtime_source_zip_sha256": "2f0805273e93ce4f140a8e9d3bf8864e2eafbb0b2edb468b4b2d520a258aba42",
+  "runtime_license": "MIT",
+  "abi": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "context_tokens": 2048,
+  "max_answer_tokens": 256,
+  "max_answer_seconds": 90,
+  "cpu_threads": 4,
+  "in_apk": false,
+  "downloaded_on_device": true,
+  "device": "SM-S916B, Android 16",
+  "native_trial_load_passed": true,
+  "inference_test": {
+    "answer": "Два плюс два равно четыре.",
+    "elapsed_ms": 4406,
+    "native": true,
+    "model_bytes": 396705472
+  },
+  "chat_test": {
+    "answer": "Два плюс два равно четыре.",
+    "persisted": true,
+    "test_chat_removed": true
+  },
+  "sampling": "greedy"
+}

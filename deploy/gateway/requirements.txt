@@ -1,0 +1,8 @@
+# Versions exercised by the Gateway tests on 2026-10-29.
+fastapi==0.143.2
+uvicorn==0.54.0
+httpx==0.28.1
+pydantic==2.14.1
+cryptography==50.0.2
+PyJWT==2.15.1
+keyring==25.7.0

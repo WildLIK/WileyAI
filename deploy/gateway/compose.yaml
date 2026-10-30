@@ -1,0 +1,53 @@
+services:
+  gateway:
+    image: wileyai-gateway:preview
+    build:
+      context: ../..
+      dockerfile: deploy/gateway/Dockerfile
+    command: ["serve", "--data-dir", "/data", "--key-file", "/run/secrets/master_key", "--host", "0.0.0.0", "--forwarded-allow-ips", "172.30.84.2"]
+    user: "10001:10001"
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 96
+    volumes:
+      - /srv/wileyai/data:/data
+    secrets: [master_key]
+    networks:
+      backend:
+        ipv4_address: 172.30.84.3
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:?Set the public DNS name of your Gateway}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      backend:
+        ipv4_address: 172.30.84.2
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+secrets:
+  master_key:
+    file: /srv/wileyai/secrets/master.key
+volumes:
+  caddy_data:
+  caddy_config:
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: 172.30.84.0/24

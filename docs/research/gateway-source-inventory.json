@@ -1,0 +1,2043 @@
+[
+  {
+    "repo": "kai648846760/opentoken",
+    "commit": "9e67b39e36a82dc5b9b65622aa02bfe31bdc0768",
+    "commits": [
+      {
+        "sha": "9e67b39e36a82dc5b9b65622aa02bfe31bdc0768",
+        "date": "2026-06-04T10:35:48Z",
+        "message": "revert(minimax): 移除 minimax 渠道(agent.minimaxi.com 已转为 agent 任务平台)"
+      },
+      {
+        "sha": "acca1b7e48129c08f09440ef784592c75914af36",
+        "date": "2026-06-04T10:19:50Z",
+        "message": "feat(streaming): SSE 心跳,慢渠道(浏览器/联网搜索)期间保活防客户端中止"
+      },
+      {
+        "sha": "e84c8265269785aaf6c2b0c193fb541ab53476f1",
+        "date": "2026-06-04T09:39:16Z",
+        "message": "perf(minimax): 用\"停止生成→发送消息\"按钮翻转判定完成,砍掉每次 5s 空等"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "src/opentoken/providers/chatgpt.py",
+        "lines": 302
+      },
+      {
+        "path": "src/opentoken/providers/registry.py",
+        "lines": 157
+      },
+      {
+        "path": "src/opentoken/providers/glm.py",
+        "lines": 1007
+      },
+      {
+        "path": "src/opentoken/providers/qwen.py",
+        "lines": 1263
+      },
+      {
+        "path": "src/opentoken/providers/base.py",
+        "lines": 49
+      },
+      {
+        "path": "src/opentoken/providers/deepseek.py",
+        "lines": 830
+      },
+      {
+        "path": "src/opentoken/storage/auth_profiles.py",
+        "lines": 169
+      },
+      {
+        "path": "src/opentoken/api/auth.py",
+        "lines": 137
+      },
+      {
+        "path": "src/opentoken/gateway/model_registry.py",
+        "lines": 15
+      },
+      {
+        "path": "src/opentoken/providers/web_tool_calling.py",
+        "lines": 1117
+      },
+      {
+        "path": "src/opentoken/models/discovery.py",
+        "lines": 992
+      },
+      {
+        "path": "src/opentoken/providers/camoufox_clients.py",
+        "lines": 4924
+      },
+      {
+        "path": "pyproject.toml",
+        "lines": 39
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-06-04T10:35:54Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "xiaoY233/Chat2API",
+    "commit": "59f03ab2988867a4d7bacb97d98f3ee018b0e4d0",
+    "commits": [
+      {
+        "sha": "59f03ab2988867a4d7bacb97d98f3ee018b0e4d0",
+        "date": "2026-05-28T05:35:36Z",
+        "message": "docs mark zai captcha limited"
+      },
+      {
+        "sha": "d71d30440a45bd79a4485c2ced41b4fccc7ea7f0",
+        "date": "2026-05-28T04:04:30Z",
+        "message": "fix provider defaults and zai auth headers"
+      },
+      {
+        "sha": "c81dfe1a7ad7abb93c76f4c2556c8a59c32865b0",
+        "date": "2026-05-27T06:21:38Z",
+        "message": "chore: prepare v1.4.0 release"
+      }
+    ],
+    "issues": [
+      {
+        "number": 203,
+        "title": "feat: add DSML tool call parsing for DeepSeek",
+        "state": "open",
+        "html_url": "https://github.com/xiaoY233/Chat2API/pull/203",
+        "updated_at": "2026-10-26T05:52:39Z"
+      },
+      {
+        "number": 202,
+        "title": "DeepSeek 帐号经常被限制",
+        "state": "open",
+        "html_url": "https://github.com/xiaoY233/Chat2API/issues/202",
+        "updated_at": "2026-10-09T02:39:53Z"
+      },
+      {
+        "number": 201,
+        "title": "feat: 支持多轮工具调用 + Anthropic /v1/messages 兼容层，并修复日志内容丢失",
+        "state": "open",
+        "html_url": "https://github.com/xiaoY233/Chat2API/pull/201",
+        "updated_at": "2026-09-19T06:06:44Z"
+      },
+      {
+        "number": 200,
+        "title": "[BUG]存在安全问题",
+        "state": "open",
+        "html_url": "https://github.com/xiaoY233/Chat2API/issues/200",
+        "updated_at": "2026-09-16T08:45:24Z"
+      },
+      {
+        "number": 199,
+        "title": "[BUG]我做了一些更新",
+        "state": "open",
+        "html_url": "https://github.com/xiaoY233/Chat2API/issues/199",
+        "updated_at": "2026-10-16T07:56:01Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "src/main/oauth/manager.ts",
+        "lines": 564
+      },
+      {
+        "path": "src/main/oauth/tokenExtractionConfig.ts",
+        "lines": 170
+      },
+      {
+        "path": "package.json",
+        "lines": 248
+      },
+      {
+        "path": "src/main/oauth/inAppLogin.ts",
+        "lines": 544
+      },
+      {
+        "path": "src/main/providers/builtin/deepseek.ts",
+        "lines": 51
+      },
+      {
+        "path": "LICENSE",
+        "lines": 685
+      },
+      {
+        "path": "src/main/providers/builtin/zai.ts",
+        "lines": 66
+      },
+      {
+        "path": "src/main/providers/builtin/qwen-ai.ts",
+        "lines": 59
+      },
+      {
+        "path": "src/main/proxy/server.ts",
+        "lines": 392
+      }
+    ],
+    "license": "NOASSERTION",
+    "pushed_at": "2026-05-28T05:35:43Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "router-for-me/CLIProxyAPI",
+    "commit": "90c447d3a8727d115aa7552ec93ce023736ed492",
+    "commits": [
+      {
+        "sha": "90c447d3a8727d115aa7552ec93ce023736ed492",
+        "date": "2026-10-28T23:03:21Z",
+        "message": "fix(responses): use tsc_ item id prefix for Gemini tool search calls"
+      },
+      {
+        "sha": "3f2b8f2815e3362af18b7af7d683c8116e26b0fa",
+        "date": "2026-10-28T19:25:06Z",
+        "message": "Merge pull request #7082 from nia-teams-admin/docs/add-nia-live-demo"
+      },
+      {
+        "sha": "535110e109e49ca3fd8811f47aae4244c79b5714",
+        "date": "2026-10-28T15:09:37Z",
+        "message": "docs(readme): add Nia Live Demo to \"Who is with us?\""
+      }
+    ],
+    "issues": [
+      {
+        "number": 7102,
+        "title": "fix(home): restrict websocket access in home mode",
+        "state": "open",
+        "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/7102",
+        "updated_at": "2026-10-29T08:06:20Z"
+      },
+      {
+        "number": 7101,
+        "title": "feat(proxy): add opt-in per-api-key upstream connection pooling",
+        "state": "open",
+        "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/7101",
+        "updated_at": "2026-10-29T07:48:00Z"
+      },
+      {
+        "number": 7100,
+        "title": "OpenAI-compatible models need opt-in Responses upstreams for function tools",
+        "state": "closed",
+        "html_url": "https://github.com/router-for-me/CLIProxyAPI/issues/7100",
+        "updated_at": "2026-10-29T08:37:47Z"
+      },
+      {
+        "number": 7099,
+        "title": "fix(executor): support Responses upstreams for compatible models",
+        "state": "closed",
+        "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/7099",
+        "updated_at": "2026-10-29T08:37:53Z"
+      },
+      {
+        "number": 7098,
+        "title": "Codex fallback 到 OpenAI 兼容中转 API 后，reasoning_content 未被过滤，导致内部思考摘要显示为 <thinking>...</thinking>",
+        "state": "closed",
+        "html_url": "https://github.com/router-for-me/CLIProxyAPI/issues/7098",
+        "updated_at": "2026-10-29T07:17:49Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "config.example.yaml",
+        "lines": 1305
+      },
+      {
+        "path": "Dockerfile",
+        "lines": 38
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "go.mod",
+        "lines": 125
+      },
+      {
+        "path": "internal/runtime/executor/codex_executor.go",
+        "lines": 21
+      },
+      {
+        "path": "internal/api/handlers/management/oauth_callback.go",
+        "lines": 150
+      },
+      {
+        "path": ".github/scripts/refresh-model-catalogs.sh",
+        "lines": 23
+      },
+      {
+        "path": "internal/auth/codex/siwc_auth.go",
+        "lines": 268
+      },
+      {
+        "path": "internal/api/handlers/management/auth_files_oauth_callback.go",
+        "lines": 264
+      },
+      {
+        "path": "internal/api/handlers/management/oauth_siwc.go",
+        "lines": 472
+      },
+      {
+        "path": "internal/auth/codex/openai_auth.go",
+        "lines": 373
+      },
+      {
+        "path": "internal/api/handlers/management/auth_files_devin_oauth.go",
+        "lines": 171
+      },
+      {
+        "path": "internal/api/handlers/management/auth_files_provider_oauth.go",
+        "lines": 1164
+      },
+      {
+        "path": "internal/runtime/executor/gemini_executor.go",
+        "lines": 1143
+      },
+      {
+        "path": "README.md",
+        "lines": 350
+      },
+      {
+        "path": "internal/api/handlers/management/oauth_sessions.go",
+        "lines": 668
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-29T07:49:09Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "openhinge/openhinge",
+    "commit": "d04d49e8d8087312813412014535d416e197767f",
+    "commits": [
+      {
+        "sha": "d04d49e8d8087312813412014535d416e197767f",
+        "date": "2026-04-20T18:48:13Z",
+        "message": "Fix: OpenAI provider consumed refresh_token when Codex file was in sync"
+      },
+      {
+        "sha": "b2125d39fc4175230e8acaa0955df0e647859e3a",
+        "date": "2026-04-20T17:36:12Z",
+        "message": "Add daemon resilience: error boundaries, hardened launchd policy"
+      },
+      {
+        "sha": "bd5df89304beb78f889604af6ebd0474c3d3bc58",
+        "date": "2026-04-03T18:37:27Z",
+        "message": "fix: never consume refresh_token for claude_code providers"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Add a chat playground to the dashboard",
+        "state": "open",
+        "html_url": "https://github.com/openhinge/openhinge/pull/1",
+        "updated_at": "2026-10-18T15:17:52Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "package.json",
+        "lines": 48
+      },
+      {
+        "path": "src/providers/types.ts",
+        "lines": 109
+      },
+      {
+        "path": "src/providers/openai.ts",
+        "lines": 466
+      },
+      {
+        "path": "src/providers/base.ts",
+        "lines": 95
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "src/providers/gemini.ts",
+        "lines": 312
+      },
+      {
+        "path": "src/auth/sessions.ts",
+        "lines": 25
+      },
+      {
+        "path": "src/middleware/admin-auth.ts",
+        "lines": 20
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-04-20T18:48:18Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "StaticB1/browser-llm-api",
+    "commit": "232608d0cace72000d8016a47b13d8040a7ff46c",
+    "commits": [
+      {
+        "sha": "232608d0cace72000d8016a47b13d8040a7ff46c",
+        "date": "2026-10-18T15:12:36Z",
+        "message": "healthcheck: postpone the daily model ping while the provider is busy"
+      },
+      {
+        "sha": "987d402b1fd2686dde4b91bf5b5a7f29992c994a",
+        "date": "2026-10-16T11:47:30Z",
+        "message": "Dashboard and widget open in the light theme by default; Match the system and Dark stay one click away (EBE-3041)"
+      }
+    ],
+    "issues": [
+      {
+        "number": 3,
+        "title": "Fix Gemini login: wait for the real session cookie, not the DOM",
+        "state": "closed",
+        "html_url": "https://github.com/StaticB1/browser-llm-api/pull/3",
+        "updated_at": "2026-07-02T03:49:54Z"
+      },
+      {
+        "number": 2,
+        "title": "Add one-command launcher, always-on service, client, and quickstart",
+        "state": "closed",
+        "html_url": "https://github.com/StaticB1/browser-llm-api/pull/2",
+        "updated_at": "2026-07-02T03:51:12Z"
+      },
+      {
+        "number": 1,
+        "title": "Add ChatGPT provider + provider abstraction for the browser LLM API",
+        "state": "closed",
+        "html_url": "https://github.com/StaticB1/browser-llm-api/pull/1",
+        "updated_at": "2026-07-02T03:09:39Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "browser_llm/providers/__init__.py",
+        "lines": 41
+      },
+      {
+        "path": "browser_llm/client.py",
+        "lines": 188
+      },
+      {
+        "path": "browser_llm/authz.py",
+        "lines": 149
+      },
+      {
+        "path": "pyproject.toml",
+        "lines": 81
+      },
+      {
+        "path": "browser_llm/mcp_server.py",
+        "lines": 598
+      },
+      {
+        "path": "browser_llm/login.py",
+        "lines": 122
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "browser_llm/providers/gemini.py",
+        "lines": 202
+      },
+      {
+        "path": "browser_llm/providers/chatgpt.py",
+        "lines": 1353
+      },
+      {
+        "path": "browser_llm/providers/base.py",
+        "lines": 1105
+      },
+      {
+        "path": "README.md",
+        "lines": 130
+      },
+      {
+        "path": "requirements.txt",
+        "lines": 14
+      },
+      {
+        "path": "browser_llm/providers/limits.py",
+        "lines": 207
+      },
+      {
+        "path": "browser_llm/server.py",
+        "lines": 2076
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-22T07:56:24Z",
+    "archived": false,
+    "default_branch": "master"
+  },
+  {
+    "repo": "FlameFront-end/chatgpt-gateway",
+    "commit": "83ed19bd8ad9716fe805b5b767e678dd0d2e8395",
+    "commits": [
+      {
+        "sha": "83ed19bd8ad9716fe805b5b767e678dd0d2e8395",
+        "date": "2026-05-13T18:37:53Z",
+        "message": "Fix asyncio.Lock 'attached to different loop' error — create lock lazily"
+      },
+      {
+        "sha": "20cdc94e2ec205080da40358bb1f8977727c8af4",
+        "date": "2026-05-13T18:18:07Z",
+        "message": "Open new chat before each image generation to prevent stale DOM images"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "Dockerfile",
+        "lines": 101
+      },
+      {
+        "path": "src/api/server.py",
+        "lines": 163
+      },
+      {
+        "path": "src/chatgpt/models.py",
+        "lines": 43
+      },
+      {
+        "path": "src/chatgpt/client.py",
+        "lines": 398
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "src/browser/auto_login.py",
+        "lines": 68
+      },
+      {
+        "path": "src/dom_observer.py",
+        "lines": 78
+      },
+      {
+        "path": "requirements.txt",
+        "lines": 22
+      },
+      {
+        "path": "README.md",
+        "lines": 1127
+      },
+      {
+        "path": "src/api/openai_routes.py",
+        "lines": 670
+      },
+      {
+        "path": "src/browser/stealth.py",
+        "lines": 89
+      },
+      {
+        "path": "src/chatgpt/image_handler.py",
+        "lines": 267
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-05-13T18:37:57Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "stufently/gpt-web-gateway",
+    "commit": "e1b1bd87d0f009ea8a0ce472814ceca485043280",
+    "commits": [
+      {
+        "sha": "e1b1bd87d0f009ea8a0ce472814ceca485043280",
+        "date": "2026-10-29T02:04:00Z",
+        "message": "Release 2.16.3"
+      },
+      {
+        "sha": "311150c8dfd271b432727f515fb5eaee4292262a",
+        "date": "2026-10-29T02:04:00Z",
+        "message": "Defer reload rescue while generation is live"
+      }
+    ],
+    "issues": [
+      {
+        "number": 4,
+        "title": "Add GitHub Pages site",
+        "state": "closed",
+        "html_url": "https://github.com/stufently/gpt-web-gateway/pull/4",
+        "updated_at": "2026-10-24T04:16:33Z"
+      },
+      {
+        "number": 3,
+        "title": "Move to Express 5",
+        "state": "closed",
+        "html_url": "https://github.com/stufently/gpt-web-gateway/pull/3",
+        "updated_at": "2026-10-15T12:25:34Z"
+      },
+      {
+        "number": 2,
+        "title": "Close npm audit: proxy-addr, brace-expansion",
+        "state": "closed",
+        "html_url": "https://github.com/stufently/gpt-web-gateway/pull/2",
+        "updated_at": "2026-10-13T12:11:07Z"
+      },
+      {
+        "number": 1,
+        "title": "Run on Node 24 LTS, patch qs",
+        "state": "closed",
+        "html_url": "https://github.com/stufently/gpt-web-gateway/pull/1",
+        "updated_at": "2026-10-13T11:27:16Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "src/routes/login.js",
+        "lines": 307
+      },
+      {
+        "path": "src/auth.js",
+        "lines": 52
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "package.json",
+        "lines": 28
+      },
+      {
+        "path": "src/server.js",
+        "lines": 101
+      },
+      {
+        "path": "src/login-diagnostics.js",
+        "lines": 499
+      },
+      {
+        "path": "src/login.js",
+        "lines": 70
+      },
+      {
+        "path": "src/session-health.js",
+        "lines": 211
+      },
+      {
+        "path": "Dockerfile",
+        "lines": 77
+      },
+      {
+        "path": "README.md",
+        "lines": 466
+      },
+      {
+        "path": "clients/chatgpt-web-skill/edit_image.py",
+        "lines": 342
+      },
+      {
+        "path": "src/auto-login.js",
+        "lines": 319
+      },
+      {
+        "path": "src/routes/images.js",
+        "lines": 1289
+      },
+      {
+        "path": "src/turnstile.js",
+        "lines": 420
+      },
+      {
+        "path": "src/cloudflare.js",
+        "lines": 138
+      },
+      {
+        "path": "src/chatgpt.js",
+        "lines": 4648
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-29T09:22:54Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "glidea/web2api",
+    "commit": "d76375f71248ec07da7bd1feff338751baaf1f3c",
+    "commits": [
+      {
+        "sha": "d76375f71248ec07da7bd1feff338751baaf1f3c",
+        "date": "2026-08-10T08:51:59Z",
+        "message": "docs: split English and Chinese readmes"
+      },
+      {
+        "sha": "c946da8c1c2b6c023ff1796dcb021f1fc2086e97",
+        "date": "2026-08-10T08:41:19Z",
+        "message": "feat: ship ready-to-load extension"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "src/daemon/server.ts",
+        "lines": 149
+      },
+      {
+        "path": "src/daemon/tool-protocol.ts",
+        "lines": 146
+      },
+      {
+        "path": "README.md",
+        "lines": 302
+      },
+      {
+        "path": "src/extension/lib/chatgpt-adapter.ts",
+        "lines": 371
+      },
+      {
+        "path": "src/extension/lib/gemini-adapter.ts",
+        "lines": 421
+      },
+      {
+        "path": "src/extension/lib/grok-adapter.ts",
+        "lines": 394
+      },
+      {
+        "path": "package.json",
+        "lines": 73
+      }
+    ],
+    "license": "not detected",
+    "pushed_at": "2026-08-10T08:52:01Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "SamuelHaidu/webllm-proxy",
+    "commit": "b8b78ea699a3187fe447ccfbf924a90664bf2c7c",
+    "commits": [
+      {
+        "sha": "b8b78ea699a3187fe447ccfbf924a90664bf2c7c",
+        "date": "2026-07-16T04:32:52Z",
+        "message": "feat: drive installed Edge/Chrome on its real profile (v0.5.0) (#6)"
+      },
+      {
+        "sha": "1c076a294ddc497fe78fe8214975544004844d91",
+        "date": "2026-07-16T03:05:41Z",
+        "message": "feat: import installed-Chrome extensions into the proxy browser (v0.4.0) (#5)"
+      }
+    ],
+    "issues": [
+      {
+        "number": 6,
+        "title": "feat: drive installed Edge/Chrome on its real profile (v0.5.0)",
+        "state": "closed",
+        "html_url": "https://github.com/SamuelHaidu/webllm-proxy/pull/6",
+        "updated_at": "2026-07-16T04:32:55Z"
+      },
+      {
+        "number": 5,
+        "title": "feat: import installed-Chrome extensions into the proxy browser (v0.4.0)",
+        "state": "closed",
+        "html_url": "https://github.com/SamuelHaidu/webllm-proxy/pull/5",
+        "updated_at": "2026-07-16T03:05:44Z"
+      },
+      {
+        "number": 4,
+        "title": "chore: pin project Python to 3.13",
+        "state": "closed",
+        "html_url": "https://github.com/SamuelHaidu/webllm-proxy/pull/4",
+        "updated_at": "2026-07-16T01:12:40Z"
+      },
+      {
+        "number": 3,
+        "title": "chore: release 0.3.0",
+        "state": "closed",
+        "html_url": "https://github.com/SamuelHaidu/webllm-proxy/pull/3",
+        "updated_at": "2026-07-16T00:35:41Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "pyproject.toml",
+        "lines": 128
+      },
+      {
+        "path": "webllm_proxy/providers/__init__.py",
+        "lines": 114
+      },
+      {
+        "path": "webllm_proxy/providers/copilot/signalr.py",
+        "lines": 91
+      },
+      {
+        "path": "webllm_proxy/providers/chatgpt/__init__.py",
+        "lines": 445
+      },
+      {
+        "path": "webllm_proxy/providers/base.py",
+        "lines": 54
+      },
+      {
+        "path": "webllm_proxy/providers/copilot/models.py",
+        "lines": 80
+      },
+      {
+        "path": "webllm_proxy/providers/chatgpt/research.py",
+        "lines": 114
+      },
+      {
+        "path": "README.md",
+        "lines": 365
+      },
+      {
+        "path": "webllm_proxy/gateways/cloakbrowser/session.py",
+        "lines": 452
+      },
+      {
+        "path": "webllm_proxy/providers/copilot/__init__.py",
+        "lines": 379
+      },
+      {
+        "path": "webllm_proxy/providers/chatgpt/sse.py",
+        "lines": 245
+      },
+      {
+        "path": "webllm_proxy/providers/databricks/__init__.py",
+        "lines": 435
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-07-16T04:33:24Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "cromat/chatgpt-web-session-proxy",
+    "commit": "753d7d8c5f0fa3fe5f342839b016dfb18b781b0b",
+    "commits": [
+      {
+        "sha": "753d7d8c5f0fa3fe5f342839b016dfb18b781b0b",
+        "date": "2026-09-20T17:44:23Z",
+        "message": "Automating set of sessions"
+      },
+      {
+        "sha": "bde09bb4f8c533c4decf985cc5d88ade32f55717",
+        "date": "2026-09-20T08:16:43Z",
+        "message": "init"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "package.json",
+        "lines": 43
+      },
+      {
+        "path": "src/server.ts",
+        "lines": 64
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "src/sessions.ts",
+        "lines": 233
+      },
+      {
+        "path": "src/tool-protocol.ts",
+        "lines": 208
+      },
+      {
+        "path": "src/session-id.ts",
+        "lines": 45
+      },
+      {
+        "path": "src/login.ts",
+        "lines": 112
+      },
+      {
+        "path": "README.md",
+        "lines": 730
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-09-20T17:44:29Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "ForgetMeAI/FreeDeepseekAPI",
+    "commit": "648e708498bfae54cce085015fe5cf6e3e02b414",
+    "commits": [
+      {
+        "sha": "648e708498bfae54cce085015fe5cf6e3e02b414",
+        "date": "2026-10-07T15:03:52Z",
+        "message": "feat: enable live-verified DeepSeek image uploads by default"
+      },
+      {
+        "sha": "5b132565e858ec09638f03a00f072ca9fa4d28ff",
+        "date": "2026-10-07T13:18:57Z",
+        "message": "fix: bound and deduplicate image uploads"
+      }
+    ],
+    "issues": [
+      {
+        "number": 41,
+        "title": "feat: консольная авторизация DeepSeek без Chrome (rework #32)",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeDeepseekAPI/pull/41",
+        "updated_at": "2026-10-28T20:55:47Z"
+      },
+      {
+        "number": 40,
+        "title": "Too many chats",
+        "state": "closed",
+        "html_url": "https://github.com/ForgetMeAI/FreeDeepseekAPI/issues/40",
+        "updated_at": "2026-10-26T20:57:02Z"
+      },
+      {
+        "number": 39,
+        "title": "Adds X-Session-Id header and fixes ephemeral sessions",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeDeepseekAPI/pull/39",
+        "updated_at": "2026-10-22T13:51:44Z"
+      },
+      {
+        "number": 38,
+        "title": "Empty response when asking to read URL",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeDeepseekAPI/issues/38",
+        "updated_at": "2026-10-15T21:36:22Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "package.json",
+        "lines": 36
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "README.md",
+        "lines": 781
+      },
+      {
+        "path": "client.js",
+        "lines": 220
+      },
+      {
+        "path": "server.js",
+        "lines": 3482
+      },
+      {
+        "path": "scripts/deepseek_chrome_auth.js",
+        "lines": 536
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-07T18:14:55Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "afterburnerr/FreeDeepSeekAPI",
+    "commit": "8b787f680c5bb62a9503ad30196eae893ef50d01",
+    "commits": [
+      {
+        "sha": "8b787f680c5bb62a9503ad30196eae893ef50d01",
+        "date": "2026-05-13T13:32:12Z",
+        "message": "Add prominent disclaimer / no-liability notice"
+      },
+      {
+        "sha": "a35ac4d038158a9c797e0027439f7c9bac6823f2",
+        "date": "2026-05-13T13:07:21Z",
+        "message": "Initial commit: FreeDeepSeekAPI v0.2.0"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "Dockerfile",
+        "lines": 57
+      },
+      {
+        "path": "requirements.txt",
+        "lines": 30
+      },
+      {
+        "path": "LICENSE",
+        "lines": 33
+      },
+      {
+        "path": "dsk/server.py",
+        "lines": 176
+      },
+      {
+        "path": "README.md",
+        "lines": 274
+      }
+    ],
+    "license": "NOASSERTION",
+    "pushed_at": "2026-05-13T13:32:13Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "gyatstian/zourcewell",
+    "commit": "dcae1aafd3c50ec4fc752a5bc228bdef0b7c310b",
+    "commits": [
+      {
+        "sha": "dcae1aafd3c50ec4fc752a5bc228bdef0b7c310b",
+        "date": "2026-10-26T01:50:14Z",
+        "message": "docs: drop the removed ci/release workflow references"
+      },
+      {
+        "sha": "355fa303b0e1fdd21e538bc803613069c34409e9",
+        "date": "2026-10-26T01:43:55Z",
+        "message": "Improvements"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "src/zourcewell/core/tools/parser/fence.py",
+        "lines": 69
+      },
+      {
+        "path": "src/zourcewell/core/tools/parser/json_array.py",
+        "lines": 62
+      },
+      {
+        "path": "src/zourcewell/core/tools/parser/bare.py",
+        "lines": 109
+      },
+      {
+        "path": "README.md",
+        "lines": 396
+      },
+      {
+        "path": "src/zourcewell/core/tools/__init__.py",
+        "lines": 83
+      },
+      {
+        "path": "src/zourcewell/core/tools/parser/__init__.py",
+        "lines": 172
+      },
+      {
+        "path": "src/zourcewell/core/tools/common.py",
+        "lines": 759
+      },
+      {
+        "path": "src/zourcewell/core/tools/parser/dsml.py",
+        "lines": 490
+      },
+      {
+        "path": "src/zourcewell/accounts.py",
+        "lines": 1005
+      },
+      {
+        "path": "src/zourcewell/core/mcp_client.py",
+        "lines": 211
+      },
+      {
+        "path": "src/zourcewell/core/provider.py",
+        "lines": 116
+      },
+      {
+        "path": "pyproject.toml",
+        "lines": 76
+      },
+      {
+        "path": "src/zourcewell/providers/deepseek/client.py",
+        "lines": 265
+      },
+      {
+        "path": "src/zourcewell/core/obscura_bridge.py",
+        "lines": 454
+      },
+      {
+        "path": "src/zourcewell/providers/deepseek/auth.py",
+        "lines": 335
+      },
+      {
+        "path": "src/zourcewell/providers/qwen/client.py",
+        "lines": 707
+      },
+      {
+        "path": "src/zourcewell/core/transport.py",
+        "lines": 391
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-26T01:50:17Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "FmcStore/qwen-api",
+    "commit": "3670c1d7228775e761e0595107ae48f6c07c7f37",
+    "commits": [
+      {
+        "sha": "3670c1d7228775e761e0595107ae48f6c07c7f37",
+        "date": "2026-09-28T12:33:42Z",
+        "message": "Install unzip and xz-utils so puppeteer can extract Chrome"
+      },
+      {
+        "sha": "90dea02c93ee6d56c200a6e9a82cea63785d4d70",
+        "date": "2026-09-28T12:20:34Z",
+        "message": "Add Docker image, entrypoint, and Railway deployment config"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "Dockerfile",
+        "lines": 48
+      },
+      {
+        "path": "toolparse.js",
+        "lines": 416
+      },
+      {
+        "path": "README.md",
+        "lines": 1038
+      },
+      {
+        "path": "package.json",
+        "lines": 22
+      },
+      {
+        "path": "server.js",
+        "lines": 3005
+      },
+      {
+        "path": "store.js",
+        "lines": 84
+      },
+      {
+        "path": "upload.js",
+        "lines": 319
+      }
+    ],
+    "license": "not detected",
+    "pushed_at": "2026-09-28T12:33:44Z",
+    "archived": false,
+    "default_branch": "master"
+  },
+  {
+    "repo": "QwenLM/qwen-code",
+    "commit": "939f795eaaff173271d46acfbf9a8b67a4571bb2",
+    "commits": [
+      {
+        "sha": "939f795eaaff173271d46acfbf9a8b67a4571bb2",
+        "date": "2026-10-29T09:24:31Z",
+        "message": "feat(verify-pr): stamp model, CLI and skill version on published reports (#15838)"
+      },
+      {
+        "sha": "37972dcd9dadd5f5a311d339a1f6cfbe71ef6fb4",
+        "date": "2026-10-29T09:11:40Z",
+        "message": "fix(cli): align confirmed keyboard exit status with Ink (#15723)"
+      }
+    ],
+    "issues": [
+      {
+        "number": 15847,
+        "title": "release: select ossutil by runner architecture so the OSS mirrors can leave the hosted queue",
+        "state": "open",
+        "html_url": "https://github.com/QwenLM/qwen-code/issues/15847",
+        "updated_at": "2026-10-29T09:21:17Z"
+      },
+      {
+        "number": 15846,
+        "title": "feat(generated-ui): offer interactive views when users want to adjust values",
+        "state": "open",
+        "html_url": "https://github.com/QwenLM/qwen-code/pull/15846",
+        "updated_at": "2026-10-29T09:10:08Z"
+      },
+      {
+        "number": 15845,
+        "title": "test(managed-agent): accept either engine's mapping for the injected CHECK violation",
+        "state": "closed",
+        "html_url": "https://github.com/QwenLM/qwen-code/pull/15845",
+        "updated_at": "2026-10-29T09:18:21Z"
+      },
+      {
+        "number": 15844,
+        "title": "Main CI failed: Managed Agent gate — WorkspaceCsiNativeActivationRenewalMySqlIT.lateJournalFailureRollsBackPinVersionHeadAndOriginalResourceReference (MySQL CHECK 3819/HY000 unmapped)",
+        "state": "open",
+        "html_url": "https://github.com/QwenLM/qwen-code/issues/15844",
+        "updated_at": "2026-10-29T09:17:45Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "Dockerfile",
+        "lines": 83
+      },
+      {
+        "path": "LICENSE",
+        "lines": 203
+      },
+      {
+        "path": "packages/cli/src/serve/generation-sse.ts",
+        "lines": 57
+      },
+      {
+        "path": "packages/cli/src/serve/auth/qwen-device-flow-provider.ts",
+        "lines": 306
+      },
+      {
+        "path": "packages/cli/src/serve/live/provider-credentials.ts",
+        "lines": 372
+      },
+      {
+        "path": "packages/cli/src/serve/local-control/credentials.ts",
+        "lines": 225
+      },
+      {
+        "path": "package.json",
+        "lines": 253
+      },
+      {
+        "path": "packages/cli/src/serve/local-bind-addresses.ts",
+        "lines": 78
+      },
+      {
+        "path": "packages/cli/src/serve/auth/device-flow.ts",
+        "lines": 1548
+      },
+      {
+        "path": "packages/cli/src/serve/acp-http/sse-stream.ts",
+        "lines": 230
+      },
+      {
+        "path": "README.md",
+        "lines": 195
+      },
+      {
+        "path": "docs/users/qwen-serve.md",
+        "lines": 1293
+      }
+    ],
+    "license": "Apache-2.0",
+    "pushed_at": "2026-10-29T09:24:31Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "ForgetMeAI/FreeGLMKimiAPI",
+    "commit": "8aa1db707b2ffa2e44393f4e7bc40b71cefc35b9",
+    "commits": [
+      {
+        "sha": "8aa1db707b2ffa2e44393f4e7bc40b71cefc35b9",
+        "date": "2026-06-20T10:57:40Z",
+        "message": "docs: improve Russian README navigation"
+      },
+      {
+        "sha": "023e38f914fde721d496a8a12f76ae9644513ab3",
+        "date": "2026-06-14T19:11:45Z",
+        "message": "Merge pull request #2 from danscMax/fix/win-listen"
+      }
+    ],
+    "issues": [
+      {
+        "number": 11,
+        "title": "scripts: update zai_browser_auth.js for running on Windows",
+        "state": "closed",
+        "html_url": "https://github.com/ForgetMeAI/FreeGLMKimiAPI/pull/11",
+        "updated_at": "2026-09-06T21:02:02Z"
+      },
+      {
+        "number": 10,
+        "title": "✖ Z.ai browser fallback supports CloakBrowser engine settings and profile lock cleanup (7.6306ms)",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeGLMKimiAPI/issues/10",
+        "updated_at": "2026-08-30T18:27:25Z"
+      },
+      {
+        "number": 9,
+        "title": "feat(zai): auto-refresh expired Z.ai JWTs from an existing Chrome CDP endpoint",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeGLMKimiAPI/pull/9",
+        "updated_at": "2026-08-09T19:43:17Z"
+      },
+      {
+        "number": 8,
+        "title": "Хотим Kimi K3 !!!!!",
+        "state": "open",
+        "html_url": "https://github.com/ForgetMeAI/FreeGLMKimiAPI/issues/8",
+        "updated_at": "2026-07-22T01:47:18Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "src/providers/glm.js",
+        "lines": 16
+      },
+      {
+        "path": "src/sessions.js",
+        "lines": 22
+      },
+      {
+        "path": "src/server.js",
+        "lines": 87
+      },
+      {
+        "path": "src/providers/kimi.js",
+        "lines": 34
+      },
+      {
+        "path": "src/mockProvider.js",
+        "lines": 22
+      },
+      {
+        "path": "package.json",
+        "lines": 39
+      },
+      {
+        "path": "src/accounts.js",
+        "lines": 140
+      },
+      {
+        "path": "src/providers/zaiBrowser.js",
+        "lines": 342
+      },
+      {
+        "path": "src/tooling.js",
+        "lines": 156
+      },
+      {
+        "path": "README.md",
+        "lines": 514
+      },
+      {
+        "path": "src/providers/zai.js",
+        "lines": 184
+      }
+    ],
+    "license": "not detected",
+    "pushed_at": "2026-06-20T10:57:42Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "izaart95-jpg/GLM-Free-API",
+    "commit": "3b23a69833a29f3275a255858850adbe8cfd1abf",
+    "commits": [
+      {
+        "sha": "3b23a69833a29f3275a255858850adbe8cfd1abf",
+        "date": "2026-10-22T15:13:53Z",
+        "message": "docs: condense README further into more compact format"
+      },
+      {
+        "sha": "1f9524d8c55547ec89a14c017bd35ab72bd4b40c",
+        "date": "2026-10-22T15:11:08Z",
+        "message": "docs: condense README into compact reference format"
+      }
+    ],
+    "issues": [
+      {
+        "number": 51,
+        "title": "Please add instructions for the Ultra Agent Mode for Windows (+ Tool calls not working)",
+        "state": "closed",
+        "html_url": "https://github.com/izaart95-jpg/GLM-Free-API/issues/51",
+        "updated_at": "2026-10-19T08:12:33Z"
+      },
+      {
+        "number": 49,
+        "title": "WAF block triggers after ~20–40 min of sustained use",
+        "state": "closed",
+        "html_url": "https://github.com/izaart95-jpg/GLM-Free-API/issues/49",
+        "updated_at": "2026-10-04T06:05:34Z"
+      },
+      {
+        "number": 48,
+        "title": "How to fix it",
+        "state": "closed",
+        "html_url": "https://github.com/izaart95-jpg/GLM-Free-API/issues/48",
+        "updated_at": "2026-09-22T04:34:40Z"
+      },
+      {
+        "number": 47,
+        "title": "WAF block issue and Continuity issue",
+        "state": "closed",
+        "html_url": "https://github.com/izaart95-jpg/GLM-Free-API/issues/47",
+        "updated_at": "2026-09-20T09:03:13Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "internal/zbridge/models.go",
+        "lines": 245
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "internal/zbridge/toolparser_llm_test.go",
+        "lines": 132
+      },
+      {
+        "path": "internal/zbridge/session_reuse_test.go",
+        "lines": 138
+      },
+      {
+        "path": "internal/zbridge/session_pool.go",
+        "lines": 769
+      },
+      {
+        "path": "internal/zbridge/sse_toolcall_test.go",
+        "lines": 347
+      },
+      {
+        "path": "internal/zbridge/toolparser_llm.go",
+        "lines": 577
+      },
+      {
+        "path": "README.md",
+        "lines": 282
+      },
+      {
+        "path": "internal/zbridge/features.go",
+        "lines": 108
+      },
+      {
+        "path": "internal/zbridge/middleware.go",
+        "lines": 112
+      },
+      {
+        "path": "internal/zbridge/vision.go",
+        "lines": 662
+      },
+      {
+        "path": "internal/zbridge/db.go",
+        "lines": 472
+      },
+      {
+        "path": "internal/zbridge/config.go",
+        "lines": 254
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-22T15:13:54Z",
+    "archived": true,
+    "default_branch": "main"
+  },
+  {
+    "repo": "MoonshotAI/kimi-code",
+    "commit": "be89803bc6db08ff8335c1dc12ade79e3bbed56e",
+    "commits": [
+      {
+        "sha": "be89803bc6db08ff8335c1dc12ade79e3bbed56e",
+        "date": "2026-10-29T09:04:12Z",
+        "message": "fix(kap-server): turn the global search index off by default (#4516)"
+      },
+      {
+        "sha": "67045e5ec536e4aa70e39ab32658bd6ce755b72d",
+        "date": "2026-10-29T08:36:19Z",
+        "message": "fix: handle duplicate workspace source folders and fs roots (#4513)"
+      }
+    ],
+    "issues": [
+      {
+        "number": 4516,
+        "title": "fix(kap-server): turn the global search index off by default",
+        "state": "closed",
+        "html_url": "https://github.com/MoonshotAI/kimi-code/pull/4516",
+        "updated_at": "2026-10-29T09:04:26Z"
+      },
+      {
+        "number": 4515,
+        "title": "fix(kimi-code): load workspace directories before session",
+        "state": "open",
+        "html_url": "https://github.com/MoonshotAI/kimi-code/pull/4515",
+        "updated_at": "2026-10-29T09:00:03Z"
+      },
+      {
+        "number": 4514,
+        "title": "chore: remove kimi-inspect",
+        "state": "closed",
+        "html_url": "https://github.com/MoonshotAI/kimi-code/pull/4514",
+        "updated_at": "2026-10-29T08:30:04Z"
+      },
+      {
+        "number": 4513,
+        "title": "fix: handle duplicate workspace source folders and fs roots",
+        "state": "closed",
+        "html_url": "https://github.com/MoonshotAI/kimi-code/pull/4513",
+        "updated_at": "2026-10-29T08:36:22Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "apps/kimi-code/src/generated/vis-web-asset.d.ts",
+        "lines": 2
+      },
+      {
+        "path": "apps/kimi-code/src/cli/sub/web/rotate-token.ts",
+        "lines": 57
+      },
+      {
+        "path": "README.md",
+        "lines": 127
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "apps/kimi-code/scripts/build-vis-asset.mjs",
+        "lines": 55
+      },
+      {
+        "path": "apps/kimi-code/src/cli/sub/login-flow.ts",
+        "lines": 84
+      },
+      {
+        "path": "apps/vis/server/src/lib/web-asset.ts",
+        "lines": 18
+      },
+      {
+        "path": "apps/kimi-code/src/cli/sub/login.ts",
+        "lines": 27
+      },
+      {
+        "path": "apps/kimi-code/src/tui/utils/mcp-oauth.ts",
+        "lines": 52
+      },
+      {
+        "path": "package.json",
+        "lines": 64
+      },
+      {
+        "path": "apps/kimi-code/src/tui/utils/inline-skill-tokens.ts",
+        "lines": 89
+      },
+      {
+        "path": "apps/kimi-code/src/built-in-catalog.ts",
+        "lines": 9
+      },
+      {
+        "path": "packages/agent-core-v2/src/human/credentials/kimi-oauth.ts",
+        "lines": 9
+      },
+      {
+        "path": "packages/kap-server/src/middleware/auth.ts",
+        "lines": 91
+      },
+      {
+        "path": "packages/agent-core-v2/src/app/auth/authService.ts",
+        "lines": 968
+      },
+      {
+        "path": "packages/agent-core-v2/src/app/auth/oauthProtocol.ts",
+        "lines": 100
+      },
+      {
+        "path": "docs/en/reference/server-api.md",
+        "lines": 2406
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-29T09:19:24Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "xtekky/gpt4free",
+    "commit": "8bdab3152e2d4f16fcced8c73ee842f346a8073f",
+    "commits": [
+      {
+        "sha": "8bdab3152e2d4f16fcced8c73ee842f346a8073f",
+        "date": "2026-10-29T02:52:02Z",
+        "message": "Tray"
+      },
+      {
+        "sha": "ece37c694799d2e002a034102d7676e6118db36c",
+        "date": "2026-10-28T23:50:27Z",
+        "message": "Push"
+      }
+    ],
+    "issues": [
+      {
+        "number": 3550,
+        "title": "Enable Private Vulnerability Reporting",
+        "state": "open",
+        "html_url": "https://github.com/xtekky/gpt4free/issues/3550",
+        "updated_at": "2026-10-28T11:47:23Z"
+      },
+      {
+        "number": 3549,
+        "title": "[Bug] Community providers forward PollinationsAI errors as non-error responses",
+        "state": "open",
+        "html_url": "https://github.com/xtekky/gpt4free/issues/3549",
+        "updated_at": "2026-10-26T13:07:30Z"
+      },
+      {
+        "number": 3548,
+        "title": "browser problems",
+        "state": "open",
+        "html_url": "https://github.com/xtekky/gpt4free/issues/3548",
+        "updated_at": "2026-10-27T15:37:10Z"
+      },
+      {
+        "number": 3547,
+        "title": "New providers",
+        "state": "open",
+        "html_url": "https://github.com/xtekky/gpt4free/issues/3547",
+        "updated_at": "2026-10-25T09:50:33Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "requirements.txt",
+        "lines": 26
+      },
+      {
+        "path": "g4f/Provider/qwen/qwenOAuth2.py",
+        "lines": 185
+      },
+      {
+        "path": "g4f/Provider/Pollinations.py",
+        "lines": 578
+      },
+      {
+        "path": "g4f/Provider/github/oauthFlow.py",
+        "lines": 119
+      },
+      {
+        "path": "LICENSE",
+        "lines": 674
+      },
+      {
+        "path": "g4f/Provider/qwen/oauthFlow.py",
+        "lines": 111
+      },
+      {
+        "path": "g4f/Provider/github/sharedTokenManager.py",
+        "lines": 175
+      },
+      {
+        "path": "g4f/Provider/Copilot.py",
+        "lines": 352
+      },
+      {
+        "path": "g4f/Provider/github/copilotTokenProvider.py",
+        "lines": 110
+      },
+      {
+        "path": "g4f/Provider/github/githubOAuth2.py",
+        "lines": 168
+      },
+      {
+        "path": "g4f/Provider/base_provider.py",
+        "lines": 5
+      },
+      {
+        "path": "g4f/Provider/Qwen.py",
+        "lines": 1285
+      },
+      {
+        "path": "g4f/Provider/qwen/sharedTokenManager.py",
+        "lines": 270
+      },
+      {
+        "path": "README.md",
+        "lines": 596
+      }
+    ],
+    "license": "GPL-3.0",
+    "pushed_at": "2026-10-29T02:52:05Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "Sanuu7/AndroidHarness",
+    "commit": "628f6aabfdf995fdcbf02e7617e2385251019739",
+    "commits": [
+      {
+        "sha": "628f6aabfdf995fdcbf02e7617e2385251019739",
+        "date": "2026-10-29T08:57:12Z",
+        "message": "Make reply tables expandable"
+      },
+      {
+        "sha": "07cceb56e49b21bbae57fb74b013d082f8942b72",
+        "date": "2026-10-29T06:35:28Z",
+        "message": "Pair with bundled Conscrypt on older Android"
+      }
+    ],
+    "issues": [
+      {
+        "number": 70,
+        "title": "Feature Request: Integrate Termux Environment with AndroidHarness for Local Model Routing",
+        "state": "open",
+        "html_url": "https://github.com/Sanuu7/AndroidHarness/issues/70",
+        "updated_at": "2026-10-29T09:21:56Z"
+      },
+      {
+        "number": 68,
+        "title": "Agents",
+        "state": "closed",
+        "html_url": "https://github.com/Sanuu7/AndroidHarness/issues/68",
+        "updated_at": "2026-10-28T18:03:02Z"
+      },
+      {
+        "number": 66,
+        "title": "Add: Background Subagents",
+        "state": "closed",
+        "html_url": "https://github.com/Sanuu7/AndroidHarness/issues/66",
+        "updated_at": "2026-10-28T18:03:01Z"
+      },
+      {
+        "number": 64,
+        "title": "Add Persian (fa) localization and in-app language picker option",
+        "state": "closed",
+        "html_url": "https://github.com/Sanuu7/AndroidHarness/pull/64",
+        "updated_at": "2026-10-26T08:39:26Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/agent/HarnessEnvironmentPrompt.kt",
+        "lines": 37
+      },
+      {
+        "path": "app/src/main/aidl/com/androidharness/app/IHarnessService.aidl",
+        "lines": 62
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/local/LocalModelCatalog.kt",
+        "lines": 117
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/data/env/RootHarnessService.kt",
+        "lines": 15
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/chatgpt/ChatGptProvider.kt",
+        "lines": 166
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/tools/mcp/McpOAuth.kt",
+        "lines": 306
+      },
+      {
+        "path": "build.gradle.kts",
+        "lines": 31
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/llm/ModelCatalog.kt",
+        "lines": 224
+      },
+      {
+        "path": "app/src/main/java/com/androidharness/app/tools/PublicHttpAddresses.kt",
+        "lines": 36
+      },
+      {
+        "path": "README.md",
+        "lines": 333
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-10-29T08:57:16Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "wamynobe/mobmock",
+    "commit": "5b3d0bd0b2554424d7149921004b19087b89fb6e",
+    "commits": [
+      {
+        "sha": "5b3d0bd0b2554424d7149921004b19087b89fb6e",
+        "date": "2026-04-15T23:40:45Z",
+        "message": "feat: update default model to gpt-5.4 and add support for gpt-5.4-mini and gpt-5.3-codex-spark models"
+      },
+      {
+        "sha": "5864cb5bc4278a7c475c165bafa7f6085ac18778",
+        "date": "2026-03-10T01:27:53Z",
+        "message": "feat: Implement initial `mobmock` library."
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "README.md",
+        "lines": 48
+      },
+      {
+        "path": "src/main/java/com/mobmock/auth/AuthStorage.kt",
+        "lines": 105
+      },
+      {
+        "path": "src/main/java/com/mobmock/model/Models.kt",
+        "lines": 83
+      },
+      {
+        "path": "src/main/java/com/mobmock/upstream/UpstreamClient.kt",
+        "lines": 131
+      },
+      {
+        "path": "src/main/java/com/mobmock/session/SessionManager.kt",
+        "lines": 138
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "build.gradle.kts",
+        "lines": 50
+      },
+      {
+        "path": "src/main/java/com/mobmock/converter/ModelNormalizer.kt",
+        "lines": 66
+      },
+      {
+        "path": "src/main/java/com/mobmock/auth/OAuthManager.kt",
+        "lines": 244
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-04-15T23:40:47Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "mishamyrt/perplexity-web-api-mcp",
+    "commit": "4604fee2e358f8f4ce0c1af547dd8883d701f545",
+    "commits": [
+      {
+        "sha": "4604fee2e358f8f4ce0c1af547dd8883d701f545",
+        "date": "2026-04-15T11:40:31Z",
+        "message": "chore: upgrade tokio and axum"
+      },
+      {
+        "sha": "b851cad3901b2c4bc201044e008b0917fae0a5d6",
+        "date": "2026-04-13T10:50:32Z",
+        "message": "chore: remove unused tool router"
+      }
+    ],
+    "issues": [
+      {
+        "number": 16,
+        "title": "Can I generate images?",
+        "state": "open",
+        "html_url": "https://github.com/mishamyrt/perplexity-web-api-mcp/issues/16",
+        "updated_at": "2026-09-16T08:02:42Z"
+      },
+      {
+        "number": 15,
+        "title": "Perplexity updated its logic, and the MCP no longer works. Please update",
+        "state": "open",
+        "html_url": "https://github.com/mishamyrt/perplexity-web-api-mcp/issues/15",
+        "updated_at": "2026-07-11T18:40:12Z"
+      },
+      {
+        "number": 14,
+        "title": "fix: fetch CSRF token dynamically from /api/auth/csrf",
+        "state": "open",
+        "html_url": "https://github.com/mishamyrt/perplexity-web-api-mcp/pull/14",
+        "updated_at": "2026-05-26T04:36:45Z"
+      },
+      {
+        "number": 13,
+        "title": "How to get it working with opencode?",
+        "state": "open",
+        "html_url": "https://github.com/mishamyrt/perplexity-web-api-mcp/issues/13",
+        "updated_at": "2026-05-20T22:02:59Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "Dockerfile",
+        "lines": 21
+      },
+      {
+        "path": "crates/perplexity-web-api/src/auth.rs",
+        "lines": 36
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "crates/perplexity-web-api-mcp/src/server.rs",
+        "lines": 418
+      },
+      {
+        "path": "crates/perplexity-web-api/src/client.rs",
+        "lines": 250
+      },
+      {
+        "path": "README.md",
+        "lines": 323
+      },
+      {
+        "path": "crates/perplexity-web-api/src/models.rs",
+        "lines": 123
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-04-15T11:40:36Z",
+    "archived": true,
+    "default_branch": "master"
+  },
+  {
+    "repo": "quequiere/perplexity-web-mcp",
+    "commit": "44863367bb545c462cfc1be871563e3cee3a7247",
+    "commits": [
+      {
+        "sha": "44863367bb545c462cfc1be871563e3cee3a7247",
+        "date": "2026-03-06T17:00:55Z",
+        "message": "chore: bump version to 1.1.1"
+      },
+      {
+        "sha": "7f7f5054a53455ac3d6e105d408d8f9a21bd465f",
+        "date": "2026-03-06T17:00:32Z",
+        "message": "fix: wait for #ask-input before opening source selector menu"
+      }
+    ],
+    "issues": [
+      {
+        "number": 7,
+        "title": "grok-4.7 model label; search timeout floor 300s; strip question echo from answers",
+        "state": "open",
+        "html_url": "https://github.com/quequiere/perplexity-web-mcp/pull/7",
+        "updated_at": "2026-10-03T15:00:12Z"
+      },
+      {
+        "number": 6,
+        "title": "feat: connect to an existing persistent browser via CDP (optional)",
+        "state": "open",
+        "html_url": "https://github.com/quequiere/perplexity-web-mcp/pull/6",
+        "updated_at": "2026-08-18T01:23:13Z"
+      },
+      {
+        "number": 5,
+        "title": "fix: wait for the answer to finish streaming before extracting",
+        "state": "open",
+        "html_url": "https://github.com/quequiere/perplexity-web-mcp/pull/5",
+        "updated_at": "2026-08-16T20:42:56Z"
+      },
+      {
+        "number": 4,
+        "title": "Optional: reuse an already-running (warm) browser via CDP instead of relaunching Chromium",
+        "state": "open",
+        "html_url": "https://github.com/quequiere/perplexity-web-mcp/issues/4",
+        "updated_at": "2026-08-16T20:45:47Z"
+      }
+    ],
+    "read_files": [
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "src/auth.ts",
+        "lines": 54
+      },
+      {
+        "path": "package.json",
+        "lines": 49
+      },
+      {
+        "path": "README.md",
+        "lines": 247
+      },
+      {
+        "path": "src/search.ts",
+        "lines": 231
+      },
+      {
+        "path": "src/browser.ts",
+        "lines": 71
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-03-06T17:00:58Z",
+    "archived": false,
+    "default_branch": "main"
+  },
+  {
+    "repo": "lesterppo/hermes-web-clis",
+    "commit": "ee0f9bbbbd96594d8d20832b3e6c95b7a415ec37",
+    "commits": [
+      {
+        "sha": "ee0f9bbbbd96594d8d20832b3e6c95b7a415ec37",
+        "date": "2026-09-01T22:56:34Z",
+        "message": "docs(grok): pure-HTTP probe findings — chat is blob-worker WebSocket, stays browser-based"
+      },
+      {
+        "sha": "a8e9f7850bd46dddf6c314c35c2b1ba72384ba5c",
+        "date": "2026-08-24T22:32:31Z",
+        "message": "privacy: remove hardcoded Firefox profile name; auto-discover instead"
+      }
+    ],
+    "issues": [],
+    "read_files": [
+      {
+        "path": "README.md",
+        "lines": 376
+      },
+      {
+        "path": "requirements.txt",
+        "lines": 7
+      },
+      {
+        "path": "LICENSE",
+        "lines": 22
+      },
+      {
+        "path": "cli/qwen_http.py",
+        "lines": 414
+      },
+      {
+        "path": "cli/claude.py",
+        "lines": 335
+      },
+      {
+        "path": "cli/kimi_http.py",
+        "lines": 467
+      },
+      {
+        "path": "scripts/capture_ff_session.py",
+        "lines": 42
+      },
+      {
+        "path": "cli/grok.py",
+        "lines": 600
+      },
+      {
+        "path": "cli/minimax_http.py",
+        "lines": 397
+      }
+    ],
+    "license": "MIT",
+    "pushed_at": "2026-09-01T22:56:36Z",
+    "archived": false,
+    "default_branch": "main"
+  }
+]

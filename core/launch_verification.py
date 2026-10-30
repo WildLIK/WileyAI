@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import time
 import subprocess
+import uuid
 
 import psutil
 
 from .app_discovery import shortcut_targets, local_file
+from . import action_dispatch
 
 
 class ExecutionText(str):
@@ -21,6 +23,54 @@ class ExecutionText(str):
 # (pid, create_time) -> normalized real executable path ("" when unreadable).
 # The pair identifies one process, so its executable never changes.
 EXECUTABLES = {}
+
+
+def packaged_application(target, label):
+    """Activate a verified AUMID through Windows COM, without shell commands."""
+    from .app_discovery import is_packaged_target
+    if os.name != "nt" or not is_packaged_target(target):
+        raise ValueError("Некорректный идентификатор приложения Microsoft Store")
+
+    class GUID(c.Structure):
+        _fields_ = [("data1", w.DWORD), ("data2", w.WORD), ("data3", w.WORD), ("data4", c.c_ubyte * 8)]
+
+    def guid(value):
+        return GUID.from_buffer_copy(uuid.UUID(value).bytes_le)
+
+    ole = c.WinDLL("ole32")
+    ole.CoInitializeEx.argtypes = [c.c_void_p, w.DWORD]
+    ole.CoInitializeEx.restype = c.c_long
+    ole.CoCreateInstance.argtypes = [c.POINTER(GUID), c.c_void_p, w.DWORD, c.POINTER(GUID), c.POINTER(c.c_void_p)]
+    ole.CoCreateInstance.restype = c.c_long
+    ole.CoUninitialize.argtypes = []
+    initialized = ole.CoInitializeEx(None, 2 | 4)
+    if initialized < 0 and initialized != -2147417850:
+        raise ValueError("Windows не предоставила контекст запуска приложения")
+    obj = c.c_void_p()
+    try:
+        clsid = guid("45ba127d-10a8-46ea-8ab7-56ea9078943c")
+        iid = guid("2e941141-7f97-4756-ba1d-9decde894a3d")
+        hr = ole.CoCreateInstance(c.byref(clsid), None, 4, c.byref(iid), c.byref(obj))
+        if hr < 0 or not obj.value:
+            raise ValueError(f"Windows не предоставила службу активации (код {hr & 0xffffffff:08X}).")
+        table = c.cast(obj, c.POINTER(c.POINTER(c.c_void_p))).contents
+        activate = c.WINFUNCTYPE(c.c_long, c.c_void_p, w.LPCWSTR, w.LPCWSTR, w.DWORD, c.POINTER(w.DWORD))(table[3])
+        pid = w.DWORD()
+        try:
+            action_dispatch.started()
+            hr = activate(obj, target[6:], None, 0, c.byref(pid))
+        finally:
+            c.WINFUNCTYPE(w.ULONG, c.c_void_p)(table[2])(obj)
+        if hr < 0:
+            raise ValueError(f"Windows отклонила активацию приложения (код {hr & 0xffffffff:08X}).")
+        process = int(pid.value) or None
+        text = f"Windows приняла запрос активации: {label}."
+        if process:
+            text += f" Windows сообщила PID {process}."
+        text += " Окно и работоспособность приложения не проверены."
+        return ExecutionText(text, {"status": "dispatched", "pid": process, "aumid": target[6:]})
+    finally:
+        if initialized >= 0: ole.CoUninitialize()
 
 
 def process_ids(executable):
@@ -91,6 +141,7 @@ def application(target, label):
         except (OSError, ValueError, subprocess.TimeoutExpired):
             expected = None
     before = process_ids(expected) if expected else set()
+    action_dispatch.started()
     shell_launch(target)
     found = set()
     if expected:

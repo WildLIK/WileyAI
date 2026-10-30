@@ -38,3 +38,9 @@ android/local.properties
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Android native build cache
+.cxx/
+
+# Disposable loopback fixture, generated only for physical Android tests.
+android/app/src/androidTest/assets/gateway-fixture.json

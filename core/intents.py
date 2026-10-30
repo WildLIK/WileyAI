@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import commands, providers
+from . import commands, providers, intent_interpreter
 from .routines import Step
 from .tools import OpenTools
 
@@ -21,11 +21,27 @@ LEGACY_QUESTION_PREFIX = "Нашёл варианты в каталоге. По�
 
 
 def opening_request(text, name="Уайли"):
+    parsed = intent_interpreter.interpret(text, name)
+    if parsed and parsed.device != "computer":
+        return None
+    if parsed and not parsed.requires_confirmation:
+        if re.match(r"^(?:" + re.escape(name) + r"[,! ]+)?включи\s+", text.strip(), re.I) and re.fullmatch(r"яндекс[. ]*музык[ауеы]?|yandex\s*music", parsed.target, re.I):
+            return "открой Яндекс Музыку"
+        original = re.sub(r"^" + re.escape(name) + r"[,!]?\s+", "", text.strip(), flags=re.I)
+        original = re.sub(r"^пожалуйста[, ]+", "", original, flags=re.I)
+        original = re.sub(r"\s+на (?:компьютере|пк)(?=[.! ]*$)", "", original, flags=re.I)
+        if commands.opening_target(original) is not None:
+            return original
+        return "открой " + parsed.target
     value = re.sub(r"^" + re.escape(name) + r"[,!]?\s+", "", text.strip(), flags=re.I)
     value = re.sub(r"^пожалуйста[, ]+", "", value, flags=re.I)
     if len(value) > 1000 or any(mark in value for mark in ('"', '«', '»', '“', '”')) or any(ord(char) < 32 for char in value):
         return None
+    if re.search(r"[.!?;]\s*(?:открой|открывай|запусти|запускай|включи|выключи|удали|отправь)\b", value, re.I):
+        return None
     if re.search(r"\b(?:не|никогда|если|например)\b", value, re.I):
+        return None
+    if re.search(r"\b(?:и|затем|потом|после)\s+(?:открой|запусти|включи|выключи|удали|сделай|отправь|поставь)\b", value, re.I):
         return None
     value = re.sub(r"\s+на (?:компьютере|пк)(?=[.! ]*$)", "", value, flags=re.I)
     if re.fullmatch(r"включи\s+(?:яндекс[. ]*музык[ауеы]?|yandex\s*music)[.! ]*", value, re.I):
@@ -58,6 +74,7 @@ class Pending(BaseModel):
     created: float
     choices: list[Step] = Field(min_length=1, max_length=3)
     model_assisted: bool = True
+    spoken: str = Field(default="", max_length=100)
 
 
 def unique_keys(pairs):
@@ -135,10 +152,10 @@ def validate_choices(tools, choices):
     return result
 
 
-def remember(store, assistant_id, choices, *, model_assisted=True):
+def remember(store, assistant_id, choices, *, model_assisted=True, spoken=""):
     state = store.dialogue()
     state.pop("pending", None)  # One active clarification, not two competing actions.
-    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time(), choices=[Step.model_validate(item) for item in choices], model_assisted=model_assisted).model_dump()
+    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time(), choices=[Step.model_validate(item) for item in choices], model_assisted=model_assisted, spoken=spoken).model_dump()
     store.save_dialogue(state)
 
 
@@ -148,6 +165,8 @@ class Followup:
     command: commands.Command | None = None
     choices: list[dict] = field(default_factory=list)
     model_assisted: bool = True
+    status: str = ""
+    spoken: str = ""
 
 
 def consume(store, text, tools, name="Уайли"):
@@ -156,7 +175,7 @@ def consume(store, text, tools, name="Уайли"):
     value = re.sub(r"^" + re.escape(name) + r"[,!]?\s+", "", text.strip(), flags=re.I)
     value = re.sub(r",? пожалуйста$", "", commands.normalize(value))
     positive = bool(re.fullmatch(r"да(?:,? (?:открой|открывай|давай))?|давай(?:,? открывай)?|открой|открывай|подтверждаю", value))
-    negative = value in {"нет", "отмена", "не надо", "отмени", "передумал", "передумала"}
+    negative = value in {"нет", "отмена", "не надо", "отмени", "передумал", "передумала", "нет я имел в виду другое приложение", "нет, я имел в виду другое приложение", "я имел в виду другое приложение"}
     numbers = {"один": 1, "первый": 1, "первое": 1, "первую": 1, "два": 2, "второй": 2, "второе": 2, "вторую": 2, "три": 3, "третий": 3, "третье": 3, "третью": 3}
     match = re.fullmatch(r"(?:(?:открой|открывай|вариант|номер) )?([0-9]|один|первый|первое|первую|два|второй|второе|вторую|три|третий|третье|третью)(?: вариант)?", value)
     if raw is None:
@@ -169,7 +188,7 @@ def consume(store, text, tools, name="Уайли"):
     if not (positive or negative or match):
         return None
     if negative:
-        return Followup("Выбор открытия отменён. Ничего не открыто.")
+        return Followup("Выбор открытия отменён. Ничего не открыто.", status="cancelled")
     try:
         pending = Pending.model_validate(raw)
         history = store.list("messages", 2)
@@ -182,9 +201,9 @@ def consume(store, text, tools, name="Уайли"):
     choices = [item.model_dump() for item in pending.choices]
     index = (int(match[1]) if match and match[1].isdigit() else numbers.get(match[1]) if match else 1) - 1
     if (positive and len(choices) != 1) or not 0 <= index < len(choices):
-        return Followup(question(choices), choices=choices, model_assisted=pending.model_assisted)
+        return Followup(question(choices), choices=choices, model_assisted=pending.model_assisted, spoken=pending.spoken)
     chosen = choices[index]
     current = catalog(tools)
     if choice_id(chosen) not in current:
         return Followup("Команда или доступ изменились после предложения. Повторите запрос открытия.")
-    return Followup(command=Step.model_validate(chosen).command())
+    return Followup(command=Step.model_validate(chosen).command(), spoken=pending.spoken)

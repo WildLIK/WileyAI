@@ -17,6 +17,11 @@ TOKEN = "intent-tests-0123456789abcdef"
 HEADERS = {"Authorization": "Bearer " + TOKEN}
 
 
+@pytest.fixture(autouse=True)
+def no_real_app_scan(monkeypatch):
+    monkeypatch.setattr("core.app_discovery.ApplicationScanner.find_matches", lambda self, name: [])
+
+
 @pytest.fixture
 def context(tmp_path, monkeypatch):
     store = Store(tmp_path)

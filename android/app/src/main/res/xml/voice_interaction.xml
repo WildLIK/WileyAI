@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="ru.wildlik.wileyai.mobile.WileySessionService"
+    android:recognitionService="ru.wildlik.wileyai.mobile.WileyRecognitionService"
+    android:settingsActivity="ru.wildlik.wileyai.mobile.AssistantSettingsActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />

@@ -52,6 +52,8 @@ def opening_target(text: str) -> str | None:
         return None
     value = re.sub(r"^пожалуйста[, ]+", "", text.strip(), flags=re.I)
     value = re.sub(r",? пожалуйста[.! ]*$", "", value, flags=re.I)
+    if re.search(r"[.!?;]\s*(?:открой|открывай|запусти|запускай|включи|выключи|удали|отправь)\b", value, re.I):
+        return None
     # A repeated bare imperative still needs a target; it must not reach the LLM.
     if re.fullmatch(r"(?:открой|запусти|покажи|открыть|запустить)(?:[,! ]+(?:открой|запусти|покажи|открыть|запустить))*[.! ]*", value, re.I):
         return ""
@@ -114,7 +116,11 @@ def known_application(text):
 
 
 def application_query(text):
-    match = re.fullmatch(r"(?:проверь(?: наличие)?|найди(?: в системе)?|есть ли(?: у меня)?)\s+(?:приложение\s+|программу\s+)?([^?!.\n]+)[?!. ]*", text.strip(), re.I)
+    value = text.strip()
+    match = re.fullmatch(r"(?:проверь,?\s+установлен[ао]?\s+ли\s+(?:приложение\s+|программу\s+)?|проверь\s+(?:наличие\s+)?(?:приложения|программы|приложение|программу)\s+|найди(?: в системе)?\s+(?:приложение|программу)\s+|есть ли(?: у меня)?\s+(?:приложение|программа)\s+)([^?!\n]+?)[?!. ]*", value, re.I)
+    if match:
+        return canonical_name(match[1]) or match[1].strip()
+    match = re.fullmatch(r"(?:проверь(?: наличие)?|найди(?: в системе)?|есть ли(?: у меня)?)\s+([^?!\n]+?)[?!. ]*", value, re.I)
     return canonical_name(match[1]) if match else None
 
 
@@ -133,6 +139,11 @@ def validate(command: Command):
         if command.target != "about:blank" and (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password):
             raise ValueError("Можно открывать только HTTP/HTTPS-сайты без реквизитов в адресе")
         return
+    if command.kind == "app" and command.target.startswith("aumid:"):
+        from .app_discovery import package_registered
+        if not package_registered(command.target):
+            raise ValueError("Приложение Microsoft Store не найдено или его регистрация изменилась. Обновите список приложений.")
+        return
     path = Path(command.target)
     if not path.is_absolute() or not path.exists():
         raise ValueError("Файл или папка не найдены. Добавьте точный путь в настройках команд.")
@@ -140,6 +151,8 @@ def validate(command: Command):
         raise ValueError("Этот путь не является папкой")
     if command.kind == "app" and path.suffix.casefold() not in {".exe", ".lnk"}:
         raise ValueError("Для приложения укажите EXE или ярлык LNK")
+    if command.kind == "app" and not path.is_file():
+        raise ValueError("Путь приложения больше не указывает на файл")
     if command.kind == "file" and path.suffix.casefold() in EXECUTABLE_FILES:
         raise ValueError("Исполняемый файл нужно добавить как приложение в настройках команд")
 
@@ -155,6 +168,9 @@ def execute(command: Command, dry_run: bool = False) -> str:
             raise ValueError("Windows не подтвердила запуск браузера")
         return f"Передал браузеру: {command.label}."
     if command.kind == "app":
+        if command.target.startswith("aumid:"):
+            from .launch_verification import packaged_application
+            return packaged_application(command.target, command.label)
         from .launch_verification import application
         return application(command.target, command.label)
     os.startfile(command.target)

@@ -5,9 +5,11 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import time
 import sqlite3
 import subprocess
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -18,8 +20,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psutil
 from anyio import CancelScope
 
-from . import commands, documents, providers, websearch, intents, persona, document_summary, information
-from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice, AppearanceSettings
+from . import commands, documents, providers, websearch, intents, persona, document_summary, information, intent_interpreter, action_response, pronunciations
+from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice, AppearanceSettings, Pronunciation
 from . import cloud_speech
 from .chatgpt import ChatGPT
 from .history import History
@@ -119,6 +121,12 @@ class AliasBody(BaseModel):
     kind: Literal["app", "file", "folder", "url"]
     target: str = Field(min_length=1, max_length=4096)
     replace: bool = True
+
+
+class PronunciationBody(BaseModel):
+    application_id: str = Field(min_length=1, max_length=64)
+    spoken: str = Field(min_length=1, max_length=100, pattern=r"^[\w .-]+$")
+    enabled: bool = True
 
 
 class ModelBody(BaseModel):
@@ -260,7 +268,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     telegram = Telegram(store)
     home = HomeAssistant(store)
     mail = Mail(store)
-    open_tools = OpenTools(store)
+    applications = ApplicationScanner(root)
+    open_tools = OpenTools(store, applications)
     audio_tools = AudioTools(store)
     chat_lock = asyncio.Lock()
     active_chat = None
@@ -312,7 +321,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app.state.home_assistant = home
     app.state.mail = mail
     app.state.monitor = monitor
-    app.state.applications = ApplicationScanner(root)
+    app.state.applications = applications
     music_player = YandexMusic(root, store, app.state.applications)
     app.state.music = music_player
     app.state.music_meter = MusicMeter(lambda: store.settings().avatar_music)
@@ -490,7 +499,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     def save_settings(body: SettingsUpdate):
         if chat_lock.locked():
             raise HTTPException(409, "Дождитесь ответа или остановите генерацию перед сменой настроек")
-        selected = Settings.model_validate(body.model_dump(exclude={"api_key", "search_api_key"}))
+        selected = Settings.model_validate(body.model_dump(exclude={"api_key", "search_api_key"}) | {"pronunciations": store.settings().pronunciations})
         if selected.provider == "chatgpt":
             selected = selected.model_copy(update={"base_url": "https://api.openai.com/v1", "chatgpt_connection": chatgpt.identifier})
         if body.api_key is not None:
@@ -901,8 +910,57 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             for alias in store.list("aliases", 1000):
                 if alias["kind"] != "app": continue
                 spec = next((item for item in APP_CATALOG if item.name == app_name(alias["name"])), None)
-                saved["items"].append({"id": alias["id"], "name": alias["name"], "target": alias["target"], "category": spec.category if spec else "work", "source": "Сохранённая команда", "aliases": list(spec.aliases) if spec else []})
+                saved["items"].append({"id": alias["id"], "name": alias["name"], "target": alias["target"], "category": spec.category if spec else "other", "source": "Сохранённая команда", "aliases": list(spec.aliases) if spec else []})
         return saved
+
+    @app.get("/voice/pronunciations")
+    def list_pronunciations():
+        return [rule.model_dump() for rule in store.settings().pronunciations]
+
+    def save_pronunciation(body: PronunciationBody, rule_id: str | None = None):
+        items = app.state.applications.valid_items()
+        item = next((item for item in items if item["id"] == body.application_id), None)
+        if not item or not pronunciations.normalize(body.spoken):
+            raise ValueError("Выберите обнаруженное приложение и укажите произношение")
+        rule = Pronunciation(id=rule_id or uuid.uuid4().hex, application_id=pronunciations.identity(item["name"]), application_name=item["name"], spoken=body.spoken.strip(), enabled=body.enabled)
+        def update(current):
+            entries = list(current.pronunciations)
+            if rule_id and not any(entry.id == rule_id for entry in entries):
+                raise ValueError("Произношение не найдено")
+            entries = [entry for entry in entries if entry.id != rule_id]
+            if any(entry.application_id == rule.application_id and pronunciations.normalize(entry.spoken) == pronunciations.normalize(rule.spoken) for entry in entries):
+                raise ValueError("Это произношение уже сохранено для приложения")
+            return Settings.model_validate(current.model_dump() | {"pronunciations": [*entries, rule]})
+        store.update_settings(update)
+        return rule.model_dump()
+
+    @app.post("/voice/pronunciations")
+    def add_pronunciation(body: PronunciationBody):
+        return save_pronunciation(body)
+
+    @app.put("/voice/pronunciations/{rule_id}")
+    def update_pronunciation(rule_id: str, body: PronunciationBody):
+        return save_pronunciation(body, rule_id)
+
+    @app.delete("/voice/pronunciations/{rule_id}")
+    def delete_pronunciation(rule_id: str):
+        store.update_settings(lambda current: Settings.model_validate(current.model_dump() | {"pronunciations": [entry for entry in current.pronunciations if entry.id != rule_id]}))
+        return {"ok": True}
+
+    @app.post("/voice/pronunciations/preview")
+    def preview_pronunciation(body: TextBody):
+        started = time.monotonic()
+        current = store.settings()
+        intent = intent_interpreter.interpret(body.text, current.name)
+        if not intent or intent.device != "computer":
+            return {"text": body.text, "intent": None, "match": "нет команды открытия", "candidates": [], "elapsed_ms": round((time.monotonic() - started) * 1000)}
+        target = re.sub(r"^(?:приложение|программу)\s+", "", intent.target, flags=re.I)
+        learned = pronunciations.candidates(app.state.applications, current.pronunciations, target)
+        exact = app.state.applications.find_matches(target) if not learned else []
+        proposed = [] if learned or exact else app.state.applications.suggest_matches(target)
+        matches = learned or exact or proposed
+        kind = "неоднозначно" if len(matches) > 1 else "подтверждённое произношение" if learned else "точное совпадение" if exact else "фонетический кандидат" if proposed else "не найдено"
+        return {"text": body.text, "intent": intent.action, "target": target, "match": kind, "candidates": [item["name"] for item in matches[:3]], "requires_confirmation": bool(proposed or len(matches) > 1 or intent.requires_confirmation), "elapsed_ms": round((time.monotonic() - started) * 1000)}
 
     @app.delete("/aliases/{item_id}")
     def delete_alias(item_id: str):
@@ -1030,6 +1088,18 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if audio:
             return {**audio_tools.execute(audio, dry_run=body.dry_run), "kind": "audio", "target": audio.model_dump()}
         command = commands.resolve(body.text, store.list("aliases", 1000))
+        if not command:
+            opening = intents.opening_request(body.text, current.name)
+            target = commands.opening_target(opening) if opening else None
+            if target:
+                target = re.sub(r"^(?:приложение|программу)\s+", "", target, flags=re.I)
+                if not current.allow_app_open:
+                    raise HTTPException(403, "Открытие приложений отключено в разделе «Команды».")
+                matches = app.state.applications.find_matches(target)
+                if len(matches) > 1:
+                    raise HTTPException(409, "Найдено несколько приложений. Выберите нужное в чате или списке приложений.")
+                if matches:
+                    command = commands.Command("app", matches[0]["target"], matches[0]["name"])
         if not command:
             raise HTTPException(400, "Команда не распознана. Попробуйте: «открой загрузки».")
         return {"text": run_command(command, dry_run=body.dry_run), "kind": command.kind, "target": command.target}
@@ -1197,7 +1267,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(413, "Запись слишком длинная")
         config = store.settings()
-        return {"text": await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, data, config.stt_model, config.name, config.stt_quality, config.stt_environment)}
+        vocabulary = pronunciations.prompt_names(app.state.applications, config.pronunciations) if config.stt_model != "gigaam-v3" else []
+        started = time.monotonic()
+        args = (data, config.stt_model, config.name, config.stt_quality, config.stt_environment)
+        text = await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, *args, *([vocabulary] if vocabulary else []))
+        result = {"text": text}
+        if config.voice_diagnostics:
+            result["diagnostics"] = {"engine": config.stt_model, "stt_ms": round((time.monotonic() - started) * 1000)}
+        return result
 
     @app.post("/voice/prepare")
     async def prepare_conversation():
@@ -1324,21 +1401,26 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         chat_store = store.for_chat(body.conversation_id)
         Library(chat_store).selected(body.document_ids, content=False)
         text = body.text.strip()
-        mail_request = mail_chat.request(text, chat_store.list("messages", 6), current.name) if not body.full_document and not body.web_search and not body.document_ids else None
+        natural_intent = intent_interpreter.interpret(text, current.name)
+        phone_intent = bool(natural_intent and natural_intent.device == "phone" and not body.full_document and not body.document_ids and not body.web_search)
+        read_previous = bool(re.fullmatch(r"(?:уайли[,! ]+)?(?:прочитай|озвучь)(?:\s+(?:мне|полностью))*\s+(?:предыдущий|последний|полный)(?:\s+ответ)?[.! ]*", text, re.I)) and not body.full_document and not body.document_ids and not body.web_search
+        previous_answer = next((item["content"] for item in reversed(chat_store.list("messages", 100)) if item["role"] == "assistant" and item["content"].strip()), "") if read_previous else ""
+        recent_application = bool(re.fullmatch(r"(?:уайли[,! ]+)?(?:запусти|открой)\s+(?:приложение|программу),?\s+установленн(?:ую|ое)\s+(?:вчера|сегодня|недавно)[.! ]*", text.strip(), re.I))
+        mail_request = mail_chat.request(text, chat_store.list("messages", 6), current.name) if not phone_intent and not body.full_document and not body.web_search and not body.document_ids else None
         if body.full_document and (not body.document_ids or body.web_search):
             raise HTTPException(400, "Для полного пересказа прикрепите файлы и выключите веб-поиск")
-        music_request = None if body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
-        if music_request is None and not body.full_document and not body.web_search:
+        music_request = None if phone_intent or body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
+        if music_request is None and not phone_intent and not body.full_document and not body.web_search:
             music_request = music_followup(text, chat_store.list("messages", 2), preferred=current.music_player == "yandex", name=current.name)
         search_query = None if body.full_document or music_request else websearch.requested_query(text, body.web_search)
         info_request = information.request(text, current.name) if not body.full_document and not body.web_search and not music_request else None
         full_document = body.full_document
-        home_request = home_assistant_chat.request(text, current.name) if not full_document and not body.web_search and not body.document_ids else None
-        plan_allowed = not full_document and not body.web_search and not body.document_ids and home_request is None and mail_request is None
+        home_request = home_assistant_chat.request(text, current.name) if not phone_intent and not full_document and not body.web_search and not body.document_ids else None
+        plan_allowed = not phone_intent and not recent_application and not full_document and not body.web_search and not body.document_ids and home_request is None and mail_request is None
         plan_requested = plan_allowed and action_plans.eligible(text, current.name, bool(chat_store.dialogue().get("last_plan_target")))
         routine_name = requested_name(text) if search_query is None and info_request is None else None
-        opening_text = intents.opening_request(text, current.name)
-        command = commands.resolve(opening_text or text, store.list("aliases", 1000))
+        opening_text = ("открой " + natural_intent.target) if natural_intent and natural_intent.requires_confirmation and not phone_intent else intents.opening_request(text, current.name)
+        command = None if phone_intent else commands.resolve(opening_text or text, store.list("aliases", 1000))
         inspect_application = commands.application_query(text)
         await chat_lock.acquire()
         try:
@@ -1372,14 +1454,49 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             audio_progress = []
             pending_choices = []
             pending_model_assisted = True
+            pending_spoken = ""
+            learning_offer = None
             pending_audio = None
             pending_task_plan = None
             task_progress = []
             home_progress = []
             plan_progress = []
             pending_action_plan = None
+            open_outcomes, audio_outcomes = [], []
+            inspection_matches = None
+            action_turn = False
+            action_status = ""
+            match_category = "не определено"
+
+            async def open_action(value):
+                if value["kind"] != "app":
+                    await run_step(open_tools, value, open_progress, open_outcomes)
+                    return
+                loop = asyncio.get_running_loop()
+                started = asyncio.Event()
+                operation = asyncio.create_task(run_step(open_tools, value, open_progress, open_outcomes, on_dispatch=lambda: loop.call_soon_threadsafe(started.set)))
+                notification = asyncio.create_task(started.wait())
+                try:
+                    await asyncio.wait({operation, notification}, return_when=asyncio.FIRST_COMPLETED)
+                    if started.is_set() and not state["cancel"].is_set() and not await request.is_disconnected():
+                        yield event("speech_start", text=f"Запускаю {action_response.target_name(value['label'])}.")
+                    await operation
+                finally:
+                    notification.cancel()
+                    if not operation.done():
+                        operation.cancel()
+                    await asyncio.gather(operation, notification, return_exceptions=True)
             try:
                 yield event("user", message=user)
+                if read_previous:
+                    spoken = previous_answer or "Предыдущего ответа пока нет."
+                    answer = "Читаю предыдущий ответ." if previous_answer else spoken
+                    yield event("speech_mode", mode="read_full")
+                    yield event("speech_result", action=action_response.ActionResponse("read", "requested", "", answer, spoken).event())
+                    yield event("delta", text=answer)
+                    assistant = await offload(chat_store.add_message, "assistant", answer)
+                    yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=[])
+                    return
                 # Finish the short local transaction even if the HTTP reader
                 # leaves; the journal and cancellation reply retain its result.
                 with CancelScope(shield=True):
@@ -1394,14 +1511,31 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 await offload(CalendarWorkflows(chat_store).expire_unanswered)
                 await offload(Workflows(chat_store).expire_unanswered)
                 audio_followup = await offload(audio_intents.consume, chat_store, text, current.name)
-                followup = None if full_document else await offload(intents.consume, chat_store, text, open_tools, current.name)
+                learning_reply = None if full_document else await offload(pronunciations.consume_learning, chat_store, app.state.applications, text, current.name)
+                followup = None if full_document or learning_reply else await offload(intents.consume, chat_store, text, open_tools, current.name)
                 task_reply = await task_intents.consume(chat_store, current, text, body.timezone,
-                    allow=plan_reply is None and not plan_requested and home_request is None and mail_request is None and not full_document and search_query is None and info_request is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
+                    allow=not phone_intent and plan_reply is None and not plan_requested and home_request is None and mail_request is None and not full_document and search_query is None and info_request is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
                 if task_reply and task_reply.changed:
                     task_progress.append(task_reply.text)
                 if current.memory_suggestions and not full_document and search_query is None and info_request is None and not text.casefold().startswith("запомни:"):
                     await offload(chat_store.suggest_memories, user["id"])
-                if plan_reply is not None:
+                action_turn = not full_document and not body.document_ids and not body.web_search and not info_request and not search_query and not mail_request and bool(
+                    plan_reply is not None or plan_requested or home_request is not None or music_request is not None
+                    or resolve_audio(text, current.name) is not None or audio_followup is not None
+                    or audio_intents.suggest(text, current.name, player=current.music_player) is not None
+                    or music_help(text, current.name) is not None or followup is not None or learning_reply is not None or task_reply is not None
+                    or text.casefold().startswith("запомни: ") or routine_name is not None
+                    or recent_application or inspect_application or command or phone_intent or opening_text is not None)
+                if action_turn:
+                    yield event("speech_mode", mode="action", preference=current.action_speech)
+                if learning_reply is not None:
+                    answer = learning_reply
+                    yield event("delta", text=answer)
+                elif phone_intent:
+                    action_status = "phone_unavailable"
+                    answer = "Эта команда относится к телефону. Выполните её в Android-клиенте, выбрав телефон. На компьютере ничего не запущено."
+                    yield event("delta", text=answer)
+                elif plan_reply is not None:
                     answer, changed = plan_reply.text, plan_reply.changed
                     pending_action_plan = plan_reply if plan_reply.plan else None
                     yield event("delta", text=answer)
@@ -1459,20 +1593,24 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     pass  # Reading mode never runs task, memory or Windows commands.
                 elif music_request is not None:
                     yield event("stage", text="Ищу песню в Яндекс Музыке…" if music_request.action == "search_play" else "Передаю команду Яндекс Музыке и проверяю результат…")
-                    answer = (await run_music(music_player, music_request, audio_progress))["text"]
+                    music_result = await run_music(music_player, music_request, audio_progress)
+                    audio_outcomes.append({"action": music_request.action, "result": music_result})
+                    answer = music_result["text"]
                     yield event("delta", text=answer)
                 elif (audio := resolve_audio(text, current.name)) is not None:
                     # A pending opening choice must never swallow an explicit audio
                     # command. No model inference or document text is used here.
-                    answer = await run_audio(audio_tools, audio, audio_progress)
+                    answer = await run_audio(audio_tools, audio, audio_progress, audio_outcomes)
                     yield event("delta", text=answer)
                 elif audio_followup is not None:
                     if audio_followup.action and audio_followup.target == "yandex":
                         yield event("stage", text="Передаю подтверждённую команду Яндекс Музыке и проверяю результат…")
                         confirmed_music = MusicAction(action=audio_followup.action.action, value=audio_followup.action.value)
-                        answer = (await run_music(music_player, confirmed_music, audio_progress))["text"]
+                        music_result = await run_music(music_player, confirmed_music, audio_progress)
+                        audio_outcomes.append({"action": confirmed_music.action, "result": music_result})
+                        answer = music_result["text"]
                     else:
-                        answer = await run_audio(audio_tools, audio_followup.action, audio_progress) if audio_followup.action else audio_followup.text
+                        answer = await run_audio(audio_tools, audio_followup.action, audio_progress, audio_outcomes) if audio_followup.action else audio_followup.text
                     yield event("delta", text=answer)
                 elif (suggestion := audio_intents.suggest(text, current.name, player=current.music_player)) is not None:
                     pending_audio = suggestion if suggestion.action else None
@@ -1489,12 +1627,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     choices = [item for item in open_tools.choices() if item["kind"] == "app" and item["target"] in targets]
                     if playing.get("available"):
                         yield event("stage", text="Передаю команду плееру и проверяю состояние…")
-                        answer = await run_audio(audio_tools, AudioAction(action="play"), audio_progress)
+                        answer = await run_audio(audio_tools, AudioAction(action="play"), audio_progress, audio_outcomes)
                     elif not current.allow_app_open:
                         answer = "Запуск музыкальных приложений отключён в разделе «Команды». Команда не выполнялась."
                     elif len(choices) == 1:
                         yield event("stage", text="Открываю проигрыватель и проверяю процесс…")
-                        await run_step(open_tools, choices[0], open_progress)
+                        async for update in open_action(choices[0]):
+                            yield update
                         answer = persona.local_result(open_progress[-1].removeprefix("1. "), current.grammatical_gender)
                         answer += " Воспроизведение конкретного трека не проверялось."
                     elif choices:
@@ -1505,11 +1644,18 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 elif followup is not None:
                     if followup.command:
                         yield event("stage", text="Передаю команду Windows и проверяю запуск…")
-                        await run_step(open_tools, {"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}, open_progress)
+                        async for update in open_action({"kind": followup.command.kind, "target": followup.command.target, "label": followup.command.label}):
+                            yield update
                         answer = open_progress[-1].removeprefix("1. ")
+                        if followup.spoken and open_outcomes and open_outcomes[-1]["status"] not in {"error", "denied"}:
+                            found = [item for item in app.state.applications.valid_items() if item["target"].casefold() == followup.command.target.casefold()]
+                            if len(found) == 1:
+                                learning_offer = {"spoken": followup.spoken, "application_id": pronunciations.identity(found[0]["name"]), "application_name": found[0]["name"]}
+                                answer += f"\nЗапомнить произношение «{followup.spoken}» для {found[0]['name']}? Ответьте «да» или «нет»."
                     else:
                         pending_choices = followup.choices
                         pending_model_assisted = followup.model_assisted
+                        pending_spoken = followup.spoken
                         answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else followup.text
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
@@ -1552,10 +1698,16 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                     break
                             answer = routine_header + "\n".join(routine_progress)
                 elif (workflow := await asyncio.to_thread(CalendarWorkflows(chat_store).handle, text, body.timezone, None, current.name)) is not None:
+                    if not action_turn:
+                        action_turn = True
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
                     answer, changed = workflow.text, workflow.changed
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
                 elif not body.document_ids and task_intents.needs_model_time(text, current.name):
+                    if not action_turn:
+                        action_turn = True
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
                     if current.task_understanding:
                         yield event("stage", text="Разбираю задачу и срок…")
                         with monitor.activity("brain:" + current.model):
@@ -1565,45 +1717,107 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         answer = "Понимание свободных просьб о задачах выключено. Включите его в настройках или укажите точную дату и время, например «напомни завтра в 10 оплатить интернет». Ничего не изменено."
                     yield event("delta", text=answer)
                 elif (workflow := await asyncio.to_thread(Workflows(chat_store).handle, text, body.timezone, None, current.name)) is not None:
+                    if not action_turn:
+                        action_turn = True
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
                     answer, changed = workflow.text, workflow.changed
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
                 elif current.task_understanding and not body.document_ids and task_intents.eligible(text, current.name):
+                    if not action_turn:
+                        action_turn = True
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
                     yield event("stage", text="Подбираю действие и запись задачи…")
                     with monitor.activity("brain:" + current.model):
                         proposal = await task_intents.propose(chat_store, current, text, body.timezone)
                     answer, pending_task_plan = proposal.text, proposal if proposal.plan else None
                     yield event("delta", text=answer)
+                elif recent_application:
+                    yield event("stage", text="Проверяю список обнаруженных приложений…")
+                    discovered = await asyncio.to_thread(app.state.applications.saved)
+                    if not discovered.get("scanned_at"):
+                        discovered = await asyncio.to_thread(app.state.applications.scan)
+                    if state["cancel"].is_set() or await request.is_disconnected():
+                        raise asyncio.CancelledError
+                    recent = sorted(discovered.get("items", []), key=lambda row: row.get("discovered_at", ""), reverse=True)[:8]
+                    answer = "Достоверная дата установки недоступна. Недавно обнаруженные приложения (ничего не запущено): " + ", ".join(item["name"] for item in recent) + "." if recent else "Достоверная дата установки недоступна. Приложения пока не обнаружены; ничего не запущено."
+                    yield event("delta", text=answer)
                 elif inspect_application:
                     yield event("stage", text="Проверяю приложение на компьютере…")
-                    item = await asyncio.to_thread(app.state.applications.find, inspect_application)
-                    answer = f"Найдено приложение: {item['name']}. Путь: {item['target']}. Запуск не выполнялся." if item else f"{inspect_application}: в сохранённом списке, регистрации Windows, стандартных папках и меню «Пуск» не найдено. Для нестандартной установки добавьте путь в разделе «Команды»."
-                    store.audit("app.inspect", inspect_application, "found" if item else "not_found")
+                    matches = await asyncio.to_thread(app.state.applications.find_matches, inspect_application)
+                    inspection_matches = matches
+                    if state["cancel"].is_set() or await request.is_disconnected():
+                        raise asyncio.CancelledError
+                    answer = ("Найдено: " + "; ".join(f"{item['name']} · {item['source']} · {item['target']}" for item in matches[:5]) + ". Запуск не выполнялся.") if matches else f"{inspect_application}: в проверенных источниках не найдено. Запуск не выполнялся."
+                    store.audit("app.inspect", inspect_application, "found" if matches else "not_found")
                     yield event("delta", text=answer)
                 elif command:
-                    yield event("stage", text="Передаю команду Windows и проверяю запуск…")
-                    await run_step(open_tools, {"kind": command.kind, "target": command.target, "label": command.label}, open_progress)
-                    answer = open_progress[-1].removeprefix("1. ")
+                    if natural_intent and natural_intent.requires_confirmation:
+                        pending_choices = intents.validate_choices(open_tools, [item for item in open_tools.choices() if item["kind"] == command.kind and item["target"] == command.target][:1])
+                        pending_model_assisted = False
+                        answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else "Не нашла доступную команду. Ничего не открыто."
+                    else:
+                        yield event("stage", text="Передаю команду Windows и проверяю запуск…")
+                        async for update in open_action({"kind": command.kind, "target": command.target, "label": command.label}):
+                            yield update
+                        answer = open_progress[-1].removeprefix("1. ")
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
                 elif opening_text is not None:
                     answer = "Не нашёл точное соответствие. Добавьте название и путь в разделе «Команды» или укажите полный путь/адрес сайта."
                     known_app = commands.known_application(opening_text)
-                    if known_app:
+                    target_name = commands.opening_target(opening_text)
+                    target_name = re.sub(r"^(?:приложение|программу)\s+", "", target_name or "", flags=re.I)
+                    if target_name:
                         if not current.allow_app_open:
-                            answer = "Открытие приложений отключено. Измените доступ в разделе «Команды»."
+                            action_status = "denied"
+                            answer = "Открытие приложений отключено. Измените доступ в разделе «Команды». Ничего не запущено."
                         else:
-                            yield event("stage", text=f"Ищу {known_app} на компьютере…")
-                            item = await asyncio.to_thread(app.state.applications.find, known_app)
-                            if item:
+                            yield event("stage", text=f"Ищу {known_app or target_name} на компьютере…")
+                            learned_matches = await asyncio.to_thread(pronunciations.candidates, app.state.applications, current.pronunciations, target_name)
+                            exact_matches = await asyncio.to_thread(app.state.applications.find_matches, known_app or target_name)
+                            matches = list({item["target"].casefold(): item for item in [*learned_matches, *exact_matches]}.values())
+                            match_category = "неоднозначно" if len(matches) > 1 else "подтверждённое произношение" if learned_matches else "точное совпадение" if exact_matches else "не найдено"
+                            if state["cancel"].is_set() or await request.is_disconnected():
+                                raise asyncio.CancelledError
+                            if len(matches) == 1 and not (natural_intent and natural_intent.requires_confirmation):
+                                item = matches[0]
+                                yield event("stage", text="Передаю команду Windows и проверяю запуск…")
+                                async for update in open_action({"kind": "app", "target": item["target"], "label": item["name"]}):
+                                    yield update
+                                answer = open_progress[-1].removeprefix("1. ")
+                            elif matches:
+                                pending_choices = [{"kind": "app", "target": item["target"], "label": app.state.applications.choice_label(item)} for item in matches[:3]]
+                                pending_model_assisted = False
+                                answer = intents.question(pending_choices, voice=body.mode == "conversation")
+                                if len(matches) > 3:
+                                    answer += " Другие варианты доступны в списке приложений."
+                            elif (similar := await asyncio.to_thread(app.state.applications.suggest_matches, target_name)):
+                                match_category = "фонетический кандидат — требуется подтверждение"
                                 if state["cancel"].is_set() or await request.is_disconnected():
                                     raise asyncio.CancelledError
-                                yield event("stage", text="Передаю команду Windows и проверяю запуск…")
-                                await run_step(open_tools, {"kind": "app", "target": item["target"], "label": item["name"]}, open_progress)
-                                answer = open_progress[-1].removeprefix("1. ")
+                                pending_choices = [{"kind": "app", "target": item["target"], "label": app.state.applications.choice_label(item)} for item in similar]
+                                pending_model_assisted = False
+                                pending_spoken = target_name[:100]
+                                answer = intents.question(pending_choices, voice=body.mode == "conversation")
+                            elif known_app:
+                                action_status = "not_found"
+                                answer = f"{known_app}: приложение не найдено в проверенных источниках. Ничего не запущено."
+                            elif current.command_understanding:
+                                yield event("stage", text="Подбираю команду из каталога…")
+                                try:
+                                    with monitor.activity("brain:" + current.model):
+                                        proposed = await intents.propose(current, opening_text, open_tools)
+                                    pending_choices = await asyncio.to_thread(intents.validate_choices, open_tools, proposed)
+                                    answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else "Не нашёл подходящую доступную команду. Ничего не открыто."
+                                    if not pending_choices: action_status = "not_found"
+                                except Exception as error:
+                                    answer = "Не удалось подобрать команду. " + providers.describe_error(error) + " Ничего не открывал."
                             else:
-                                answer = f"{known_app}: приложение не найдено в известных местах установки. Добавьте точный путь в разделе «Команды», если оно установлено в другой папке. Ничего не запущено."
+                                action_status = "not_found"
+                                answer = "Не нашёл приложение в проверенных источниках. Ничего не запущено."
                     elif not commands.opening_target(opening_text):
+                        action_status = "clarification"
                         answer = "Что открыть? Назовите сайт, папку, файл или приложение. Пока ничего не открыто."
                     elif current.command_understanding:
                         yield event("stage", text="Подбираю команду из каталога…")
@@ -1739,7 +1953,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     def save_answer():
                         assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
                         if pending_choices:
-                            intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted)
+                            intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted, spoken=pending_spoken)
+                        if learning_offer:
+                            dialogue = chat_store.dialogue()
+                            dialogue["pending_pronunciation"] = {**learning_offer, "assistant_id": assistant["id"], "created": time.time()}
+                            chat_store.save_dialogue(dialogue)
                         if pending_audio:
                             audio_intents.remember(chat_store, assistant["id"], pending_audio)
                         if pending_task_plan:
@@ -1748,6 +1966,48 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             action_plans.remember(chat_store, assistant["id"], pending_action_plan)
                         return assistant
                     assistant = await offload(save_answer)
+                    if action_turn:
+                        if pending_choices:
+                            speech_result = action_response.choices_result(pending_choices, answer, current.grammatical_gender)
+                        elif pending_audio and pending_audio.action:
+                            action = pending_audio.action
+                            if action.action == "change_volume":
+                                direction = "увеличить" if action.value > 0 else "уменьшить"
+                                spoken = f"{direction.capitalize()} громкость на {abs(action.value)} процентов? Ответьте да или отмена."
+                            else:
+                                spoken = "Выполнить команду проигрывателю? Ответьте да или отмена."
+                            speech_result = action_response.ActionResponse("audio", "clarification", "", answer, spoken)
+                        elif learning_offer:
+                            speech_result = action_response.ActionResponse("open", "learning_offer", learning_offer["application_name"], answer, f"Запомнить произношение {learning_offer['spoken']} для {learning_offer['application_name']}?")
+                        elif learning_reply is not None:
+                            speech_result = action_response.ActionResponse("pronunciation", "saved", "", answer, learning_reply)
+                        elif open_outcomes:
+                            speech_result = action_response.open_result(open_outcomes[-1], answer, current.grammatical_gender)
+                        elif audio_outcomes:
+                            speech_result = action_response.audio_result(audio_outcomes[-1], answer, current.grammatical_gender)
+                        elif inspection_matches is not None:
+                            found = bool(inspection_matches)
+                            prefix = {"feminine": "Нашла", "masculine": "Нашёл", "neutral": "Найдено"}[current.grammatical_gender]
+                            spoken = f"{prefix} {action_response.target_name(inspection_matches[0]['name'])}." if found else "Не удалось найти такую программу."
+                            speech_result = action_response.ActionResponse("inspect", "found" if found else "not_found", inspect_application or "", answer, spoken)
+                        elif action_status == "denied":
+                            speech_result = action_response.ActionResponse("open", "denied", "", answer, "Доступ к запуску отключён.")
+                        elif action_status == "not_found":
+                            speech_result = action_response.ActionResponse("open", "not_found", "", answer, "Не удалось найти приложение.")
+                        elif action_status == "clarification":
+                            speech_result = action_response.ActionResponse("open", "clarification", "", answer, "Что открыть?")
+                        elif action_status == "phone_unavailable":
+                            speech_result = action_response.ActionResponse("open", "phone_unavailable", "", answer, "Эту команду нужно выполнить на телефоне.")
+                        elif followup and followup.status == "cancelled":
+                            word = {"feminine": "Отменила.", "masculine": "Отменил.", "neutral": "Отменено."}[current.grammatical_gender]
+                            speech_result = action_response.ActionResponse("open", "cancelled", "", answer, word)
+                        else:
+                            speech_result = action_response.ActionResponse("action", "completed", "", answer, "Результат в чате.")
+                        yield event("speech_result", action=speech_result.event())
+                        if current.voice_diagnostics and body.mode == "conversation":
+                            target = natural_intent.target if natural_intent else ""
+                            diagnostic = f"Команда: {natural_intent.action if natural_intent else 'не определена'}; цель: {target or 'нет'}; сопоставление: {match_category}; результат: {speech_result.status}; обработка: {round((time.perf_counter() - began) * 1000)} мс."
+                            yield event("voice_diagnostic", text=diagnostic)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
@@ -1779,6 +2039,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
+                    if action_turn:
+                        yield event("speech_result", action=action_response.ActionResponse("action", "error", "", "", "Не удалось выполнить команду.").event())
                     yield event("error", text=providers.describe_error(error))
 
         async def cancellable_stream():

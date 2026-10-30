@@ -38,6 +38,8 @@ export function Applications({
   const [scanning, setScanning] = useState(false);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [customNames, setCustomNames] = useState<Record<string, string>>({});
   useEffect(() => {
     const controller = new AbortController();
     void request<ScanResult>(
@@ -84,7 +86,7 @@ export function Applications({
       setScanning(false);
     }
   };
-  const add = async (items: FoundApplication[]) => {
+  const add = async (items: FoundApplication[], customName?: string) => {
     setAdding(true);
     setNotice("");
     let added = 0;
@@ -93,7 +95,7 @@ export function Applications({
       for (const item of items) {
         try {
           await request("/aliases", "POST", {
-            name: item.name,
+            name: customName?.trim() || item.name,
             kind: "app",
             target: item.target,
             replace: false,
@@ -126,8 +128,8 @@ export function Applications({
         <div>
           <h2>Приложения на компьютере</h2>
           <p className="help">
-            Найдите знакомые программы и добавьте их для запуска голосом или в
-            чате.
+            Найдите установленные программы для запуска голосом или в чате.
+            Собственное название можно добавить в команды.
           </p>
         </div>
         <button
@@ -160,6 +162,10 @@ export function Applications({
       )}
       {result && (
         <>
+          <label>
+            Поиск приложений
+            <input aria-label="Поиск приложений" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Название приложения" />
+          </label>
           <div
             className="application-categories"
             role="group"
@@ -184,7 +190,7 @@ export function Applications({
             aria-label={result.categories[category]}
           >
             {result.items
-              .filter((item) => item.category === category)
+              .filter((item) => (search.trim() || item.category === category) && (!search.trim() || [item.name, ...item.aliases].some((name) => key(name).includes(key(search)))))
               .map((item) => (
                 <article
                   className="found-application"
@@ -207,6 +213,8 @@ export function Applications({
                   </div>
                   <code className="application-path">{item.target}</code>
                   <small>{item.source}</small>
+                  <input aria-label={`Своё название для ${item.name}`} placeholder="Своё название (необязательно)" value={customNames[item.id] || ""} onChange={(event) => setCustomNames({ ...customNames, [item.id]: event.target.value })} />
+                  {customNames[item.id]?.trim() && <button className="outline" disabled={locked} onClick={() => void add([item], customNames[item.id])}>Добавить своё название</button>}
                   <span className="application-example">
                     «Открой {item.aliases[0] || item.name}»
                   </span>

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import commands
 from .storage import now
-from .tools import OpenTools
+from .tools import OpenTools, ToolDisabled
 
 
 class Step(BaseModel):
@@ -104,12 +104,15 @@ class Routines:
         return {"text": f"Проверено шагов: {len(item['steps'])}. Запуск не выполнялся."}
 
 
-async def run_step(tools, value, progress):
+async def run_step(tools, value, progress, outcomes=None, on_dispatch=None):
     """Wait for an in-flight Windows dispatch before releasing the chat lock."""
     step = Step.model_validate(value)
-    operation = asyncio.create_task(asyncio.to_thread(tools.execute, step.command()))
+    operation = asyncio.create_task(asyncio.to_thread(tools.execute, step.command(), **({"on_dispatch": on_dispatch} if on_dispatch else {})))
     def finish(result=None, error=None):
         progress.append(f"{len(progress) + 1}. {result}" if error is None else f"{len(progress) + 1}. Не выполнено «{step.label}»: {error}")
+        if outcomes is not None:
+            evidence = getattr(result, "evidence", None) or {}
+            outcomes.append({"action": step.kind, "target": step.label, "status": ("denied" if isinstance(error, ToolDisabled) else "error") if error else evidence.get("status", "dispatched"), "details": evidence})
         return error is None
     try:
         result = await asyncio.shield(operation)

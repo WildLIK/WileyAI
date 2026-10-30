@@ -1,0 +1,16 @@
+{$GATEWAY_DOMAIN} {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+    # No access log: paths/queries are unnecessary diagnostic data.
+    reverse_proxy gateway:48500 {
+        flush_interval -1
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 45s
+        }
+    }
+}

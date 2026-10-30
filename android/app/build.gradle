@@ -3,12 +3,16 @@ plugins { id 'com.android.application' }
 android {
     namespace 'ru.wildlik.wileyai.mobile'
     compileSdk 34
+    ndkVersion '28.2.13676358'
+    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.31.6' } }
     defaultConfig {
         applicationId 'ru.wildlik.wileyai.mobile'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 11
+        versionName '0.11.0'
+        testInstrumentationRunner 'ru.wildlik.wileyai.mobile.StageOneInstrumentation'
+        externalNativeBuild { cmake { abiFilters 'arm64-v8a', 'x86_64'; arguments '-DCMAKE_BUILD_TYPE=Release'; cppFlags '-O2' } }
     }
     signingConfigs {
         debug {
@@ -22,4 +26,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    implementation 'com.alphacephei:vosk-android:0.3.75@aar'
+    implementation 'net.java.dev.jna:jna:5.18.1@aar'
 }

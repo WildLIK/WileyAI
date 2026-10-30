@@ -37,6 +37,7 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
     ["telegram", "Telegram", "messengers", "телеграм"],
     ["chrome", "Google Chrome", "browsers", "хром"],
     ["calc", "Калькулятор", "windows", "калькулятор"],
+    ["unknown", "RPGReactor", "other", "rpgreactor"],
   ];
   const items = await Promise.all(
     specs.map(async ([id, name, category, spoken]) => {
@@ -98,6 +99,7 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
             messengers: "Мессенджеры",
             browsers: "Браузеры",
             windows: "Программы Windows",
+            other: "Другие",
           },
         },
       });
@@ -118,7 +120,10 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
     const categories = panel.getByRole("group", {
       name: "Категории приложений",
     });
-    await expect(categories.getByRole("button")).toHaveCount(6);
+    await expect(categories.getByRole("button")).toHaveCount(7);
+    await panel.getByLabel("Поиск приложений").fill("RPGReactor");
+    await expect(panel.getByRole("article", { name: "RPGReactor" })).toBeVisible();
+    await panel.getByLabel("Поиск приложений").clear();
     await panel
       .getByRole("article", { name: "AIMP", exact: true })
       .getByRole("button", { name: "Добавить", exact: true })
@@ -148,10 +153,10 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
       .getByRole("button", { name: /^Добавить все найденные/ })
       .click();
     await expect(panel.locator(".application-import-result")).toContainText(
-      "Добавлено в команды: 5.",
+      "Добавлено в команды: 6.",
     );
     const aliases = (await api(page, "/aliases")).custom;
-    expect(aliases).toHaveLength(7);
+    expect(aliases).toHaveLength(8);
     expect(
       aliases.find((item: { name: string }) => item.name === "telegram").target,
     ).toBe(original);
@@ -163,6 +168,10 @@ test("applications: explicit scan, categories, non-overwriting import and Russia
       expect(command.kind).toBe("app");
       expect(command.target).toBe(item.target);
     }
+    await categories.getByRole("button", { name: /^Другие/ }).click();
+    await panel.getByLabel("Своё название для RPGReactor").fill("Мой редактор RPG");
+    await panel.getByRole("button", { name: "Добавить своё название" }).click();
+    await expect(panel.locator(".application-import-result")).toContainText("Добавлено в команды: 1.");
     await categories.getByRole("button", { name: /^Музыка/ }).click();
     await expect(
       categories.getByRole("button", { name: /^Музыка/ }),

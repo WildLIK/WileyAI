@@ -1,9 +1,10 @@
-param([switch]$Offline)
+param([switch]$Offline, [switch]$Check)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $env:JAVA_HOME) { throw 'Set JAVA_HOME to JDK 17.' }
 if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 if (-not (Test-Path -LiteralPath $env:ANDROID_HOME)) { throw 'Set ANDROID_HOME to the Android SDK.' }
+if (-not (Test-Path -LiteralPath (Join-Path $root 'local\android-native\llama.cpp-8642541b255bfb5dc39cd351a178be09013a55d6\.wiley-source-verified'))) { throw 'Run python scripts/prepare-android-native.py once before building (downloads pinned source, not model weights).' }
 $keytool = Join-Path $env:JAVA_HOME 'bin\keytool.exe'
 if (-not (Test-Path -LiteralPath $keytool)) { throw 'keytool was not found in JAVA_HOME.' }
 $key = Join-Path $root 'local\android-signing\wiley-debug.keystore'
@@ -22,5 +23,6 @@ else {
 $arguments = @('-p', (Join-Path $root 'android'), '--no-daemon')
 if ($Offline) { $arguments += '--offline' }
 $arguments += 'assembleDebug'
+if ($Check) { $arguments += @('lintDebug', 'assembleDebugAndroidTest') }
 & $gradlePath @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build the APK.' }

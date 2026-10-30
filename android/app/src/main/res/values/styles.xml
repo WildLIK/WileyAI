@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="WileyDialog.Aurora" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#99edf4</item>
+        <item name="android:textColorPrimary">#edf7ff</item>
+        <item name="android:textColorSecondary">#b7cadd</item>
+        <item name="android:colorBackground">#101b2c</item>
+        <item name="android:colorBackgroundFloating">#101b2c</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="WileyDialog.Ice" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#07588f</item>
+        <item name="android:textColorPrimary">#142f49</item>
+        <item name="android:textColorSecondary">#34536e</item>
+        <item name="android:colorBackground">#f4f9fe</item>
+        <item name="android:colorBackgroundFloating">#f4f9fe</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="WileyDialog.Ember" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#ff9caa</item>
+        <item name="android:textColorPrimary">#fff1f2</item>
+        <item name="android:textColorSecondary">#d6bdc5</item>
+        <item name="android:colorBackground">#141317</item>
+        <item name="android:colorBackgroundFloating">#141317</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="WileyDialog.Nebula" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#ddccff</item>
+        <item name="android:textColorPrimary">#f5f0ff</item>
+        <item name="android:textColorSecondary">#d6cde8</item>
+        <item name="android:colorBackground">#111020</item>
+        <item name="android:colorBackgroundFloating">#111020</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

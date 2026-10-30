@@ -1,7 +1,7 @@
 """Executable opening tools shared by direct commands, sources and routines."""
 from dataclasses import dataclass
 
-from . import commands
+from . import commands, action_dispatch
 
 
 @dataclass(frozen=True)
@@ -22,9 +22,14 @@ TOOLS = (
 ACCESS_FIELDS = ("allow_file_open", "allow_app_open", "allow_web_open", "allow_audio_control")
 
 
+class ToolDisabled(ValueError):
+    pass
+
+
 class OpenTools:
-    def __init__(self, store):
+    def __init__(self, store, scanner=None):
         self.store = store
+        self.scanner = scanner
 
     def catalog(self):
         settings = self.store.settings()
@@ -36,9 +41,12 @@ class OpenTools:
         items += [commands.Command("folder", target, name) for name, target in commands.folders().items()]
         items += [commands.resolve("запусти " + name, []) for name in commands.APP_NAMES]
         items += [commands.Command("url", target, name) for name, target in commands.SITES.items()]
+        if self.scanner:
+            for valid in self.scanner.valid_items():
+                items.append(commands.Command("app", valid["target"], self.scanner.choice_label(valid)))
         result, seen = [], set()
         for item in items:
-            key = (item.kind, item.target)
+            key = (item.kind, item.target, item.label)
             if key not in seen:
                 result.append({"kind": item.kind, "target": item.target, "label": item.label})
                 seen.add(key)
@@ -49,14 +57,15 @@ class OpenTools:
         if tool is None:
             raise ValueError("Неизвестный инструмент открытия")
         if not getattr(self.store.settings(), tool.setting):
-            raise ValueError(f"Действие «{tool.name}» отключено. Измените доступ в разделе «Команды».")
+            raise ToolDisabled(f"Действие «{tool.name}» отключено. Измените доступ в разделе «Команды».")
         commands.validate(command)
         return tool
 
-    def execute(self, command, dry_run=False):
+    def execute(self, command, dry_run=False, on_dispatch=None):
         try:
             self.validate(command)
-            result = commands.execute(command, dry_run=dry_run)
+            with action_dispatch.notify_with(on_dispatch):
+                result = commands.execute(command, dry_run=dry_run)
         except Exception as error:
             self.store.audit(command.kind, command.target, "error", {"text": str(error), "label": command.label})
             raise

@@ -1,0 +1,28 @@
+{
+  "checked_on": "2026-10-28",
+  "name": "Piper Irina medium",
+  "engine_package": "com.k2fsa.sherpa.onnx.tts.engine",
+  "apk_version": "1.13.8",
+  "apk_bytes": 89065768,
+  "apk_sha256": "b461c65b154bbec984b4dbef75e3b381c9a1b066ca5f8bc408a2dae308e60655",
+  "repository": "csukuangfj2/sherpa-onnx-apk",
+  "revision": "283335c95e96e18033e909471189a7c321e373c7",
+  "path": "tts-engine-new/1.13.8/sherpa-onnx-1.13.8-arm64-v8a-rus-tts-engine-vits-piper-ru_RU-irina-medium.apk",
+  "source": "https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html",
+  "model_card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/irina/medium/MODEL_CARD",
+  "model_card_dataset_license": "Unknown",
+  "bundled_with_wileyai": false,
+  "installation": "separate upstream TTS APK on user phone, app-local engine selection; Android global default unchanged",
+  "runtime_internet_permission": false,
+  "sample_rate": 22050,
+  "speech_test": {
+    "engine": "com.k2fsa.sherpa.onnx.tts.engine",
+    "voice": "ru",
+    "source_rate": 22050,
+    "samples_16000": 38823,
+    "recognized": "громкость пятьдесят процентов",
+    "command": "volume:50",
+    "executed": false,
+    "microphone_used": false
+  }
+}

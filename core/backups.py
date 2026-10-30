@@ -580,7 +580,7 @@ class Backups:
             for table in ("google_calendar_links", "google_calendar_bindings", "google_calendar_auto", "mail_bindings", "mail_remote_drafts", "home_bindings"):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
                     db.execute(f"DELETE FROM {table}")
-            settings = {**bundle.settings, "search_enabled": False, "web_read_enabled": False, "weather_enabled": False, "currency_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions")}}
+            settings = {**bundle.settings, "search_enabled": False, "web_read_enabled": False, "weather_enabled": False, "currency_enabled": False} if connections else {**previous["settings"], **{key: bundle.settings[key] for key in ("name", "personality", "grammatical_gender", "memory_suggestions", "action_speech", "pronunciations", "voice_diagnostics")}}
             settings.update({field: previous["settings"][field] for field in (*ACCESS_FIELDS, "command_understanding", "task_understanding", "plan_understanding", "embedding_enabled", "embedding_model", "embedding_base_url")})
             # Imported settings cannot select another profile's registration.
             # OAuth tokens themselves never enter the archive.

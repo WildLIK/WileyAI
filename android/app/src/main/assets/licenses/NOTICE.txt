@@ -1,0 +1,3 @@
+WileyAI Android includes Vosk Android 0.3.75 (Alpha Cephei Inc., Apache-2.0) and JNA 5.18.1 (Java Native Access contributors, distributed under Apache-2.0).
+Sources: https://github.com/alphacep/vosk-api and https://github.com/java-native-access/jna
+Model weights are not included. The optional vosk-model-small-ru-0.22 model is Apache-2.0 according to https://alphacephei.com/vosk/models.

@@ -1,0 +1,28 @@
+{
+  "checked_on": "2026-10-28",
+  "id": "vosk-model-small-ru-0.22",
+  "version": "0.22",
+  "language": "ru",
+  "license": "Apache-2.0",
+  "url": "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip",
+  "archive_bytes": 46236750,
+  "installed_bytes": null,
+  "installer_free_space_budget_bytes": 419430400,
+  "upstream_md5": "d1759dc83eb8fd87850129afbd9f4b7b",
+  "upstream_metadata": "https://alphacephei.com/vosk/models/model-list.json",
+  "expected_sha256": "961d5ff98a17f4aa6de69864d0aa71fa5bac682301d2b5d17a3f24c5c99a46d4",
+  "sha256_source_kind": "mirror-published-lfs-digest",
+  "sha256_source": "https://huggingface.co/localstack/vosk-models/blob/a0cabdd6801bd201c783afcc096208cde59fa182/vosk-model-small-ru-0.22.zip",
+  "mirror_revision": "a0cabdd6801bd201c783afcc096208cde59fa182",
+  "weights_downloaded_during_development": true,
+  "native_model_inference_tested_on_device": true,
+  "mirror_url": "https://huggingface.co/localstack/vosk-models/resolve/a0cabdd6801bd201c783afcc096208cde59fa182/vosk-model-small-ru-0.22.zip?download=true",
+  "device_validation": {
+    "model": "SM-S916B",
+    "android": "16",
+    "archive_download": "in-app resume with pinned mirror fallback",
+    "elapsed_ms": 50585,
+    "speech_kind": "offline TTS synthetic phrase, full Vosk recognizer, parsed volume:50; no microphone",
+    "tests_passed": 15
+  }
+}
