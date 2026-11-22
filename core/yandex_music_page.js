@@ -1,6 +1,7 @@
 // Bounded renderer adapter. No account tokens, cookies, history or filesystem APIs.
 async function wileyMusic(command) {
   const id = (name) => `[data-test-id="${name}"]`;
+  const fail = (reason, message) => { throw new Error("WILEY_MUSIC/" + reason + "/" + message); };
   const bar = () => document.querySelector(id("PLAYERBAR_DESKTOP"));
   const visible = (node) => node && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
   const find = (root, selector) => [...(root?.querySelectorAll(selector) || [])].find(visible);
@@ -40,11 +41,11 @@ async function wileyMusic(command) {
     const root = bar(), track = meta(root);
     const like = find(root, id("LIKE_BUTTON"));
     const pressed = like?.getAttribute("aria-pressed");
-    return { available: !!root && !!(details?.trackMeta?.id || track.id), id: String(details?.trackMeta?.id || track.id), title: String(details?.trackMeta?.title || track.title).slice(0, 200),
+    return { available: !!root && !!(details?.trackMeta?.id || track.id), id: String(details?.trackMeta?.id || track.id), title: String(details?.trackMeta?.title || track.title).slice(0, 300),
       artists: details?.trackMeta?.artists?.map((a) => a.name).join(", ").slice(0, 300) || track.artists,
       playing: typeof details?.isPlaying === "boolean" ? details.isPlaying : !!find(root, id("PAUSE_BUTTON")), position: Number(details?.playback?.position ?? root?.querySelector(id("TIMECODE_SLIDER"))?.value) || 0,
       liked: pressed === "true" ? true : pressed === "false" ? false : null,
-      volume: volume() };
+      volume: volume(), wave_playing: !!find(document, id("MY_VIBE_PAUSE_BUTTON")) };
   };
   const click = (root, selector) => {
     const button = find(root, selector);
@@ -52,21 +53,57 @@ async function wileyMusic(command) {
     button.click();
   };
   if (command.action === "status") return state();
+  if (command.action === "wave_target") {
+    const buttons = () => [...document.querySelectorAll(id("MY_VIBE_PLAY_BUTTON") + "," + id("MY_VIBE_PAUSE_BUTTON"))].filter(visible);
+    const homes = () => [...document.querySelectorAll('a[data-test-id="NAVBAR_NAVIGATION_ITEM_HOME"][href="/"]')].filter(visible);
+    const deadline = performance.now() + 5000;
+    // A working CDP socket can precede the first React render. Wait for either
+    // the wave or its verified navigation control, without dispatching input.
+    while (performance.now() < deadline && !buttons().length && !homes().length) await new Promise((r) => setTimeout(r, 100));
+    if (!buttons().length) {
+      const links = homes();
+      if (links.length !== 1) fail("renderer_not_ready", "Интерфейс Яндекс Музыки не готов: домашняя страница недоступна. Нажатие запуска не отправлено.");
+      links[0].click();
+      while (performance.now() < deadline && !buttons().length) await new Promise((r) => setTimeout(r, 100));
+    }
+    while (performance.now() < deadline && buttons().length === 1 && (buttons()[0].disabled || buttons()[0].getAttribute("aria-disabled") === "true")) await new Promise((r) => setTimeout(r, 100));
+    const matches = buttons();
+    if (matches.length !== 1) fail("button_missing", "Не найдена единственная кнопка «Моя волна». Нажатие запуска не отправлено.");
+    const button = matches[0];
+    const playing = button.getAttribute("data-test-id") === "MY_VIBE_PAUSE_BUTTON";
+    if (button.tagName !== "BUTTON" || button.disabled || button.getAttribute("aria-disabled") === "true" || button.getAttribute("aria-label") !== (playing ? "Пауза Моей волны" : "Воспроизведение Моей волны"))
+      fail("click_not_dispatched", "Кнопка запуска «Моей волны» недоступна или изменилась. Нажатие не отправлено.");
+    if (playing) {
+      if (!state().playing) fail("click_not_dispatched", "Состояние «Моей волны» не согласовано с плеером. Нажатие не отправлено.");
+      return { already_playing: true };
+    }
+    button.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    const box = button.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight || !button.contains(document.elementFromPoint(x, y)))
+      fail("click_not_dispatched", "Кнопка «Моя волна» перекрыта или находится за пределами окна. Нажатие не отправлено.");
+    return { x, y };
+  }
   if (command.action === "search") {
     const link = find(document, 'a[href="/search"],a[href^="/search?"]');
-    if (link) link.click();
+    const before = searchInput();
+    const searchPage = before?.matches(id("SEARCH_PAGE_SEARCH_INPUT") + ',input[class*="SearchPage_input"]') || location.pathname.startsWith("/search");
+    if (link && !searchPage) link.click();
+    let previousInput = null;
     for (let n = 0; n < 40; n++) {
       const input = searchInput();
-      if (input) {
-        window.__wileyMusicSearch = { query: command.query, previous: input.value, signature: JSON.stringify(await wileyMusic({action: "results"})), started: performance.now(), changed: 0, last: "" };
+      if (input && input.isConnected && (searchPage || input === previousInput)) {
+        const signature = JSON.stringify(await wileyMusic({action: "results"}));
+        if (!input.isConnected || input !== searchInput()) continue;
+        window.__wileyMusicSearch = { query: command.query, search_id: command.search_id, previous: input.value, signature, started: performance.now(), changed: 0, last: "" };
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, command.query);
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
         return { searching: true };
       }
+      previousInput = input;
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error("Не найдено поле поиска Яндекс Музыки");
+    fail("search_not_ready", "Не найдено поле поиска Яндекс Музыки");
   }
   if (["results", "select", "select_target"].includes(command.action)) {
     const nodes = [...document.querySelectorAll(id("SEARCH_TRACK_CARD") + ',[class*="SearchBestResultsTrackBlock_root"] [class*="CommonTrack_root"],[class*="SearchTrackList_root"] [class*="CommonTrack_root"]')].filter(visible);
@@ -75,16 +112,21 @@ async function wileyMusic(command) {
     if (!command.query && command.action === "results") return plain;
     const pending = window.__wileyMusicSearch;
     const signature = JSON.stringify(plain);
-    if (!pending || pending.query !== command.query || searchInput()?.value !== command.query) throw new Error("Поисковый запрос изменился. Повторите поиск песни");
+    const stale = (reason) => fail(reason, "Поисковый запрос изменился или устарел. Повторите поиск песни");
+    if (!pending) stale("search_session_missing");
+    if (pending.query !== command.query) stale("search_query_changed");
+    if (command.search_id && pending.search_id !== command.search_id) stale("search_id_changed");
+    if (searchInput()?.value !== command.query) stale("search_input_changed");
+    if (!Number.isFinite(pending.started) || performance.now() - pending.started < 0 || performance.now() - pending.started > 300000) stale("search_expired");
     if (pending.last !== signature) { pending.last = signature; pending.changed = performance.now(); }
     const ready = performance.now() - pending.started >= 800 && performance.now() - pending.changed >= 450 && (pending.previous === pending.query || pending.signature !== signature);
     if (command.action === "results") return { rows: plain, ready };
-    if (!ready) throw new Error("Новые результаты поиска ещё не подтверждены");
+    if (!ready) fail("search_not_ready", "Новые результаты поиска ещё не подтверждены");
     const row = rows.find((row) => row.id === command.id);
-    if (!row || row.title !== command.title || row.artists !== command.artists) throw new Error("Результаты поиска изменились. Повторите поиск песни");
+    if (!row || row.title !== command.title || row.artists !== command.artists) fail("search_results_changed", "Результаты поиска изменились. Повторите поиск песни");
     if (command.action === "select_target") {
       const button = find(row.node, id("PLAY_BUTTON") + "," + id("PLAY_BUTTON_WITH_COVER"));
-      if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") throw new Error("Кнопка воспроизведения найденной песни недоступна");
+      if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") fail("search_not_ready", "Кнопка воспроизведения найденной песни недоступна");
       button.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
       const box = button.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
       if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw new Error("Кнопка найденной песни находится за пределами окна");

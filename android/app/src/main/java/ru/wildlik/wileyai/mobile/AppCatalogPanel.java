@@ -17,18 +17,76 @@ final class AppCatalogPanel {
     private Button refresh;
     private Runnable updateList;
     AppCatalogPanel(Activity activity, MobileUi ui, AppCatalog catalog, BooleanSupplier foreground) { this.activity = activity; this.ui = ui; this.catalog = catalog; this.foreground = foreground; }
-    void render(LinearLayout cards) {
-        TextView heading = ui.text("Приложения", 20, ui.theme.accentText); heading.setPadding(0, ui.dp(20), 0, ui.dp(8)); cards.addView(heading);
-        status = ui.text(catalog.status(), 14, ui.theme.accentText); cards.addView(status);
-        for (String role : new String[]{"messenger", "music", "video"}) {
-            String prefix = role.equals("music") ? "Музыка: " : role.equals("video") ? "YouTube: " : "Телеграм / мессенджер: ";
-            Button preferred = ui.button(prefix + catalog.preferredLabel(role), () -> {});
-            preferred.setOnClickListener(v -> chooseRole(role, () -> preferred.setText(prefix + catalog.preferredLabel(role)))); cards.addView(preferred);
-        }
-        cards.addView(ui.button("Приложения и названия для голоса", () -> show("")));
-        refresh = ui.button("Обновить список приложений", catalog::refresh); cards.addView(refresh); refresh();
-        LinearLayout info = ui.disclosure(cards, "Как находятся приложения");
+    void render(LinearLayout cards,Runnable defaults,Runnable media,Runnable permissions) {
+        ui.link(cards,"Все приложения","Каталог, поиск и ручные произношения",()->show(""));
+        ui.link(cards,"Избранное","Приложения, которые вы отметили в каталоге",this::favorites);
+        ui.link(cards,"Запомненные голосовые названия","Просмотр и изменение",this::remembered);
+        ui.link(cards,"Приложения по умолчанию","Мессенджер, музыка и YouTube",defaults);
+        ui.link(cards,"Управление плеерами","Музыка, YouTube и команды воспроизведения",media);
+        ui.link(cards,"Статистика использования",PermissionPanel.usageAllowed(activity)?"Android · время на экране за 7 дней":"Требуется доступ Android",
+            ()->{if(PermissionPanel.usageAllowed(activity))usage();else permissions.run();});
+        LinearLayout info = ui.disclosure(cards, "Каталог и проверка запусков");
+        status = ui.text(catalog.status(),14,ui.theme.accentText);
+        info.addView(status);
+        refresh=ui.button("Обновить список приложений",catalog::refresh);
+        info.addView(refresh);
+        refresh();
+        info.addView(ui.text("Автоматическое запоминание названия после выбора требует подтверждённого запуска и доступа к статистике Android.",14,ui.theme.secondary));
         info.addView(ui.text("Читаются системные названия и адреса запуска в текущем профиле Android. Список и ваши псевдонимы остаются на телефоне. При совпадении названий WileyAI уточнит выбор.", 14, ui.theme.secondary));
+    }
+    void renderDefaults(LinearLayout parent){
+        addDefault(parent,"Мессенджер","messenger");
+        addDefault(parent,"Музыка","music");
+        addDefault(parent,"YouTube","video");
+    }
+    private void addDefault(LinearLayout parent,String label,String role){
+        Button preferred=ui.button(label+": "+catalog.preferredLabel(role),()->{});
+        preferred.setOnClickListener(v->chooseRole(role,()->preferred.setText(label+": "+catalog.preferredLabel(role))));
+        parent.addView(preferred);
+    }
+    private boolean favorite(AppRegistry.App app){
+        return activity.getSharedPreferences("wiley-mobile",0).getStringSet("favorite_apps",Set.of()).contains(app.id());
+    }
+    private void toggleFavorite(AppRegistry.App app){
+        var prefs=activity.getSharedPreferences("wiley-mobile",0);
+        var ids=new HashSet<>(prefs.getStringSet("favorite_apps",Set.of()));
+        if(!ids.remove(app.id()))ids.add(app.id());
+        prefs.edit().putStringSet("favorite_apps",ids).apply();
+    }
+    private void favorites(){
+        var apps=catalog.entries().stream().filter(this::favorite).toArray(AppRegistry.App[]::new);
+        var dialog=ui.dialog().setTitle("Избранные приложения");
+        if(apps.length==0)dialog.setMessage("Откройте «Все приложения» и добавьте нужные приложения в избранное.");
+        else dialog.setItems(Arrays.stream(apps).map(AppRegistry.App::label).toArray(String[]::new),(d,index)->details(apps[index]));
+        dialog.setNegativeButton("Закрыть",null).show();
+    }
+    private void usage(){
+        long now=System.currentTimeMillis();
+        var manager=activity.getSystemService(android.app.usage.UsageStatsManager.class);
+        var stats=manager.queryAndAggregateUsageStats(now-7L*24*60*60*1000,now);
+        Map<String,String> labels=new HashMap<>();
+        for(var app:catalog.entries())labels.putIfAbsent(app.packageName(),app.label());
+        String[] lines=stats.values().stream()
+            .filter(item->labels.containsKey(item.getPackageName())&&item.getTotalTimeInForeground()>0)
+            .sorted(Comparator.comparingLong(android.app.usage.UsageStats::getTotalTimeInForeground).reversed())
+            .limit(10)
+            .map(item->labels.get(item.getPackageName())+" · "+(item.getTotalTimeInForeground()/60000)+" мин")
+            .toArray(String[]::new);
+        var dialog=ui.dialog().setTitle("Время на экране за 7 дней");
+        if(lines.length==0)dialog.setMessage("Android пока не вернул статистику установленных приложений.");
+        else dialog.setItems(lines,null);
+        dialog.setPositiveButton("Закрыть",null).show();
+    }
+    private void remembered(){
+        AppNameMemory memory=catalog.nameMemory();Map<String,String> values=memory.entries();List<String> names=new ArrayList<>(values.keySet());String[] rows=new String[names.size()];for(int i=0;i<rows.length;i++)rows[i]=names.get(i)+" → "+values.get(names.get(i));
+        AlertDialog.Builder builder=ui.dialog().setTitle("Запомненные названия");
+        if(rows.length==0)builder.setMessage("Пока нет подтверждённых соответствий.");else builder.setItems(rows,(d,index)->{
+            String name=names.get(index);ui.dialog().setTitle(name).setItems(new String[]{"Изменить название","Удалить"},(x,which)->{
+                if(which==1){memory.remove(name);remembered();return;}
+                EditText input=ui.field("Название для голоса");input.setText(name);ui.dialog().setTitle("Изменить название").setView(input).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(dialog,button)->{if(!memory.rename(name,input.getText().toString()))Toast.makeText(activity,"Название занято или недопустимо",Toast.LENGTH_LONG).show();remembered();}).show();
+            }).setNegativeButton("Назад",(x,w)->remembered()).show();
+        });
+        builder.setNegativeButton("Закрыть",null);if(rows.length>0)builder.setNeutralButton("Очистить",(d,w)->ui.dialog().setTitle("Удалить запомненные названия?").setNegativeButton("Отмена",null).setPositiveButton("Удалить",(x,y)->{memory.clear();remembered();}).show());builder.show();
     }
     void refresh() { if (status != null) status.setText(catalog.status()); if (refresh != null) refresh.setEnabled(!catalog.scanning()); if (updateList != null) updateList.run(); }
     void chooseRole(String role, Runnable changed) {
@@ -82,7 +140,8 @@ final class AppCatalogPanel {
         list.setOnItemClickListener((parent, view, position, id) -> { AppRegistry.App app = (AppRegistry.App)view.getTag(); dialog.dismiss(); details(app); });
     }
     private void details(AppRegistry.App app) {
-        ui.dialog().setTitle(app.label()).setItems(new String[]{"Открыть приложение", "Свои названия для голоса", "Как вызвать и что найдено"}, (dialog, choice) -> {
+        ui.dialog().setTitle(app.label()).setItems(new String[]{"Открыть приложение", "Свои названия для голоса", "Как вызвать и что найдено",
+            favorite(app)?"Убрать из избранного":"Добавить в избранное"}, (dialog, choice) -> {
             if (choice == 0) new PhoneActionEngine(activity, message -> Toast.makeText(activity, message, Toast.LENGTH_LONG).show(), catalog, foreground).launchPhoneApp(app);
             if (choice == 1) {
                 EditText input = ui.field("Одно название на строку"); input.setMinLines(3); input.setText(String.join("\n", app.aliases())); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -100,6 +159,7 @@ final class AppCatalogPanel {
                 });
             }
             if (choice == 2) ui.dialog().setTitle(app.label()).setMessage("Команда: «открой " + app.label() + "».\n\nСистемное название: " + app.label() + "\nПакет: " + app.packageName() + "\nАдрес запуска: " + app.activity() + "\nВаши названия: " + (app.aliases().isEmpty() ? "не заданы" : String.join(", ", app.aliases())) + "\n\nСканирование не переучивает словарь Vosk. Если имя распознаётся плохо, задайте название из известных русских слов. При одинаковых названиях WileyAI уточнит приложение.").setPositiveButton("Закрыть", null).show();
+            if(choice==3){toggleFavorite(app);details(app);}
         }).setNegativeButton("Назад", (d, w) -> show("")).show();
     }
 }

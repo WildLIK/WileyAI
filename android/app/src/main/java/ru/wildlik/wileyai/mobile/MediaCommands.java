@@ -15,7 +15,7 @@ public final class MediaCommands {
         if (suffix.matches()) { String named = target(suffix.group(2)); if (!target.isEmpty() && !target.equals(named)) return null; target = named; text = suffix.group(1).trim(); }
         Matcher inner = Pattern.compile("^(найди|найти|поищи|покажи|включи|включить|поставь|поставить|воспроизведи) (?:в|на) ("+VIDEO+"|"+MUSIC+") (.+)$", Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE).matcher(text);
         if (inner.matches()) { String named = target(inner.group(2)); if (!target.isEmpty() && !target.equals(named)) return null; target = named; text = inner.group(1)+" "+inner.group(3); }
-        Matcher namedPause=Pattern.compile("^(поставь|останови|продолжи|перемотай|включи) ("+VIDEO+"|"+MUSIC+")( на паузу| сначала)?$",Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE).matcher(text);
+        Matcher namedPause=Pattern.compile("^(поставь|останови|продолжи|перемотай|включи|запусти) ("+VIDEO+"|"+MUSIC+")( на паузу| сначала)?$",Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE).matcher(text);
         if(namedPause.matches()){String named=target(namedPause.group(2));if(!target.isEmpty()&&!target.equals(named))return null;target=named;text=namedPause.group(1)+(named.equals("youtube")?" видео":" музыку")+(namedPause.group(3)==null?"":namedPause.group(3));}
         String value = text.toLowerCase(Locale.ROOT).replace('ё','е');
         if(!target.isEmpty() && value.matches(".*(?:громк|громче|тише|звук).*")) { PhoneCommands.Action volume=PhoneCommands.parse(text,true); if(volume!=null&&volume.kind.equals("volume"))return volume; }
@@ -32,10 +32,11 @@ public final class MediaCommands {
         }
         if (target.isEmpty() && value.matches(".*(?:видео|ролик).*")) target = "youtube";
         if (value.matches("(?:пауза|стоп|останови(?:ть)?(?: музыку| видео| ролик| воспроизведение| трек| песню)?|поставь(?:ть)?(?: музыку| видео| ролик| трек| песню)? на паузу|приостанови(?:ть)?(?: музыку| видео| воспроизведение)?)")) return action("pause",target);
-        if (value.matches("(?:включи(?:ть)? (?:музыку|видео)|воспроизведи(?: музыку| видео)?|продолжи(?:ть)?(?: музыку| видео| воспроизведение| трек| песню)?|возобнови(?:ть)?(?: музыку| видео| воспроизведение)?|сними(?: музыку| видео)? с паузы)")) return action("play",target);
+        if (value.matches("(?:(?:включи(?:ть)?|запусти(?:ть)?) (?:музыку|видео)|воспроизведи(?: музыку| видео)?|продолжи(?:ть)?(?: музыку| видео| воспроизведение| трек| песню)?|возобнови(?:ть)?(?: музыку| видео| воспроизведение)?|сними(?: музыку| видео)? с паузы)")) return action("play",target);
         if (value.matches("(?:(?:включи(?:ть)?|переключи(?:ть)? на|поставь|покажи) )?(?:следующий (?:трек|трэк|ролик)|следующ(?:ая|ую) песн(?:я|ю)|следующее видео)|пропусти (?:трек|песню|видео|ролик)")) return action("next",target);
         if (value.matches("(?:(?:включи(?:ть)?|переключи(?:ть)? на|поставь|покажи) )?(?:предыдущий (?:трек|трэк|ролик)|предыдущ(?:ая|ую) песн(?:я|ю)|предыдущее видео)")) return action("previous",target);
-        if (value.matches("что (?:сейчас )?(?:играет|воспроизводится)|какая (?:сейчас )?(?:песня|музыка)(?: играет)?|что за (?:песня|трек)|какое (?:сейчас )?видео(?: играет)?|состояние плеера")) return action("status",target);
+        String statusRequest=value.replaceFirst("(?:,? подробно| с подробностями)$", "");
+        if (statusRequest.matches("что (?:сейчас )?(?:играет|воспроизводится)|какая (?:сейчас )?(?:песня|музыка)(?: играет)?|что за (?:песня|трек)|какое (?:сейчас )?видео(?: играет)?|состояние плеера")) return action("status",target);
         if (value.matches("(?:начни|начать|включи|включить|перемотай|перемотать)(?: трек| песню| видео| ролик)? (?:сначала|на начало)|в начало")) return action("position:0",target);
         Matcher seek = Pattern.compile("^(?:перемотай|перемотать|промотай|промотать)(?: музыку| видео| трек| ролик)?(?: (вперед|назад))? на (.+?)(?: (вперед|назад))?$").matcher(value);
         if (seek.matches()) {

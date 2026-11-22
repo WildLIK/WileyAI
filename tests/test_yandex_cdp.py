@@ -38,16 +38,16 @@ def test_real_electron_transport_and_player_readback(tmp_path):
       document.querySelector('#results').onclick=e=>{if(!e.isTrusted)return;root.querySelector('a').href='/track/42';root.querySelector('a').textContent='With You';root.querySelectorAll('a')[1].textContent='Linkin Park';root.querySelector('button').dataset.testId='PAUSE_BUTTON';};
       </script>''', encoding="utf-8")
     main = tmp_path / "fixture.cjs"
-    main.write_text("const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>{const w=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false}});w.loadFile(require('path').join(__dirname,'resources/index.html'));});app.on('window-all-closed',()=>app.quit());", encoding="utf-8")
+    main.write_text("const {app,BrowserWindow,protocol,net}=require('electron');protocol.registerSchemesAsPrivileged([{scheme:'music-application',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);app.whenReady().then(()=>{protocol.handle('music-application',()=>net.fetch(require('url').pathToFileURL(require('path').join(__dirname,'resources/index.html')).toString()));const w=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false}});w.loadURL('music-application://desktop/');});app.on('window-all-closed',()=>app.quit());", encoding="utf-8")
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0)); port = reserved.getsockname()[1]
     environment = {key: value for key, value in os.environ.items() if key != "ELECTRON_RUN_AS_NODE"}
     process = subprocess.Popen([str(executable), str(main), f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1", f"--user-data-dir={tmp_path / 'profile'}", "--mute-audio"], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
     store = Store(tmp_path / "wiley"); store.patch_settings({"allow_audio_control": True})
     player = YandexMusic(tmp_path / "wiley", store, None)
-    # The fixture runs electron.exe, not an installed music app. Only its descriptor
-    # is injected; ownership, loopback, page scope, WebSocket and all actions are real.
-    descriptor = {"pid": process.pid, "port": port, "exe": str(tmp_path / "Яндекс Музыка.exe")}
+    # Inject only the installed-player descriptor lookup. The fixture supplies
+    # its real EXE/start time/CDP argument; native identity/socket/page checks run.
+    descriptor = {"pid": process.pid, "created": psutil.Process(process.pid).create_time(), "port": port, "exe": str(executable)}
     try:
         with patch.object(player, "descriptor", return_value=descriptor):
             for _ in range(60):

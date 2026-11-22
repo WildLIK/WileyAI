@@ -2594,6 +2594,33 @@ html:has(.pet-window) {
 .settings-panel .checkbox input {
   margin-top: 0;
 }
+.settings-panel .settings-switch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.settings-switch-copy { min-width: 0; overflow-wrap: anywhere; }
+.settings-switch-copy > span { display: block; font-size: 12px; font-weight: 600; }
+.settings-switch-copy small { display: block; color: var(--text-secondary); font-size: 11px; line-height: 1.5; margin-top: 5px; }
+.settings-panel .settings-switch input {
+  position: absolute; right: 12px; width: 48px; height: 28px;
+  opacity: 0; margin: 0; padding: 0;
+}
+.settings-switch-track { pointer-events: none; width: 48px; height: 28px; box-sizing: border-box; border-radius: 20px; background: var(--surface-base); border: 2px solid var(--muted); transition: background .15s, border-color .15s; }
+.settings-switch-track > span { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--text-secondary); margin: 3px; transition: transform .15s; }
+.settings-switch input:checked + .settings-switch-track { background: var(--accent-low); border-color: var(--accent-text); }
+.settings-switch input:checked + .settings-switch-track > span { transform: translateX(20px); background: var(--accent-text); }
+.settings-switch input:focus-visible + .settings-switch-track { outline: 2px solid var(--accent-text); outline-offset: 4px; }
+.settings-switch.is-disabled { opacity: .55; cursor: not-allowed; }
+.voice-policy-status { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.voice-policy-status p { margin: 7px 0; }
 .settings-panel .help {
   font-size: 11px;
   line-height: 1.6;

@@ -1,0 +1,2 @@
+package ru.wildlik.wileyai.mobile;
+public final class NeonWaveMathProbe {public static void main(String[] args){for(int width:new int[]{320,360,393,430,600,800})for(int h:new int[]{60,120,240})for(float x:new float[]{0,.3f,1}){float a=NeonWaveMath.amplitude(h,x,1);if(a<0||a>h*.5f)throw new AssertionError("bounds");}float a=0,b=0;for(int i=0;i<60;i++)a=NeonWaveMath.smooth(a,1,1f/60);for(int i=0;i<30;i++)b=NeonWaveMath.smooth(b,1,1f/30);if(Math.abs(a-b)>.001)throw new AssertionError("fps");}}

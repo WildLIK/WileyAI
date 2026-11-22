@@ -38,6 +38,7 @@ final class AppCatalog {
     List<AppRegistry.App> entries() { return entries; }
     String status() { return status; }
     boolean scanning() { return scanning.get(); }
+    AppNameMemory nameMemory(){return new AppNameMemory(preferences);}
     private void post(Runnable callback) { main.post(() -> { if (!closed) callback.run(); }); }
     void refresh() {
         if (closed) return;
@@ -77,8 +78,8 @@ final class AppCatalog {
             String selected = preferences.getString("preferred_" + role, "");
             List<AppRegistry.App> matches = new ArrayList<>();
             if (!role.isEmpty() && !selected.isEmpty()) { for (AppRegistry.App app : entries) if (app.id().equals(selected)) matches.add(app); }
-            else matches = AppRegistry.resolve(entries, name);
-            List<AppRegistry.App> result = matches; post(() -> callback.accept(result));
+            else { matches = AppRegistry.resolve(entries, name);if(matches.isEmpty())matches=new AppNameMemory(preferences).resolve(name,entries); }
+            List<AppRegistry.App> result = matches; DiagnosticLog.event(DiagnosticJournal.Event.APP_CANDIDATES,result.size());post(() -> callback.accept(result));
         });
     }
     String preferredLabel(String role) { String selected = preferences.getString("preferred_" + role, ""); for (AppRegistry.App app : entries) if (app.id().equals(selected)) return app.label(); return selected.isEmpty() ? "Выбрать приложение" : "Приложение удалено — выберите другое"; }

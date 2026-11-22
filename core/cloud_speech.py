@@ -12,6 +12,7 @@ import httpx
 import keyring
 
 from .speech_text import plain_speech
+from .speech_errors import SpeechUnavailable
 
 
 SERVICES = {
@@ -189,6 +190,8 @@ class CloudSpeech:
                 self.http = client()
             async with self.http.stream("POST", config.tts_base_url + "/audio/speech", headers={"Authorization": "Bearer " + key}, json=body) as response:
                 if response.status_code != 200:
+                    if response.status_code == 429:
+                        raise SpeechUnavailable("Лимит запросов озвучки исчерпан (HTTP 429). Текстовый ответ доступен; разговор можно продолжить.", response.headers.get("Retry-After"))
                     messages = {401: "Ключ озвучки отклонён", 403: "Нет доступа к выбранной модели озвучки", 402: "Недостаточно средств на балансе сервиса озвучки",
                                 404: "Облачная модель или адрес озвучки не найдены", 429: "Лимит запросов озвучки исчерпан. Подождите и повторите"}
                     raise ValueError(messages.get(response.status_code, "Сервис озвучки отклонил запрос. Проверьте модель, голос и формат") + f" (HTTP {response.status_code})")

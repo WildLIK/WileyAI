@@ -16,6 +16,9 @@ files:
   - package.json
   - "!node_modules/**"
 extraResources:
+  - from: assets/voice
+    to: licenses/voice
+    filter: ["*.txt", "*.json"]
   - from: assets/avatars
     to: avatars
   - from: core

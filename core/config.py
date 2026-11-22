@@ -61,6 +61,7 @@ class Settings(BaseModel):
     chatgpt_connection: str = Field(default="", max_length=64, pattern=r"^(?:[a-f0-9]{64})?$")
     base_url: str = "http://127.0.0.1:11434"
     model: str = Field(default="qwen3.5:4b", max_length=200)
+    fast_model: str = Field(default="", max_length=200)
     profile: Literal["eco", "balanced", "quality"] = "balanced"
     voice_idle_timeout: Literal["profile", "never", "1m", "5m", "15m"] = "profile"
     context_tokens: int = Field(default=4096, ge=1024, le=32768)
@@ -72,6 +73,10 @@ class Settings(BaseModel):
     pronunciations: list[Pronunciation] = Field(default_factory=list, max_length=500)
     voice_diagnostics: bool = False
     conversation_listen_while_thinking: bool = True
+    conversation_queue_mode: Literal["sequential", "latest", "queue"] = "sequential"
+    conversation_endpoint_mode: Literal["auto", "commands", "conversation", "dictation"] = "auto"
+    conversation_vad: Literal["auto", "silero", "rms"] = "auto"
+    conversation_smart_turn: bool = False
     conversation_barge_in: bool = False
     conversation_wake_required: bool = False
     conversation_wake_word: str = Field(default="Уайли", min_length=2, max_length=40, pattern=r"^[А-Яа-яЁёA-Za-z ]+$")
@@ -98,7 +103,12 @@ class Settings(BaseModel):
     allow_web_open: bool = True
     allow_audio_control: bool = True
     music_player: Literal["auto", "yandex"] = "auto"
+    media_source: str = Field(default="auto", min_length=1, max_length=512)
+    yandex_auto_connect: bool = False
+    yandex_auto_play: bool = False
     command_understanding: bool = False
+    semantic_commands: bool = False
+    intent_gate: bool = False
     task_understanding: bool = True
     plan_understanding: bool = True
     search_enabled: bool = False

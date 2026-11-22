@@ -21,3 +21,12 @@ add_subdirectory("${LLAMA_SOURCE}" llama-build)
 add_library(wiley_llm SHARED wiley_llm.cpp)
 target_link_libraries(wiley_llm PRIVATE llama android log)
 target_link_options(wiley_llm PRIVATE "-Wl,-z,max-page-size=16384")
+
+# Optional offline PLiX research. The reference bank and model live in private storage.
+set(ORT_HEADERS "${CMAKE_CURRENT_LIST_DIR}/../../../../../local/research/compat16")
+if(EXISTS "${ORT_HEADERS}/onnxruntime_c_api.h")
+    add_library(wiley_h2 SHARED plix_shadow_jni.cpp)
+    target_include_directories(wiley_h2 PRIVATE "${ORT_HEADERS}")
+    target_link_libraries(wiley_h2 PRIVATE dl)
+    target_link_options(wiley_h2 PRIVATE "-Wl,-z,max-page-size=16384")
+endif()

@@ -32,7 +32,7 @@ final class PhoneActionEngine {
                 }).setNegativeButton("Отмена",(d,w)->reply.accept("Воспроизведение отменено.")).show();
             });
         } else if (action.kind.equals("open")) openPhoneTarget(action.value);
-        else PhoneActionCore.execute(activity, action, reply);
+        else PhoneActionCore.execute(activity, action, "", intent->{if(!foreground.getAsBoolean()||activity.isDestroyed()||activity.isFinishing())throw new IllegalStateException();activity.startActivity(intent);}, ()->!activity.isDestroyed()&&!activity.isFinishing(), (display,spoken)->reply.accept(display));
     }
     private void openPhoneTarget(String target) {
         apps.resolve(target, matches -> {

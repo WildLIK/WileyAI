@@ -1,0 +1,15 @@
+{
+  "silero_vad_v5.onnx": {
+    "bytes": 2327524,
+    "sha256": "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
+    "source": "https://github.com/ricky0123/vad/blob/2e5aca93e3902f04ff5b7eb4a9633926cdca9cf6/silero_vad_v5.onnx",
+    "license": "MIT",
+    "copyright": "2020-present Silero Team"
+  },
+  "onnxruntime-web": {
+    "version": "1.31.1",
+    "license_source_revision": "6af1a932e2286d5c58166085d24c68783033edee",
+    "license": "MIT",
+    "notices_sha256": "143764b952fdb1a7c69ce653bfba74a7744d6a8a573bfb73e235fba356c83de3"
+  }
+}

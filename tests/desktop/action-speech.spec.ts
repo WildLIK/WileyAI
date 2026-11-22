@@ -37,5 +37,14 @@ test("action display diagnostics never enter the actual TTS request", async () =
     await composer.fill(recognized); await composer.press("Enter");
     await expect(page.getByText(/PID 30728/)).toBeVisible();
     await expect.poll(() => spoken.map((text) => text.toLocaleLowerCase("ru-RU")), { timeout: 15000 }).toEqual(["запускаю blender."]);
+    await composer.fill("Не открывай Blender"); await composer.press("Enter");
+    await expect.poll(() => spoken.map((text) => text.toLocaleLowerCase("ru-RU")), { timeout: 15000 }).toEqual(["запускаю blender.", "хорошо, не буду открывать blender."]);
+    const actualCalls = await page.evaluate(async () => {
+      const c = await window.wiley.connection();
+      const response = await fetch(c.url + "/actions?diagnostics=true", { headers: { Authorization: "Bearer " + c.token } });
+      const actions = await response.json() as { kind: string; status: string }[];
+      return actions.filter((entry) => entry.kind === "command.tool" && entry.status === "called").length;
+    });
+    expect(actualCalls).toBe(1);
   } finally { await app.close(); }
 });

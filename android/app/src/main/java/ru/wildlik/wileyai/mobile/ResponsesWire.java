@@ -8,10 +8,13 @@ final class ResponsesWire {
     private static final class Terminal extends RuntimeException {}
     private static String string(Map<?,?> item,String key){Object value=item.get(key);if(!(value instanceof String text))throw new IllegalArgumentException("Изменился формат ответа OpenAI");return text;}
     static BrainProvider.Completion read(Reader reader,boolean toolsAllowed,Runnable check)throws IOException{
+        return read(reader,toolsAllowed,check,()->{});
+    }
+    static BrainProvider.Completion read(Reader reader,boolean toolsAllowed,Runnable check,Runnable firstOutput)throws IOException{
         StringBuilder answer=new StringBuilder();List<BrainProvider.Call> calls=new ArrayList<>();List<Map<String,Object>> continuation=new ArrayList<>();Set<String> ids=new HashSet<>();
         try{ProviderSse.read(reader,raw->{
             check.run();Object parsed=StrictJson.parse(raw);if(!(parsed instanceof Map<?,?> event))throw new IllegalArgumentException("Изменился формат ответа OpenAI");String type=string(event,"type");
-            if(type.equals("response.output_text.delta")){answer.append(string(event,"delta"));if(answer.length()>16384)throw new IllegalArgumentException("Ответ планировщика слишком большой");}
+            if(type.equals("response.output_text.delta")){String chunk=string(event,"delta");if(answer.length()==0&&!chunk.isEmpty())firstOutput.run();answer.append(chunk);if(answer.length()>16384)throw new IllegalArgumentException("Ответ планировщика слишком большой");}
             else if(type.equals("response.output_item.done")){
                 if(!(event.get("item") instanceof Map<?,?> item))throw new IllegalArgumentException("Изменился формат ответа OpenAI");String kind=string(item,"type");
                 if(kind.equals("function_call")){

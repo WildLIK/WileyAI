@@ -75,6 +75,9 @@ class Pending(BaseModel):
     choices: list[Step] = Field(min_length=1, max_length=3)
     model_assisted: bool = True
     spoken: str = Field(default="", max_length=100)
+    semantic: bool = False
+    intent_gate: bool = False
+    request_id: str = ""
 
 
 def unique_keys(pairs):
@@ -135,6 +138,8 @@ async def propose(settings, text, tools):
 def question(choices, voice=False):
     lines = [f"{index}. {KINDS[item['kind']]} «{item['label']}»" + ("." if voice else " — " + item["target"]) for index, item in enumerate(choices, 1)]
     ending = "Открыть? Ответьте «да» или «отмена»." if len(choices) == 1 else "Что открыть? Ответьте номером варианта или «отмена»."
+    if len(choices) == 2:
+        ending = "Что открыть? Первый или второй? Ответьте номером варианта или «отмена»."
     return QUESTION_PREFIX + "\n" + "\n".join(lines) + "\n" + ending
 
 
@@ -152,10 +157,10 @@ def validate_choices(tools, choices):
     return result
 
 
-def remember(store, assistant_id, choices, *, model_assisted=True, spoken=""):
+def remember(store, assistant_id, choices, *, model_assisted=True, spoken="", created=None, semantic=False, request_id="", intent_gate=False):
     state = store.dialogue()
     state.pop("pending", None)  # One active clarification, not two competing actions.
-    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time(), choices=[Step.model_validate(item) for item in choices], model_assisted=model_assisted, spoken=spoken).model_dump()
+    state["pending_open"] = Pending(assistant_id=assistant_id, created=time.time() if created is None else created, choices=[Step.model_validate(item) for item in choices], model_assisted=model_assisted, spoken=spoken, semantic=semantic, request_id=request_id, intent_gate=intent_gate).model_dump()
     store.save_dialogue(state)
 
 
@@ -167,9 +172,13 @@ class Followup:
     model_assisted: bool = True
     status: str = ""
     spoken: str = ""
+    created: float | None = None
+    semantic: bool = False
+    intent_gate: bool = False
+    request_id: str = ""
 
 
-def consume(store, text, tools, name="Уайли"):
+def consume(store, text, tools, name="Уайли", cancelled=None):
     state = store.dialogue()
     raw = state.pop("pending_open", None)
     value = re.sub(r"^" + re.escape(name) + r"[,!]?\s+", "", text.strip(), flags=re.I)
@@ -177,15 +186,19 @@ def consume(store, text, tools, name="Уайли"):
     positive = bool(re.fullmatch(r"да(?:,? (?:открой|открывай|давай))?|давай(?:,? открывай)?|открой|открывай|подтверждаю", value))
     negative = value in {"нет", "отмена", "не надо", "отмени", "передумал", "передумала", "нет я имел в виду другое приложение", "нет, я имел в виду другое приложение", "я имел в виду другое приложение"}
     numbers = {"один": 1, "первый": 1, "первое": 1, "первую": 1, "два": 2, "второй": 2, "второе": 2, "вторую": 2, "три": 3, "третий": 3, "третье": 3, "третью": 3}
-    match = re.fullmatch(r"(?:(?:открой|открывай|вариант|номер) )?([0-9]|один|первый|первое|первую|два|второй|второе|вторую|три|третий|третье|третью)(?: вариант)?", value)
+    match = re.fullmatch(r"(?:(?:открой|открывай) )?(?:(?:приложение )?(?:вариант|номер) )?([0-9]|один|первый|первое|первую|два|второй|второе|вторую|три|третий|третье|третью)(?: вариант)?", value)
+    unclear = bool(re.fullmatch(r"(?:вариант|приложение|номер|открой вариант|какой вариант|не понял|не поняла|повтори|что)", value))
+    alternative = bool(raw and raw.get("semantic") and value in {"нет другую", "нет, другую", "другую", "другой вариант"})
     if raw is None:
-        if positive or negative or match:
+        if positive or negative or match or unclear:
             history = store.list("messages", 2)
             if len(history) == 2 and history[-2]["role"] == "assistant" and history[-2]["content"].startswith((QUESTION_PREFIX, LEGACY_QUESTION_PREFIX)):
                 return Followup("Предложение больше недоступно. Повторите команду открытия.")
+            if unclear or re.search(r"\b(?:вариант|номер)\b", value):
+                return Followup("Нет актуального выбора приложения. Повторите команду открытия.", status="needs_clarification")
         return None
     store.save_dialogue(state)  # A new, unrelated message also retires the proposal.
-    if not (positive or negative or match):
+    if not (positive or negative or match or unclear or alternative):
         return None
     if negative:
         return Followup("Выбор открытия отменён. Ничего не открыто.", status="cancelled")
@@ -196,12 +209,17 @@ def consume(store, text, tools, name="Уайли"):
             raise ValueError("Предложение устарело")
     except (ValueError, TypeError):
         return Followup("Предложение устарело. Повторите команду открытия.")
-    if pending.model_assisted and not store.settings().command_understanding:
+    if pending.semantic and (not (store.settings().intent_gate if pending.intent_gate else store.settings().semantic_commands) or pending.request_id in (cancelled or {})):
+        return Followup("Интеллектуальное предложение отключено или остановлено. Ничего не открыто.")
+    if pending.model_assisted and not pending.semantic and not store.settings().command_understanding:
         return Followup("Свободные команды отключены в разделе «Команды». Ничего не открыто.")
     choices = [item.model_dump() for item in pending.choices]
+    if alternative:
+        others = choices[1:]
+        return Followup(question(others) if others else "Других предложенных вариантов нет. Уточните, какую программу искать; ничего не открыто.", choices=others, semantic=True, request_id=pending.request_id, intent_gate=pending.intent_gate)
     index = (int(match[1]) if match and match[1].isdigit() else numbers.get(match[1]) if match else 1) - 1
-    if (positive and len(choices) != 1) or not 0 <= index < len(choices):
-        return Followup(question(choices), choices=choices, model_assisted=pending.model_assisted, spoken=pending.spoken)
+    if unclear or (positive and len(choices) != 1) or not 0 <= index < len(choices):
+        return Followup(question(choices), choices=choices, model_assisted=pending.model_assisted, spoken=pending.spoken, created=pending.created, semantic=pending.semantic, request_id=pending.request_id, intent_gate=pending.intent_gate)
     chosen = choices[index]
     current = catalog(tools)
     if choice_id(chosen) not in current:

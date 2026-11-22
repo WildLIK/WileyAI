@@ -46,7 +46,10 @@ public final class MainActivity extends Activity {
     private static final int MIC_PERMISSION = 71;
     private static final int SPEECH_IMPORT = 72;
     private static final int LLM_IMPORT = 73;
+    private static final int GIGAAM_IMPORT = 74;
     private static final int GATEWAY_ATTACHMENT = 76;
+    private static final int DIAGNOSTIC_EXPORT = 77;
+    private String pendingDiagnosticExport;
     private final ExecutorService io = Executors.newCachedThreadPool();
     private final AtomicBoolean chatting = new AtomicBoolean(false);
     private final AtomicBoolean pinging = new AtomicBoolean(false);
@@ -55,8 +58,12 @@ public final class MainActivity extends Activity {
     private volatile JSONObject profile;
     private volatile String conversation = "";
     private String requestId = "", lastAnswer = "";
-    private boolean readAloud, phoneTarget;
+    private boolean readAloud, phoneTarget; private long diagnosticRequestStart;
     private boolean localMode = true, localReady, restoreLocalDraft = true;
+    private String pendingProviderTarget; private BrainProvider.Kind providerBeforeSettings;
+    private boolean voskChecked, gigaChecked, llmChecked;
+    private ChatReadiness.State pcHealth = ChatReadiness.State.UNKNOWN;
+    private LinearLayout emptyChat;
     private volatile boolean destroyed;
     private String page = "chat", pcDraft = "", localTitle = "Новый чат";
     private SettingsRepository settings;
@@ -64,6 +71,8 @@ public final class MainActivity extends Activity {
     private LocalChatController localChats;
     private MobileUi ui;
     private SpeechModelManager speechModels;
+    private GigaAmModelManager asrModels;
+    private GigaAmSpeechEngine gigaAmSpeech;
     private OfflineSpeechEngine offlineSpeech;
     private SystemSpeechEngine systemSpeech;
     private LocalVoice localVoice;
@@ -79,19 +88,21 @@ public final class MainActivity extends Activity {
     private VoicePanel voicePanel;
     private AssistantPanel assistantPanel;
     private MediaPanel mediaPanel;
-    private TextView componentSpeechStatus;
     private final java.util.ArrayDeque<String> screenTrail = new java.util.ArrayDeque<>();
     private AppCatalog appCatalog;
     private AppCatalogPanel appPanel;
-    private boolean resumed, micForPhone;
+    private boolean resumed, micForPhone, manualWakeSuspended;
     private final Handler draftHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveDraftLater = this::saveDraft;
     private LinearLayout root, messages;
     private ScrollView scroll;
     private TextView status, title, streaming, network;
     private EditText composer;
+    private String pendingGuideExample;
+    private PermissionPanel permissionPanel;
     private Button send, record, stop;
     private Button modeSwitch;
+    private NeonVoiceView headerLogo; private boolean logoCancelled, logoTerminal;
     private MediaRecorder recorder;
     private MediaPlayer player;
     private File recording, playback;
@@ -101,13 +112,15 @@ public final class MainActivity extends Activity {
         settings = new SettingsRepository(this);
         ui = new MobileUi(this, settings.theme());
         offlineSpeech = new OfflineSpeechEngine(this); systemSpeech = new SystemSpeechEngine(this);
+        gigaAmSpeech = new GigaAmSpeechEngine(this, GigaAmRuntime.get(this));
         localVoice = new LocalVoice(this, settings.preferences, this::error);
         localLlm = new LocalLlm(this); cloudChat=new CloudChat(this);gatewayChat=new GatewayClient(this);
-        llmModels = new LlmModels(this, () -> { if (page.equals("llm") && llmPanel != null) llmPanel.refresh(); if (page.equals("chat") && localMode && modeSwitch != null) modeSwitch.setText(phoneModeLabel()); });
+        llmModels = new LlmModels(this, () -> { llmChecked=true; updateEmptyChat(); if (page.equals("llm") && llmPanel != null) llmPanel.refresh(); if (page.equals("chat") && localMode && modeSwitch != null) modeSwitch.setText(headerSourceLabel()); });
         speechModels = new SpeechModelManager(this, () -> {
+            voskChecked=true; updateEmptyChat();
             if (page.equals("speech") && speechPanel != null) speechPanel.refresh();
-            if (page.equals("models") && componentSpeechStatus != null) componentSpeechStatus.setText(speechModels.busy() ? "Загрузка и установка…" : speechModels.active() != null ? "Русский комплект установлен" : "Русский комплект · 44,1 МиБ");
         });
+        asrModels = new GigaAmModelManager(this, () -> { gigaChecked=true; updateEmptyChat(); if (page.equals("speech") && speechPanel != null) speechPanel.refresh(); });
         if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         appCatalog = new AppCatalog(this, settings.preferences, () -> { if (page.equals("apps") && appPanel != null) appPanel.refresh(); });
         brain=new BrainController(this,appCatalog);
@@ -119,25 +132,31 @@ public final class MainActivity extends Activity {
             public void render(String chatTitle, String draft, List<LocalChatRepository.Message> list, boolean hasOlder) {
                 localTitle = chatTitle;
                 if (!localMode || !page.equals("chat") || messages == null) return;
-                messages.removeAllViews();
+                messages.removeAllViews(); emptyChat=null;
                 if (hasOlder) messages.addView(button("Показать предыдущие сообщения", () -> { saveDraft(); localChats.loadMore(); }));
                 if (list.isEmpty()) welcome();
                 for (LocalChatRepository.Message item : list) addMessage(item.role(), item.content());
                 title.setText(chatTitle);
-                if (restoreLocalDraft) { composer.setText(draft); composer.setSelection(composer.length()); restoreLocalDraft = false; }
-                note(GatewayClient.enabled(MainActivity.this)?"Gateway · локальная и серверная история":CloudChat.enabled(MainActivity.this)?"Облачный чат · история хранится на телефоне":"Телефон · история хранится на этом устройстве");
+                if (restoreLocalDraft) { restoreLocalDraft = false; restoreComposer(draft); }
+                note("");
             }
             public void ready(boolean ready) { localReady = ready; if (localMode) { if (send != null) send.setEnabled(ready && !recognitionBusy() && !chatting.get()); if (ready && composer != null && !recognitionBusy() && !chatting.get()) composer.setEnabled(true); } }
             public void error(String message) { MainActivity.this.error(message); }
         });
         String profileError = null;
         try { profile = readProfile(); } catch (Exception ignored) { profile = null; profileError = "Не удалось прочитать защищённое подключение. Создайте новый код на ПК и выполните сопряжение. Сохранённые данные подключения не удалены."; }
+        localMode = !ChatHeaderPolicy.restorePc(settings.preferences.getBoolean("chat_source_pc",false),profile!=null);
         Uri incoming = getIntent() != null ? getIntent().getData() : null;
         if (MediaPanel.SETTINGS.equals(getIntent().getAction())) showSection("media");
         else if (HandsFreeService.SETTINGS.equals(getIntent().getAction()) || Intent.ACTION_ASSIST.equals(getIntent().getAction())) showSection("assistant");
         else if (incoming != null) showPair(incoming.toString());
         else showChat();
         if (profileError != null) error(profileError);
+        if (!getSharedPreferences("wiley-diagnostics",MODE_PRIVATE).getBoolean("notice_shown",false)) {
+            getSharedPreferences("wiley-diagnostics",MODE_PRIVATE).edit().putBoolean("notice_shown",true).apply();
+            ui.dialog().setTitle("Локальная диагностика").setMessage("WileyAI сохраняет технические события на устройстве до 7 дней, не записывая разговоры, аудио и секреты. Журнал никуда не отправляется автоматически. Его можно отключить или очистить в настройках.")
+                .setPositiveButton("Понятно",null).setNegativeButton("Отключить",(d,w)->DiagnosticLog.stop()).show();
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -152,11 +171,12 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        releaseManualWake();
         destroyed = true;
         if(brain!=null)brain.close();if(brainPanel!=null)brainPanel.close();
         if (mediaPanel != null) mediaPanel.close(); if (assistantPanel != null) assistantPanel.close();
         localLlm.close(); cloudChat.close();gatewayChat.close();if(gatewayPanel!=null)gatewayPanel.close();llmModels.close();
-        if (voicePanel != null) voicePanel.close(); offlineSpeech.close(); systemSpeech.close(); speechModels.close(); localVoice.close(); appCatalog.close();
+        if (voicePanel != null) voicePanel.close(); offlineSpeech.close(); systemSpeech.close(); gigaAmSpeech.close(); speechModels.close(); asrModels.close(); localVoice.close(); appCatalog.close();
         pingHandler.removeCallbacks(pingLoop);
         draftHandler.removeCallbacks(saveDraftLater);
         if (recorder != null) { try { recorder.stop(); } catch (RuntimeException ignored) {} recorder.release(); recorder = null; }
@@ -167,8 +187,8 @@ public final class MainActivity extends Activity {
         localChats.close();
         super.onDestroy();
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; if (assistantPanel != null) assistantPanel.refresh();if(gatewayPanel!=null)gatewayPanel.refresh();if(modeSwitch!=null&&localMode)modeSwitch.setText(phoneModeLabel());pingHandler.removeCallbacks(pingLoop); pingHandler.post(pingLoop); }
-    @Override protected void onPause() { resumed = false; offlineSpeech.cancel(); systemSpeech.cancel(); localLlm.cancel(); cloudChat.cancel();localVoice.stop(); saveDraft(); discardRecording(); if (record != null) record.setText("🎙"); pingHandler.removeCallbacks(pingLoop); super.onPause(); }
+    @Override protected void onResume() { super.onResume(); resumed = true;if(ui!=null)ui.pauseArt(false);DiagnosticLog.event(DiagnosticJournal.Event.APP_OPEN,0); if (assistantPanel != null) assistantPanel.refresh(); if(permissionPanel!=null)permissionPanel.refresh();if(brainPanel!=null)brainPanel.refreshScreenStatus(); configureHeaderLogo(); updateEmptyChat();if(gatewayPanel!=null)gatewayPanel.refresh();if(modeSwitch!=null&&localMode)modeSwitch.setText(headerSourceLabel());pingHandler.removeCallbacks(pingLoop); pingHandler.post(pingLoop); }
+    @Override protected void onPause() { if(ui!=null)ui.pauseArt(true);DiagnosticLog.event(DiagnosticJournal.Event.APP_BACKGROUND,0);resumed = false;if(headerLogo!=null)headerLogo.paused(true);if(brain!=null)brain.pauseLocal(); offlineSpeech.cancel(); systemSpeech.cancel(); gigaAmSpeech.cancel(); localLlm.cancel(); cloudChat.cancel();localVoice.stop(); saveDraft(); discardRecording(); if (record != null) setRecordIcon(false); pingHandler.removeCallbacks(pingLoop); super.onPause(); }
 
     @Override protected void onSaveInstanceState(Bundle state) { saveDraft(); super.onSaveInstanceState(state); }
     private void saveDraft() {
@@ -177,7 +197,7 @@ public final class MainActivity extends Activity {
         if (localMode) { if (!restoreLocalDraft) localChats.saveDraft(composer.getText().toString()); }
         else { pcDraft = composer.getText().toString(); settings.preferences.edit().putString("pc_draft", pcDraft).apply(); }
     }
-    private boolean recognitionBusy() { return offlineSpeech.busy() || systemSpeech.busy(); }
+    private boolean recognitionBusy() { return offlineSpeech.busy() || systemSpeech.busy() || gigaAmSpeech.busy(); }
     private boolean canNavigate() {
         if (chatting.get()) { note("Сначала остановите ответ или дождитесь его окончания"); return false; }
         if (recorder != null) { note("Сначала завершите запись"); return false; }
@@ -202,9 +222,9 @@ public final class MainActivity extends Activity {
     private LinearLayout vertical() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); return layout; }
     private LinearLayout row() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.HORIZONTAL); return layout; }
     private void padded(View view, int top) { view.setPadding(dp(16), dp(top), dp(16), dp(8)); }
-    private void layout() {if(brainPanel!=null){brainPanel.close();brainPanel=null;}if(gatewayPanel!=null){gatewayPanel.close();gatewayPanel=null;} if (mediaPanel != null) { mediaPanel.close(); mediaPanel = null; } if (assistantPanel != null) { assistantPanel.close(); assistantPanel = null; } modeSwitch = null; if (!page.equals("llm")) llmPanel = null; pingHandler.removeCallbacks(pingLoop); if (!page.equals("apps")) appPanel = null; if (!page.equals("speech")) speechPanel = null; if (voicePanel != null) { voicePanel.close(); voicePanel = null; } componentSpeechStatus = null; network = null; status = null; composer = null; messages = null; send = null; root = ui.root(); }
-    private void note(String message) { if (status != null) status.setText(message); }
-    private void error(String message) { onUi(() -> { if (!isDestroyed() && !isFinishing()) ui.dialog().setTitle("WileyAI").setMessage(message).setPositiveButton("Понятно", null).show(); }); }
+    private void layout() {permissionPanel=null;if(brainPanel!=null){brainPanel.close();brainPanel=null;}if(gatewayPanel!=null){gatewayPanel.close();gatewayPanel=null;} if (mediaPanel != null) { mediaPanel.close(); mediaPanel = null; } if (assistantPanel != null) { assistantPanel.close(); assistantPanel = null; } modeSwitch = null; headerLogo=null; if (!page.equals("llm")) llmPanel = null; pingHandler.removeCallbacks(pingLoop); if (!page.equals("apps")) appPanel = null; if (!page.equals("speech")) speechPanel = null; if (voicePanel != null) { voicePanel.close(); voicePanel = null; } network = null; status = null; composer = null; messages = null; emptyChat = null; send = null; root = ui.root(); }
+    private void note(String message) { if (status != null) { status.setText(message); status.setVisibility(message == null || message.isEmpty() ? View.GONE : View.VISIBLE); } }
+    private void error(String message) { DiagnosticLog.event(DiagnosticJournal.Event.UI_ERROR,0);onUi(() -> { if (!isDestroyed() && !isFinishing()) ui.dialog().setTitle("WileyAI").setMessage(message).setPositiveButton("Понятно", null).show(); }); }
     private void background(Runnable work) { if (!destroyed) io.execute(work); }
     private void onUi(Runnable work) { runOnUiThread(() -> { if (!destroyed && !isFinishing()) work.run(); }); }
 
@@ -261,19 +281,34 @@ public final class MainActivity extends Activity {
     }
     private void connectButton(boolean enabled, EditText input) { input.setEnabled(enabled); }
 
+    private NeonVoiceView makeHeaderLogo() {
+        NeonVoiceView logo=new NeonVoiceView(this,true);logo.setContentDescription(null);
+        var prefs=settings.preferences;logo.configure(prefs.getInt("neon_intensity",2),prefs.getBoolean("neon_logo",true),prefs.getBoolean("neon_reduce",false));
+        logo.paused(!resumed);return logo;
+    }
+    private void configureHeaderLogo(){if(headerLogo!=null){var p=settings.preferences;headerLogo.configure(p.getInt("neon_intensity",2),p.getBoolean("neon_logo",true),p.getBoolean("neon_reduce",false));headerLogo.paused(!resumed);}}
+    boolean artModelBusy(){return chatting.get() || (localLlm!=null&&localLlm.busy()) || HandsFreeService.answering();}
+    private void logoState(NeonVoiceView.Mode state){if(headerLogo!=null)headerLogo.state(state);}
+    private void logoStart(){diagnosticRequestStart=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(DiagnosticJournal.Event.MODEL_BEGIN,0);logoCancelled=false;logoTerminal=false;logoState(NeonVoiceView.Mode.PROCESSING);}
+    private void logoEnd(boolean success){if(logoCancelled){logoState(NeonVoiceView.Mode.IDLE);return;}DiagnosticLog.event(success?DiagnosticJournal.Event.MODEL_DONE:DiagnosticJournal.Event.MODEL_ERROR,diagnosticRequestStart==0?0:android.os.SystemClock.elapsedRealtime()-diagnosticRequestStart);logoTerminal=true;logoState(success?NeonVoiceView.Mode.SUCCESS:NeonVoiceView.Mode.ERROR);}
     private void showChat() {
-        screenTrail.clear(); page = "chat"; restoreLocalDraft = true;
+        if(pendingProviderTarget!=null){BrainProvider.Kind current=new ModelManager(this).selected();if(providerBeforeSettings!=null&&ChatHeaderPolicy.activateAfterSettings(pendingProviderTarget,providerBeforeSettings.name(),current.name()))localMode=true;pendingProviderTarget=null;providerBeforeSettings=null;}
+        settings.preferences.edit().putBoolean("chat_source_pc",!localMode).apply();
+        long diagnosticScreenBegan=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(DiagnosticJournal.Event.SCREEN_CHAT,0);screenTrail.clear(); page = "chat"; restoreLocalDraft = true;
         layout();
-        LinearLayout header = row(); padded(header, 8); header.setGravity(Gravity.CENTER_VERTICAL);
-        title = text(localMode ? localTitle : "WileyAI · ПК", 20, ui.theme.text); title.setTypeface(null, Typeface.BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        header.addView(button("Чаты", this::chooseChat), new LinearLayout.LayoutParams(dp(72), dp(48))); root.addView(header);
-        Button mode = button(localMode ? phoneModeLabel() : "ПК · модель из WileyAI  ▾", this::chooseMode);
-        modeSwitch = mode;
-        root.addView(mode, new LinearLayout.LayoutParams(-1, dp(48)));
-        network = text(localMode ? "Команды и история доступны без ПК" : "Проверка связи…", 12, ui.theme.accentText);
-        padded(network, 4); root.addView(network);
-        status = text(localMode ? "Открываю историю телефона…" : "Новый чат компьютера", 12, ui.theme.muted); padded(status, 0); status.setMaxLines(2); root.addView(status);
+        LinearLayout header = row();header.setPadding(dp(12),dp(5),dp(12),dp(3));header.setGravity(Gravity.CENTER_VERTICAL);
+        headerLogo=makeHeaderLogo();header.addView(headerLogo,new LinearLayout.LayoutParams(dp(34),dp(34)));
+        Button mode=button(headerSourceLabel(),()->showSourcePopup(modeSwitch));modeSwitch=mode;ui.headerControl(mode);mode.setMinWidth(dp(112));mode.setMinimumWidth(dp(112));mode.setSingleLine(true);mode.setEllipsize(android.text.TextUtils.TruncateAt.END);mode.setContentDescription("Источник ответа");
+        android.widget.FrameLayout sourceSlot=new android.widget.FrameLayout(this);sourceSlot.addView(mode,new android.widget.FrameLayout.LayoutParams(-2,dp(48),Gravity.START|Gravity.CENTER_VERTICAL));
+        LinearLayout.LayoutParams modeParams=new LinearLayout.LayoutParams(0,dp(48),1);modeParams.setMargins(dp(8),0,dp(6),0);header.addView(sourceSlot,modeParams);
+        boolean compactHistory=getResources().getConfiguration().screenWidthDp<375 || (getResources().getConfiguration().fontScale>1.2f && getResources().getConfiguration().screenWidthDp<430);
+        Button history=button(compactHistory?"История":"История чатов",()->{});history.setContentDescription("История чатов");history.setTextSize(compactHistory?12:13);history.setSingleLine(true);history.setEllipsize(android.text.TextUtils.TruncateAt.END);history.setMinWidth(0);history.setMinimumWidth(0);ui.headerControl(history);
+        android.graphics.drawable.Drawable historyIcon=getDrawable(R.drawable.nav_chat).mutate();historyIcon.setTint(ui.theme.accentText);historyIcon.setBounds(0,0,dp(18),dp(18));history.setCompoundDrawables(historyIcon,null,null,null);history.setCompoundDrawablePadding(dp(4));history.setOnClickListener(v->showHistoryPopup(history));
+        header.addView(history,new LinearLayout.LayoutParams(dp(compactHistory?124:165),dp(48)));root.addView(header);
+        title=text(localMode?localTitle:"История ПК",13,ui.theme.secondary);title.setPadding(dp(16),0,dp(16),dp(3));title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);root.addView(title);
+        network = text(localMode ? "" : "Проверка связи…", 12, ui.theme.accentText);
+        if (!localMode) { padded(network, 2); root.addView(network); }
+        status = text("", 12, ui.theme.muted); padded(status, 0); status.setMaxLines(2); status.setVisibility(View.GONE); root.addView(status);
         if (!localMode) {
             LinearLayout tools = row(); padded(tools, 0);
             tools.addView(button("Задачи ПК", () -> showItems(true)), new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -282,7 +317,7 @@ public final class MainActivity extends Activity {
             target.setOnClickListener(v -> { phoneTarget = !phoneTarget; target.setText(phoneTarget ? "Телефон" : "ПК"); note(phoneTarget ? "Команды выполняются на телефоне" : "Команды выполняются на компьютере"); });
             tools.addView(target, new LinearLayout.LayoutParams(dp(82), dp(48))); root.addView(tools);
         }
-        scroll = new ScrollView(this); scroll.setFillViewport(true); messages = vertical(); messages.setPadding(dp(16), dp(12), dp(16), dp(12)); scroll.addView(messages);
+        scroll = new ScrollView(this); scroll.setFillViewport(true); messages = vertical(); messages.setPadding(dp(12), dp(6), dp(12), dp(6)); scroll.addView(messages);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         stop = button("Остановить ответ", this::stopChat); stop.setVisibility(View.GONE); root.addView(stop);
         if(localMode&&GatewayClient.enabled(this)){
@@ -290,7 +325,7 @@ public final class MainActivity extends Activity {
             try{JSONObject selected=settings.readGateway();if(selected!=null){JSONArray pending=selected.optJSONArray("pending_attachments");if(pending!=null&&pending.length()>0)attach.setText("Файлов: "+pending.length()+" · добавить");attach.setEnabled(GatewayClient.supports(selected,"vision")||GatewayClient.supports(selected,"file_upload"));}}catch(Exception ignored){attach.setEnabled(false);}
             root.addView(attach);
         }
-        LinearLayout bar = row(); padded(bar, 4);
+        LinearLayout bar = row(); bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(14),dp(5),dp(14),dp(7));bar.setClipChildren(false);
         composer = field(localMode ? "Например: открой Telegram" : "Сообщение Уайли…"); composer.setMaxLines(4); composer.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         composer.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -298,29 +333,177 @@ public final class MainActivity extends Activity {
             public void afterTextChanged(android.text.Editable text) {}
         });
         bar.addView(composer, new LinearLayout.LayoutParams(0, -2, 1));
-        record = button("🎙", this::toggleRecording); record.setContentDescription("Начать или завершить запись голоса"); bar.addView(record, new LinearLayout.LayoutParams(dp(52), dp(52)));
-        send = button("➤", this::send); send.setContentDescription("Отправить сообщение"); send.setTextColor(ui.theme.accentInk); send.setBackground(background(ui.theme.accent, 16)); bar.addView(send, new LinearLayout.LayoutParams(dp(52), dp(52))); root.addView(bar);
-        navigation("chat");
+        ui.focusField(composer);
+        record = ui.roundControl("", this::toggleRecording); ui.controlIcon(record,R.drawable.ui_mic); record.setContentDescription("Начать или завершить запись голоса"); LinearLayout.LayoutParams micParams=new LinearLayout.LayoutParams(dp(48),dp(48));micParams.setMargins(dp(7),0,0,0);bar.addView(record,micParams);
+        send = ui.roundControl("", this::send); ui.controlIcon(send,R.drawable.ui_send); send.setContentDescription("Отправить сообщение"); send.setTextColor(ui.theme.accentText); LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(48),dp(48));sendParams.setMargins(dp(7),0,0,0);bar.addView(send,sendParams); root.addView(bar);
+        navigation("chat");trackDiagnosticScreenDraw(diagnosticScreenBegan);
         if (localMode) { composer.setEnabled(false); send.setEnabled(false); localChats.load(); }
-        else { composer.setText(settings.preferences.getString("pc_draft", "")); if (!conversation.isEmpty()) background(this::loadMessages); pingHandler.post(pingLoop); }
+        else { pcHealth=profile==null?ChatReadiness.State.SETUP_REQUIRED:ChatReadiness.State.CHECKING; restoreComposer(settings.preferences.getString("pc_draft", "")); if (!conversation.isEmpty()) background(this::loadMessages); pingHandler.post(pingLoop); }
     }
+    private ChatReadiness.Facts chatFacts() {
+        ChatReadiness.State vosk = ChatReadiness.asset(voskChecked, speechModels.busy(), speechModels.active()!=null, voskChecked && speechModels.active()==null && speechModels.removable());
+        ChatReadiness.State giga = ChatReadiness.asset(gigaChecked, asrModels.busy(), asrModels.active()!=null, gigaChecked && asrModels.active()==null && asrModels.removable());
+        ChatReadiness.State model = ChatReadiness.asset(llmChecked, llmModels.busy(), llmModels.active()!=null, llmChecked && llmModels.status().startsWith("Не удалось"));
+        int engine=settings.preferences.getInt("asr_engine",0);
+        ChatReadiness.State system = android.speech.SpeechRecognizer.isRecognitionAvailable(this) ? ChatReadiness.State.UNKNOWN : ChatReadiness.State.UNAVAILABLE;
+        if(engine==2 && (Build.VERSION.SDK_INT<31 || !android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this))) system=ChatReadiness.State.UNAVAILABLE;
+        ChatReadiness.State speech=ChatReadiness.selectedSpeech(engine,vosk,giga,system);
+        ChatReadiness.State mic=chatFactsMicPermission() ? ChatReadiness.State.UNKNOWN : ChatReadiness.State.SETUP_REQUIRED;
+        ChatReadiness.State manual=mic==ChatReadiness.State.SETUP_REQUIRED ? mic : ChatReadiness.manualVoice(localMode || phoneTarget,true,speech,pcHealth);
+        BrainProvider.Kind selected=new ModelManager(this).selected();
+        ChatReadiness.Source source=!localMode ? ChatReadiness.Source.PC : selected==BrainProvider.Kind.REMOTE_GATEWAY ? ChatReadiness.Source.GATEWAY : selected==BrainProvider.Kind.ACCOUNT_OAUTH ? ChatReadiness.Source.ACCOUNT : selected==BrainProvider.Kind.LOCAL ? ChatReadiness.Source.LOCAL : ChatReadiness.Source.CLOUD;
+        ChatReadiness.State pc=profile==null ? ChatReadiness.State.SETUP_REQUIRED : pcHealth;
+        return new ChatReadiness.Facts(manual,vosk,speech,model,source,ChatReadiness.source(source,model,pc,ChatReadiness.State.UNKNOWN),pc);
+    }
+    private boolean chatFactsMicPermission(){return checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;}
     private void welcome() {
-        ui.card(messages, "Уайли рядом", "Откройте приложение, управляйте музыкой и громкостью — без интернета, ПК и языковой модели. Например: «открой Telegram», «пауза», «громкость 50».\n\nРусское распознавание устанавливается в разделе «Компоненты». После нажатия микрофона распознанные команды выполняются сразу; в разделе «Команды» можно включить проверку текста перед отправкой. Для разговора установите модель в «Компоненты → Разговорная модель».");
+        emptyChat=vertical(); emptyChat.setPadding(dp(4),dp(12),dp(4),dp(8)); messages.addView(emptyChat); updateEmptyChat();
+    }
+    private void updateEmptyChat() {
+        if(emptyChat==null || !page.equals("chat") || !localMode || speechModels==null || asrModels==null || llmModels==null)return;
+        ChatReadiness.Facts facts=chatFacts(); emptyChat.removeAllViews();
+        TextView heading=text("Чем помочь?",20,ui.theme.text); ui.typography(heading,600); emptyChat.addView(heading);
+        ChatReadiness.Hint hint=ChatReadiness.hint(facts);
+        if(hint==ChatReadiness.Hint.SPEECH){
+            boolean microphoneMissing=!chatFactsMicPermission();
+            emptyChat.addView(text(microphoneMissing ? "Разрешите микрофон для голосового ввода." : "Распознавание речи не настроено.",14,ui.theme.secondary));
+            emptyChat.addView(button(microphoneMissing ? "Настройки микрофона" : "Настроить распознавание", microphoneMissing ? () -> startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:"+getPackageName()))) : ()->openSection("speech")));
+        } else if(hint==ChatReadiness.Hint.SPEECH_CHECK){
+            emptyChat.addView(text("Распознавание речи временно недоступно. Проверьте настройки.",14,ui.theme.secondary));
+            emptyChat.addView(button("Проверить распознавание",()->openSection("speech")));
+        } else if(hint==ChatReadiness.Hint.MODEL || hint==ChatReadiness.Hint.MODEL_CHECK){
+            emptyChat.addView(text(hint==ChatReadiness.Hint.MODEL ? "Для свободного разговора настройте модель." : "Не удалось проверить модель. Откройте настройки.",14,ui.theme.secondary));
+            emptyChat.addView(button("Выбрать модель",()->openSection("llm")));
+        } else emptyChat.addView(text("Напишите сообщение или скажите команду.",14,ui.theme.secondary));
+    }
+    private void tryGuideExample(String example) {
+        if(!canNavigate())return;
+        pendingGuideExample=example;
+        showChat();
+    }
+    private void restoreComposer(String draft) {
+        String example=pendingGuideExample;
+        pendingGuideExample=null;
+        EditText target=composer;
+        target.setText(example!=null&&draft.isBlank()?example:draft);
+        target.setSelection(target.length());
+        if(example!=null&&!draft.isBlank()){
+            ui.dialog().setTitle("Заменить черновик примером?")
+                .setNegativeButton("Оставить черновик",null)
+                .setPositiveButton("Вставить пример",(d,w)->{
+                    if(composer!=target)return;
+                    target.setText(example);
+                    target.setSelection(target.length());
+                }).show();
+        }
     }
     private void navigation(String current) {
-        LinearLayout nav = row(); padded(nav, 4);
-        String[] names = {"Чат", "Компоненты", "Команды", "Настройки"};
-        String[] pages = {"chat", "models", "features", "settings"};
-        for (int i = 0; i < names.length; i++) {
-            final String target = pages[i];
-            Button item = button(names[i], () -> { if (!canNavigate()) return; screenTrail.clear(); if (target.equals("chat")) showChat(); else showSection(target); });
-            item.setPadding(dp(4), dp(2), dp(4), dp(2)); item.setTextSize(13); item.setSingleLine(true);
-            item.setAutoSizeTextTypeUniformWithConfiguration(11, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-            item.setSelected(current.equals(target));
-            if (current.equals(target)) item.setTextColor(ui.theme.accentText);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1); params.setMargins(dp(2), 0, dp(2), 0); nav.addView(item, params);
+        LinearLayout outer=row();outer.setPadding(dp(12),dp(2),dp(12),dp(2));
+        LinearLayout nav=row();nav.setPadding(dp(6),dp(5),dp(6),dp(5));nav.setBackground(ui.panel(ui.theme.low,20));
+        String[] names={"Чат","Моё","Настройки"};
+        String[] displayNames=getResources().getConfiguration().screenWidthDp<360?new String[]{"Чат","Моё","Опции"}:names;
+        int[] icons={R.drawable.nav_chat,R.drawable.nav_features,R.drawable.nav_settings};
+        String[] pages={"chat","personal","settings"};
+        for(int i=0;i<names.length;i++){
+            final String target=pages[i];Button item=button(displayNames[i],()->{if(!canNavigate())return;screenTrail.clear();if(target.equals("chat"))showChat();else showSection(target);});
+            item.setPadding(dp(2),dp(4),dp(2),dp(4));item.setTextSize(13);item.setSingleLine(false);item.setMaxLines(2);item.setMinHeight(dp(52));item.setMinWidth(0);item.setMinimumWidth(0);
+            android.graphics.drawable.Drawable glyph=getDrawable(icons[i]).mutate();glyph.setTint(current.equals(target)?ui.theme.accentText:ui.theme.secondary);glyph.setBounds(0,0,dp(22),dp(22));
+            item.setCompoundDrawables(null,glyph,null,null);item.setCompoundDrawablePadding(dp(2));item.setSelected(current.equals(target));item.setContentDescription(names[i]);ui.navigationItem(item,current.equals(target));
+            LinearLayout.LayoutParams navParams=new LinearLayout.LayoutParams(0,-2,1);navParams.setMargins(dp(3),0,dp(3),0);nav.addView(item,navParams);
         }
-        root.addView(nav);
+        outer.addView(nav,new LinearLayout.LayoutParams(-1,-2));root.addView(outer);
+    }
+    private String headerSourceLabel(){
+        if(!localMode)return "ПК ▾";
+        return switch(new ModelManager(this).selected()){
+            case REMOTE_GATEWAY -> "Gateway ▾";
+            case ACCOUNT_OAUTH -> "ChatGPT ▾";
+            case DIRECT_CLOUD,OFFICIAL_API -> "Облако ▾";
+            default -> "Телефон ▾";
+        };
+    }
+    private void showSourcePopup(View anchor){
+        if(anchor==null||!canNavigate())return;
+        ChatHeaderPopup menu=new ChatHeaderPopup(this,ui,anchor);BrainProvider.Kind kind=new ModelManager(this).selected();
+        boolean localSelected=localMode&&kind==BrainProvider.Kind.LOCAL;
+        menu.label("Источник ответа");
+        menu.row("Телефон",(llmModels.active()!=null?"Qwen3 0.6B":"Модель не установлена")+(localSelected?" · выбран":""),R.drawable.nav_features,localSelected,()->{
+            if(!canNavigate())return;new ModelManager(this).local();localMode=true;showChat();
+        });
+        String pcStatus=profile==null?"Подключение не настроено":pcHealth==ChatReadiness.State.READY?"Подключён":pcHealth==ChatReadiness.State.UNAVAILABLE?"Недоступен":"Подключение сохранено";
+        menu.row("ПК",pcStatus+(!localMode?" · выбран":""),R.drawable.ui_screen,!localMode,()->{
+            if(!canNavigate())return;if(profile==null){showPair("");return;}localMode=false;showChat();
+        });
+        boolean cloud=localMode&&(kind==BrainProvider.Kind.DIRECT_CLOUD||kind==BrainProvider.Kind.OFFICIAL_API);
+        boolean gatewaySelected=localMode&&kind==BrainProvider.Kind.REMOTE_GATEWAY;
+        boolean account=localMode&&kind==BrainProvider.Kind.ACCOUNT_OAUTH;
+        menu.row("Облако",cloud?"Выбрано · настройки модели":"Выбрать и настроить модель",R.drawable.nav_chat,cloud,()->selectProvider("cloud","cloud"));
+        menu.row("Gateway",gatewaySelected?"Выбран · настройки":"Выбрать или настроить",R.drawable.nav_features,gatewaySelected,()->selectProvider("gateway","connections"));
+        menu.row("ChatGPT",account?"Выбран · настройки аккаунта":"Вход и выбор модели",R.drawable.nav_chat,account,()->selectProvider("account","neural"));
+        menu.show();
+    }
+    private boolean providerMatches(String target,BrainProvider.Kind kind){
+        return ChatHeaderPolicy.matches(target,kind.name());
+    }
+    private void selectProvider(String target,String section){
+        if(!canNavigate())return;BrainProvider.Kind current=new ModelManager(this).selected();
+        if(!localMode&&providerMatches(target,current)){localMode=true;showChat();return;}
+        pendingProviderTarget=target;providerBeforeSettings=current;screenTrail.addLast(page);showSection(section);
+    }
+    private void showHistoryPopup(View anchor){
+        if(anchor==null||!canNavigate())return;
+        final boolean phone=localMode;final LinearLayout expected=messages;
+        final ChatHeaderPopup menu=new ChatHeaderPopup(this,ui,anchor);
+        if(phone){
+            fillPhoneHistory(menu,java.util.Collections.emptyList(),true);menu.show();
+            localChats.list(chats->{if(!menu.showing()||!localMode||messages!=expected||!page.equals("chat"))return;fillPhoneHistory(menu,chats,false);menu.resize();});
+            return;
+        }
+        fillPcHistory(menu,null,true);menu.show();
+        if(profile==null){fillPcHistory(menu,null,false);menu.resize();return;}
+        final JSONObject expectedProfile=profile;
+        background(()->{
+            try{
+                JSONArray chats=new JSONArray(new String(jsonRequest("/conversations","GET",null),StandardCharsets.UTF_8));
+                onUi(()->{if(!menu.showing()||localMode||messages!=expected||profile!=expectedProfile||!page.equals("chat"))return;fillPcHistory(menu,chats,false);menu.resize();});
+            }catch(Exception e){onUi(()->{if(menu.showing()&&!localMode&&messages==expected){fillPcHistory(menu,null,false);menu.resize();}});}
+        });
+    }
+    private void fillPhoneHistory(ChatHeaderPopup menu,java.util.List<LocalChatRepository.Chat> chats,boolean loading){
+        menu.clear();menu.label("История телефона · общая для источников");
+        menu.row("Начать новый чат","Телефон",R.drawable.nav_chat,false,()->{
+            if(!localMode||!canNavigate())return;restoreLocalDraft=true;composer.setEnabled(false);localChats.choose("");
+        });
+
+        if(loading)menu.label("Загружаю…");
+        else if(chats.isEmpty())menu.label("Нет сохранённых чатов");
+        else {
+            String selected=settings.preferences.getString("phone_chat","");int limit=Math.min(5,chats.size());
+            for(int i=0;i<limit;i++){
+                LocalChatRepository.Chat chat=chats.get(i);boolean current=chat.id().equals(selected);
+                menu.row(chat.title(),current?"Текущий чат":"Телефон",R.drawable.nav_chat,current,()->{
+                    if(!localMode||!canNavigate())return;restoreLocalDraft=true;composer.setEnabled(false);localChats.choose(chat.id());
+                });
+            }
+        }
+        menu.row("Вся история","Переименование и удаление",R.drawable.nav_chat,false,this::chooseLocalChat);
+    }
+    private void fillPcHistory(ChatHeaderPopup menu,JSONArray chats,boolean loading){
+        menu.clear();menu.label("История компьютера");
+        menu.row("Начать новый чат","ПК",R.drawable.nav_chat,false,()->{
+            if(localMode||!canNavigate())return;conversation="";settings.preferences.edit().remove("chat").apply();if(messages!=null)messages.removeAllViews();note("Новый чат ПК");
+        });
+
+        if(loading)menu.label("Загружаю…");
+        else if(chats==null)menu.label(profile==null?"Компьютер не подключён":"Не удалось загрузить историю");
+        else if(chats.length()==0)menu.label("Нет сохранённых чатов");
+        else for(int i=0;i<Math.min(5,chats.length());i++){
+            JSONObject chat=chats.optJSONObject(i);if(chat==null)continue;String id=chat.optString("id","");if(id.isEmpty())continue;
+            boolean current=id.equals(conversation);menu.row(chat.optString("title","Чат"),current?"Текущий чат · ПК":"ПК",R.drawable.nav_chat,current,()->{
+                if(localMode||!canNavigate())return;conversation=id;settings.preferences.edit().putString("chat",id).apply();background(this::loadMessages);
+            });
+        }
+        menu.row("Вся история","Чаты компьютера",R.drawable.nav_chat,false,this::chooseChat);
     }
     private void chooseMode() {
         if (!canNavigate()) return;
@@ -342,70 +525,152 @@ public final class MainActivity extends Activity {
         else if (!page.equals("chat")) showChat(); else finish();
     }
     private void showSection(String section) {
+        long diagnosticScreenBegan=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(switch(section){case "guide", "commands" -> DiagnosticJournal.Event.SCREEN_COMMANDS;case "settings" -> DiagnosticJournal.Event.SCREEN_SETTINGS;default -> DiagnosticJournal.Event.SCREEN_OTHER;},0);
+        if(page.equals("chat")&&!section.equals("chat")){localLlm.cancel();if(brain!=null)brain.pauseLocal();}
         page = section; layout();
         String heading = switch(section) {
-            case "models" -> "Компоненты"; case "features" -> "Команды телефона"; case "speech" -> "Распознавание речи";
-            case "neural" -> "Мозг";case "connections" -> "Подключения";case "apps" -> "Мои приложения"; case "media" -> "Музыка и YouTube"; case "assistant" -> "Голосовой помощник"; case "voice" -> "Озвучка ответов"; case "llm" -> "Разговорная модель"; case "cloud" -> "Облачные чаты"; case "pc" -> "Использование ПК"; default -> "Настройки";
+            case "personal" -> "Моё"; case "commands" -> "Проверка команд"; case "speech" -> "Распознавание речи";
+            case "neural" -> "Мозг";case "connections" -> "Gateway";case "apps" -> "Любимые приложения"; case "media" -> "Музыка и YouTube"; case "assistant" -> "Голосовой вызов"; case "voice" -> "Озвучка"; case "llm" -> "Локальные модели"; case "cloud" -> "Облачные модели"; case "pc" -> "Устройства и подключения";
+            case "profile" -> "Мой профиль"; case "memory" -> "Память WileyAI"; case "communication" -> "Как со мной общаться";
+            case "guide" -> "Подсказки и команды"; case "levels" -> "Уровень управления"; case "notes" -> "Заметки и напоминания"; case "phone_notes" -> "Заметки телефона"; case "phone_reminders" -> "Напоминания телефона";
+            case "permissions" -> "Разрешения и безопасность"; case "screen" -> "Наблюдение экрана"; case "app_defaults" -> "Приложения по умолчанию";
+            case "cloud_tools" -> "Инструменты и облако"; case "advanced" -> "Дополнительно"; default -> "Настройки";
         };
         LinearLayout header = row(); padded(header, 8);
         if (!screenTrail.isEmpty()) { Button back = button("‹", this::handleBack); back.setContentDescription("Назад"); header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48))); }
-        header.addView(text(heading, 24, ui.theme.text), new LinearLayout.LayoutParams(0, -2, 1)); root.addView(header);
+        headerLogo=makeHeaderLogo();header.addView(headerLogo,new LinearLayout.LayoutParams(dp(32),dp(32)));
+        TextView sectionTitle=text(heading,24,ui.theme.text);sectionTitle.setPadding(dp(8),0,0,0);header.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1)); root.addView(header);
         ScrollView content = new ScrollView(this); LinearLayout cards = vertical(); padded(cards, 8); content.addView(cards);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         switch (section) {
-            case "models":
-                ui.link(cards,"Мозг","Выбор модели и инструментов телефона",()->openSection("neural"));
-                ui.link(cards, "Голосовой помощник", "Вызов без кнопки и работа в фоне", () -> openSection("assistant"));
-                ui.link(cards, "Разговорная модель", llmModels.active() != null ? "Qwen3 0.6B · установлена" : "Чат без интернета · Qwen3 0.6B", () -> openSection("llm"));
-                componentSpeechStatus = ui.link(cards, "Распознавание речи", speechModels.active() != null ? "Русский комплект установлен" : "Русский комплект · 44,1 МиБ", () -> openSection("speech"));
-                ui.link(cards, "Озвучка ответов", "Голоса, прослушивание и скорость", () -> openSection("voice"));
-                ui.link(cards, "Команды телефона", "Приложения, музыка и громкость", () -> openSection("features"));
-                ui.link(cards, "Музыка и YouTube", "Пауза, перемотка, поиск и выбор плеера", () -> openSection("media"));
-                ui.link(cards, "Облачные чаты", "Совместимый API, свои мосты и бесплатные ограничения", () -> openSection("cloud"));
-                ui.link(cards, "Использование ПК", profile == null ? "Подключить WileyAI на компьютере" : "Сопряжение и проверка связи", () -> openSection("pc"));
-                LinearLayout future = ui.disclosure(cards, "Что ещё появится");
-                future.addView(text("Более крупные модели и устанавливаемые дополнения появятся отдельными этапами.", 14, ui.theme.secondary));
-                break;
             case "media":
-                mediaPanel = new MediaPanel(this, ui, appCatalog, () -> resumed && page.equals("media")); mediaPanel.render(cards); break;
+                mediaPanel = new MediaPanel(this, ui, appCatalog, () -> resumed && page.equals("media")); mediaPanel.render(cards,()->openSection("app_defaults")); break;
             case "assistant":
                 assistantPanel = new AssistantPanel(this, ui, () -> speechModels.active() != null); assistantPanel.render(cards); break;
             case "llm":
-                llmPanel = new LlmPanel(this, ui, llmModels, settings.preferences, () -> localLlm.busy() || HandsFreeService.answering(), () -> {
+                llmPanel = new LlmPanel(this, ui, llmModels, settings.preferences, () -> localLlm.busy() || (brain!=null&&brain.busy()) || HandsFreeService.answering(), () -> {
                     Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
                     try { startActivityForResult(file, LLM_IMPORT); } catch (Exception error) { error("Нет приложения выбора файла"); }
-                }, () -> { settings.preferences.edit().putBoolean("gateway_enabled",false).putBoolean("cloud_enabled",false).putBoolean("account_enabled",false).apply();localMode = true; phoneTarget = true; showChat(); }); llmPanel.render(cards); break;
+                }, () -> { settings.preferences.edit().putBoolean("gateway_enabled",false).putBoolean("cloud_enabled",false).putBoolean("account_enabled",false).apply();localMode = true; showChat(); }); llmPanel.render(cards); break;
             case "speech": speechPanel = speechPanel(); speechPanel.render(cards); break;
             case "voice":
                 voicePanel = new VoicePanel(this, ui, localVoice, settings.preferences, value -> {
                     readAloud = value; settings.preferences.edit().putBoolean("read_aloud", value).apply(); if (!value) { localVoice.stop(); releasePlayer(); }
                 }, () -> { localVoice.stop(); releasePlayer(); });
                 voicePanel.render(cards); break;
-            case "features":
-                ui.link(cards, "Мои приложения", "Названия для голоса и приложения по умолчанию", () -> openSection("apps"));
-                ui.link(cards, "Музыка и YouTube", "Плееры, перемотка и поиск", () -> openSection("media"));
-                CommandPanel.render(this, ui, cards, appCatalog, settings.preferences, () -> resumed && page.equals("features"));
+            case "personal":
+                ui.link(cards,"Мой профиль","Обращение и предпочтения",()->openSection("profile"),R.drawable.nav_features);
+                ui.link(cards,"Память WileyAI","Подтверждённые записи на телефоне",()->openSection("memory"),R.drawable.nav_chat);
+                ui.link(cards,"Как со мной общаться","Стиль ответов и инструкции",()->openSection("communication"),R.drawable.nav_chat);
+                ui.link(cards,"Любимые приложения","Выбор по умолчанию и голосовые названия",()->openSection("apps"),R.drawable.nav_features);
+                ui.link(cards,"Заметки и напоминания","Записи телефона и компьютера",()->openSection("notes"),R.drawable.ui_reminder);
+                ui.link(cards,"Подсказки и команды","Примеры для чата",()->openSection("guide"),R.drawable.ui_screen);
+                ui.link(cards,"Уровень управления","Доступные возможности телефона",()->openSection("levels"),R.drawable.nav_settings);
+                break;
+            case "profile": new PersonalPanel(this,ui).profile(cards); break;
+            case "memory": new PersonalPanel(this,ui).memory(cards); break;
+            case "communication": new PersonalPanel(this,ui).communication(cards); break;
+            case "guide":
+                ModelManager guideModel=new ModelManager(this);
+                boolean chatReady=localMode?guideModel.selected()!=BrainProvider.Kind.LOCAL||llmModels.active()!=null:profile!=null;
+                CommandGuide.render(this,ui,cards,chatReady,localMode&&chatReady&&guideModel.toolsAllowed(),this::tryGuideExample,this::openSection);
+                break;
+            case "levels":
+                ui.card(cards,"Базовый","Запуск приложений, громкость, разговор и управление доступными плеерами.");
+                ui.link(cards,"Расширенный","Наблюдение за экраном по запросу через Accessibility",()->openSection("screen"));
+                ui.card(cards,"Системный · пока недоступен","Интеграция управления через ADB пока не реализована.");
+                break;
+            case "notes":
+                ui.link(cards,"Телефон · заметки","Доступны без интернета",()->openSection("phone_notes"));
+                ui.link(cards,"Телефон · задачи и напоминания","Локальные напоминания WileyAI",()->openSection("phone_reminders"));
+                ui.link(cards,"Компьютер · заметки",profile==null?"Подключить компьютер":"Открыть записи ПК",()->openPcRecords(false));
+                ui.link(cards,"Компьютер · задачи и напоминания",profile==null?"Подключить компьютер":"Открыть задачи ПК",()->openPcRecords(true));
+                break;
+            case "phone_notes": new NotesPanel(this,ui).render(cards); break;
+            case "phone_reminders":
+                try(ToolsData data=new ToolsData(this)) {
+                    var reminders=data.reminders();
+                    if(reminders.isEmpty()) cards.addView(ui.text("Напоминаний пока нет.",14,ui.theme.secondary));
+                    for(var reminder:reminders) ui.card(cards,android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",(Long)reminder.get("due")).toString(),reminder.get("text")+(Boolean.TRUE.equals(reminder.get("delivered"))?" · доставлено":" · ожидается"));
+                }
+                cards.addView(ui.text("Напоминание можно создать командой после подтверждения. Android может задержать уведомление.",14,ui.theme.secondary));
+                break;
+            case "permissions":
+                permissionPanel=new PermissionPanel(this,ui);
+                permissionPanel.render(cards,()->openSection("screen"),()->{
+                    if(brainPanel==null)brainPanel=createBrainPanel();
+                    brainPanel.screenApps();
+                },()->openSection("cloud_tools"));
+                break;
+            case "screen":
+                brainPanel=createBrainPanel();
+                brainPanel.renderScreenSettings(cards);
+                break;
+            case "cloud_tools":
+                brainPanel=createBrainPanel();
+                brainPanel.toolPermissions(cards);
+                break;
+            case "advanced":
+                ui.link(cards,"Проверка команд","Ручной запуск и результат",()->openSection("commands"));
+                brainPanel=createBrainPanel();
+                brainPanel.renderModelExtras(cards);
+                break;
+            case "commands":
+                CommandPanel.render(this,ui,cards,appCatalog,settings.preferences,()->resumed&&page.equals("commands"));
                 break;
             case "apps":
-                appPanel = new AppCatalogPanel(this, ui, appCatalog, () -> resumed && page.equals("apps")); appPanel.render(cards); break;
+                appPanel = new AppCatalogPanel(this, ui, appCatalog, () -> resumed && page.equals("apps"));
+                appPanel.render(cards,()->openSection("app_defaults"),()->openSection("media"),()->openSection("permissions")); break;
+            case "app_defaults":
+                new AppCatalogPanel(this,ui,appCatalog,()->resumed&&page.equals("app_defaults")).renderDefaults(cards);
+                break;
             case "cloud":
                 new CloudPanel(this,ui).render(cards);
                 break;
             case "neural":
-                brainPanel=new BrainPanel(this,ui,()->openSection("llm"),()->openSection("cloud"),()->openSection("connections"),()->{localMode=true;phoneTarget=true;});brainPanel.render(cards);break;
+                brainPanel=createBrainPanel(); brainPanel.render(cards); break;
             case "connections":
                 gatewayPanel=new GatewayPanel(this,ui,gatewayChat,()->openSection("llm"));gatewayPanel.render(cards);break;
             case "pc": renderPc(cards); break;
             default:
-                ui.link(cards,"Мозг","Локальная модель, прямое облако и управление телефоном",()->openSection("neural"));
-                ui.link(cards, "Голосовой помощник", "Цифровой помощник Android и голосовая активация", () -> openSection("assistant"));
-                ui.link(cards, "Оформление", "Четыре темы WileyAI", this::chooseTheme);
-                ui.link(cards, "Озвучка", "Выбранный голос и чтение ответов", () -> openSection("voice"));
-                ui.link(cards, "Диагностика", "Телефон, память и состояние компонентов", this::showDiagnostics);
-                LinearLayout privacy = ui.disclosure(cards, "Данные и безопасность");
-                privacy.addView(text("Чаты телефона хранятся на устройстве. Облачный разговор включается отдельно в «Компонентах»; после включения выбранному сервису отправляются до 8 последних сообщений текущего чата. Голосовое аудио и список приложений в чат не отправляются. Чаты, задачи и заметки ПК доступны в режиме ПК. Удаление приложения средствами Android удалит локальные данные.", 14, ui.theme.secondary));
+                ui.link(cards,"Мозг","Локальные, облачные модели и подключения",()->openSection("neural"));
+                ui.link(cards,"Распознавание речи","Движки и модели для команд",()->openSection("speech"));
+                ui.link(cards,"Озвучка","Голос, движок и скорость",()->openSection("voice"));
+                ui.link(cards,"Голосовой вызов","Фразы активации и работа в фоне",()->openSection("assistant"));
+                ui.link(cards,"Устройства и подключения","Сопряжение и проверка связи с ПК",()->openSection("pc"));
+                ui.link(cards,"Разрешения и безопасность","Системные доступы и согласия",()->openSection("permissions"));
+                ui.link(cards,"Оформление","Темы WileyAI",this::chooseTheme);
+                ui.link(cards,"Диагностика","Журнал работы и экспорт",this::showDiagnostics);
+                ui.link(cards,"Дополнительно","Проверки и резервная модель",()->openSection("advanced"));
         }
-        navigation(section.equals("apps") ? "features" : section.equals("neural") || section.equals("connections") || section.equals("media") || section.equals("assistant") || section.equals("speech") || section.equals("voice") || section.equals("llm") || section.equals("cloud") || section.equals("pc") ? "models" : section);
+        navigation(sectionTab(section));
+        trackDiagnosticScreenDraw(diagnosticScreenBegan);
+    }
+    private String sectionTab(String section){
+        if(screenTrail.contains("personal"))return "personal";
+        if(screenTrail.contains("settings"))return "settings";
+        return switch(section){
+            case "personal","profile","memory","communication","apps","app_defaults","media","notes","guide","levels" -> "personal";
+            default -> "settings";
+        };
+    }
+    private BrainPanel createBrainPanel(){
+        return new BrainPanel(this,ui,()->openSection("llm"),()->openSection("cloud"),
+            ()->openSection("connections"),()->localMode=true);
+    }
+    private void openPcRecords(boolean tasks){
+        if(!canNavigate())return;
+        if(profile==null){openSection("pc");return;}
+        localMode=false;
+        phoneTarget=false;
+        showChat();
+        showItems(tasks);
+    }
+    private void trackDiagnosticScreenDraw(long began){
+        if(!DiagnosticLog.enabled()||root==null)return;View screen=root;
+        screen.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
+            public boolean onPreDraw(){if(screen.getViewTreeObserver().isAlive())screen.getViewTreeObserver().removeOnPreDrawListener(this);if(root==screen)DiagnosticLog.event(DiagnosticJournal.Event.SCREEN_OPEN_MS,android.os.SystemClock.elapsedRealtime()-began);return true;}
+        });
     }
     private void renderPc(LinearLayout cards) {
         status = text(profile == null ? "Компьютер ещё не подключён" : "ПК сопряжён. Связь можно проверить ниже.", 16, ui.theme.accentText); cards.addView(status);
@@ -434,24 +699,86 @@ public final class MainActivity extends Activity {
             catch (Exception error) { onUi(() -> { if (page.equals("pc") && profile == selected) note("Нет связи. Проверьте WileyAI на ПК и сеть."); }); }
         });
     }
-    private void showDiagnostics() {
-        android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo(); ((android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(memory);
-        ui.dialog().setTitle("Диагностика телефона").setMessage(Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " · API " + Build.VERSION.SDK_INT + "\nABI: " + String.join(", ", Build.SUPPORTED_ABIS) + "\nДоступно ОЗУ: " + memory.availMem / 1048576 + " МиБ\nСвободно: " + getFilesDir().getUsableSpace() / 1048576 + " МиБ\nРаспознавание: " + speechModels.detail() + "\n" + appCatalog.status()).setPositiveButton("Закрыть", null).show();
+    private void showDiagnostics() { showDiagnosticControls(); }
+    private void showDiagnosticControls() {
+        DiagnosticLog.preview(report -> {
+            if(isFinishing() || isDestroyed())return;
+            LinearLayout box=vertical();padded(box,12);
+            final android.app.AlertDialog[] holder=new android.app.AlertDialog[1];
+            long since=DiagnosticLog.startedAt();
+            long endTime=DiagnosticLog.enabled()?System.currentTimeMillis():DiagnosticLog.stoppedAt();
+            long minutes=since>0&&endTime>=since?(endTime-since)/60000:0;
+            box.addView(text("Сбор: "+(DiagnosticLog.enabled()?"включён":"выключен")+(since>0?"\nНачат: "+android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",since)+" · длительность: "+minutes+" мин":(DiagnosticLog.enabled()?"\nЗапись включена автоматически":"\nЗапись ещё не начиналась")),15,ui.theme.text));
+            int marker=report.indexOf("журнал, байт:");
+            if(marker>=0){int end=report.indexOf('\n',marker);box.addView(text(report.substring(marker,end<0?report.length():end),14,ui.theme.secondary));}
+            android.widget.Switch diagnosticSwitch=new android.widget.Switch(this);diagnosticSwitch.setText("Диагностика включена");diagnosticSwitch.setTextColor(ui.theme.text);diagnosticSwitch.setChecked(DiagnosticLog.enabled());diagnosticSwitch.setOnCheckedChangeListener((v,checked)->{if(checked)DiagnosticLog.start();else DiagnosticLog.stop();});ui.styleControl(diagnosticSwitch); box.addView(diagnosticSwitch);
+            box.addView(text("Последняя запись: "+(DiagnosticLog.lastEvent()>0?android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",DiagnosticLog.lastEvent()):"нет данных в текущем сеансе"),14,ui.theme.secondary));
+            box.addView(button("Скачать лог",()->DiagnosticLog.preview(this::previewDiagnostic)));
+            box.addView(button("Поделиться логом",()->DiagnosticLog.preview(this::previewDiagnostic)));
+            box.addView(button("Ложное пробуждение",()->DiagnosticLog.markLastWakeFalse(message->{
+                if(!isFinishing()&&!isDestroyed())android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_SHORT).show();
+            })));
+            box.addView(button("Обучение голосового вызова",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,WakeSampleActivity.class));}));
+            box.addView(button("Акустическая диагностика",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,AcousticDiagnosticsActivity.class));}));
+            box.addView(button("Очистить",()->ui.dialog().setMessage("Удалить локальный диагностический журнал?").setNegativeButton("Отмена",null).setPositiveButton("Очистить",(d,w)->DiagnosticLog.clear(()->{if(holder[0]!=null)holder[0].dismiss();showDiagnosticControls();})).show()));
+            holder[0]=ui.dialog().setTitle("Диагностика телефона").setView(box).setPositiveButton("Закрыть",null).show();
+        });
+    }
+    private void previewDiagnostic(String report){
+        if(isFinishing()||isDestroyed())return;
+        if(report.startsWith("Не удалось подготовить журнал")){error(report);return;}
+        TextView content=text(report,12,ui.theme.text);content.setTextIsSelectable(true);content.setPadding(dp(12),dp(12),dp(12),dp(12));
+        ScrollView preview=new ScrollView(this);preview.addView(content);
+        ui.dialog().setTitle("Предпросмотр диагностического файла").setView(preview).setNegativeButton("Отмена",null).setPositiveButton("Сохранить TXT",(dialog,which)->{
+            pendingDiagnosticExport=report;String name="WileyAI_Log_"+java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm"))+".txt";
+            Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain").putExtra(Intent.EXTRA_TITLE,name);
+            try{startActivityForResult(save,DIAGNOSTIC_EXPORT);}catch(Exception e){pendingDiagnosticExport=null;error("Не удалось открыть системное сохранение файла.");}
+        }).setNeutralButton("Поделиться",(dialog,which)->shareDiagnostic(report)).show();
+    }
+    private void shareDiagnostic(String report) {
+        background(()->{try {
+            java.io.File file=new java.io.File(getCacheDir(),"wileyai-diagnostic-share.txt");
+            try(java.io.OutputStream out=new java.io.FileOutputStream(file,false)){out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+            Uri uri=new Uri.Builder().scheme("content").authority(getPackageName()+".diagnostics").appendPath("log.txt").build();
+            Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(android.content.ClipData.newRawUri("WileyAI log",uri));onUi(()->{try{startActivity(Intent.createChooser(send,"Поделиться журналом"));}catch(Exception e){error("Не удалось открыть меню отправки.");}});
+        } catch(Exception e){onUi(()->error("Не удалось подготовить журнал."));}});
     }
     private void chooseTheme() {
-        ui.dialog().setTitle("Оформление WileyAI").setItems(WileyTheme.NAMES, (d, index) -> { settings.theme(WileyTheme.IDS[index]); ui = new MobileUi(this, settings.theme()); showSection("settings"); }).setNegativeButton("Отмена", null).show();
+        LinearLayout content=vertical();content.setPadding(dp(12),dp(4),dp(12),dp(8));
+        android.widget.Switch artistic=new android.widget.Switch(this);artistic.setText("Художественный фон");artistic.setTextColor(ui.theme.text);artistic.setMinHeight(dp(48));artistic.setChecked(settings.preferences.getBoolean("art_background",true));ui.styleControl(artistic); content.addView(artistic);
+        android.widget.Switch live=new android.widget.Switch(this);live.setText("Живой фон");live.setTextColor(ui.theme.text);live.setMinHeight(dp(48));live.setChecked(settings.preferences.getBoolean("art_animation",true));live.setEnabled(artistic.isChecked());ui.styleControl(live); content.addView(live);
+        final boolean[] changed={false};final android.app.AlertDialog[] holder=new android.app.AlertDialog[1];
+        artistic.setOnCheckedChangeListener((v,on)->{settings.preferences.edit().putBoolean("art_background",on).apply();live.setEnabled(on);changed[0]=true;});
+        live.setOnCheckedChangeListener((v,on)->{settings.preferences.edit().putBoolean("art_animation",on).apply();changed[0]=true;});
+        int[] thumbs={0,R.drawable.theme_thumb_aurora,R.drawable.theme_thumb_ice,R.drawable.theme_thumb_ember,R.drawable.theme_thumb_nebula};
+        for(int i=0;i<WileyTheme.NAMES.length;i++){
+            final int index=i;LinearLayout item=ui.row();item.setPadding(dp(8),dp(4),dp(8),dp(4));item.setMinimumHeight(dp(56));item.setBackground(ui.interactive(android.graphics.Color.TRANSPARENT,ui.theme.high,12));item.setFocusable(true);
+            if(thumbs[i]!=0){android.widget.ImageView thumbnail=new android.widget.ImageView(this);thumbnail.setImageResource(thumbs[i]);thumbnail.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);LinearLayout.LayoutParams imageParams=new LinearLayout.LayoutParams(dp(40),dp(68));imageParams.setMargins(0,0,dp(12),0);item.addView(thumbnail,imageParams);}
+            TextView label=text(WileyTheme.NAMES[i]+(settings.theme().equals(WileyTheme.IDS[i])?" · выбрана":""),16,ui.theme.text);item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+            item.setContentDescription(WileyTheme.NAMES[i]);item.setOnClickListener(v->{if(!settings.theme().equals(WileyTheme.IDS[index])){settings.theme(WileyTheme.IDS[index]);changed[0]=true;}holder[0].dismiss();});content.addView(item);
+        }
+        ScrollView scrollView=new ScrollView(this);scrollView.addView(content);
+        holder[0]=ui.dialog().setTitle("Оформление WileyAI").setView(scrollView).setPositiveButton("Готово",null).create();
+        holder[0].setOnDismissListener(dialog->{if(changed[0]&&!isFinishing()&&!isDestroyed()){ui=new MobileUi(this,settings.theme());showSection("settings");}});holder[0].show();
     }
     private SpeechPanel speechPanel() {
-        return new SpeechPanel(this, ui, speechModels, this::recognitionBusy, settings.preferences, () -> {
+        return new SpeechPanel(this, ui, speechModels, asrModels, this::recognitionBusy, settings.preferences, () -> {
             Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
                 .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/zip", "application/octet-stream", "application/x-zip-compressed"});
             try { startActivityForResult(file, SPEECH_IMPORT); } catch (Exception e) { error("На устройстве нет приложения для выбора ZIP-файла"); }
+        }, () -> {
+            Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/zip", "application/octet-stream", "application/x-zip-compressed"});
+            try { startActivityForResult(file, GIGAAM_IMPORT); } catch (Exception e) { error("На устройстве нет приложения для выбора ZIP-файла"); }
         });
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if(request==DIAGNOSTIC_EXPORT){String report=pendingDiagnosticExport;pendingDiagnosticExport=null;if(result==RESULT_OK && data!=null && data.getData()!=null && report!=null){Uri destination=data.getData();background(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(destination,"w")){if(out==null)throw new java.io.IOException();out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));onUi(()->note("Диагностический файл сохранён"));}catch(Exception e){onUi(()->error("Не удалось сохранить диагностический файл."));}});}else if(result==RESULT_OK && report==null)error("Предпросмотр устарел. Откройте его ещё раз.");return;}
         if (request == AssistantPanel.ROLE_REQUEST && assistantPanel != null) assistantPanel.refresh();
         if (request == SPEECH_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !speechModels.busy() && !recognitionBusy()) speechModels.importZip(data.getData());
+        if (request == GIGAAM_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !asrModels.busy() && !recognitionBusy()) asrModels.importZip(data.getData());
         if (request == LLM_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !llmModels.busy() && !localLlm.busy()) llmModels.importFile(data.getData());
         if(request==GATEWAY_ATTACHMENT&&result==RESULT_OK&&data!=null&&data.getData()!=null){
             Uri uri=data.getData();String name="attachment",mime=getContentResolver().getType(uri);long size=-1;
@@ -489,8 +816,8 @@ public final class MainActivity extends Activity {
             try {
                 request(current, "/ping", "GET", null, "application/json");
                 long elapsed = SystemClock.elapsedRealtime() - began;
-                onUi(() -> { if (network != null && current == profile && !localMode) network.setText("Связь с ПК: " + elapsed + " мс"); });
-            } catch (Exception e) { onUi(() -> { if (network != null && current == profile && !localMode) network.setText("Нет связи с ПК · телефон доступен через выбор режима"); }); }
+                onUi(() -> { if (network != null && current == profile && !localMode) {pcHealth=ChatReadiness.State.READY; network.setText("ПК · " + elapsed + " мс");} });
+            } catch (Exception e) { onUi(() -> { if (network != null && current == profile && !localMode) {pcHealth=ChatReadiness.State.UNAVAILABLE; network.setText("ПК недоступен");} }); }
             finally { pinging.set(false); }
         });
     }
@@ -547,8 +874,8 @@ public final class MainActivity extends Activity {
         } catch (Exception e) { onUi(() -> note(e.getMessage())); }
     }
     private TextView addMessage(String role, String content) {
-        TextView bubble = text(content, 16, ui.theme.text); bubble.setTextIsSelectable(true); bubble.setPadding(dp(14), dp(12), dp(14), dp(12));
-        bubble.setBackground(background(role.equals("user") ? ui.theme.high : ui.theme.low, 18));
+        TextView bubble = text(content, 16, ui.theme.text); bubble.setTextIsSelectable(true); bubble.setPadding(dp(12), dp(9), dp(12), dp(9));
+        bubble.setBackground(ui.bubble(role.equals("user") ? ui.theme.high : ui.theme.low));
         if (role.equals("assistant")) MessageRenderer.render(bubble, content);
         bubble.setOnLongClickListener(v -> {
             ui.dialog().setTitle(role.equals("user") ? "Ваше сообщение" : "Ответ Уайли")
@@ -557,19 +884,32 @@ public final class MainActivity extends Activity {
                     else if (!chatting.get() && composer != null) { composer.setText(content); composer.setSelection(composer.length()); composer.requestFocus(); }
                 }).setNegativeButton("Закрыть", null).show(); return true;
         });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.setMargins(role.equals("user") ? dp(24) : 0, 0, role.equals("user") ? 0 : dp(16), dp(12)); messages.addView(bubble, params);
+        bubble.setMaxWidth((int)(getResources().getDisplayMetrics().widthPixels*.84f));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);params.gravity=role.equals("user")?Gravity.END:Gravity.START;params.setMargins(0,0,0,dp(8));messages.addView(bubble,params);
+        LinearLayout messageParent=messages;messageParent.post(()->{if(messageParent.getWidth()>0)bubble.setMaxWidth((int)((messageParent.getWidth()-messageParent.getPaddingLeft()-messageParent.getPaddingRight())*.86f));});
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN)); return bubble;
     }
     private void send() {
         String value = composer.getText().toString().trim();
         if (value.isEmpty() || chatting.get() || recognitionBusy() || (localMode && !localReady)) return;
+        PersonalPreferences personal=new PersonalPreferences(this);
+        String identity=ProfileIdentity.answer(value,personal.name(),personal.address());
+        if(identity!=null){composer.setText("");addMessage("user",value);addMessage("assistant",identity);return;}
+        MemoryCommand.Request memoryRequest=MemoryCommand.parse(value);
+        if(memoryRequest!=null){handleMemoryCommand(memoryRequest);return;}
+        if(MemoryCommand.ambiguousMutation(value)){note("Для изменения памяти скажите «запомни, что…» или «забудь, что…».");return;}
+        if(ScreenRequest.classify(value)!=ScreenRequest.Kind.NONE){
+            composer.setText("");addMessage("user",value);
+            ScreenDispatcher.dispatch(this,appCatalog,value,()->!destroyed&&resumed&&page.equals("chat"),reply->{addMessage("assistant",reply);note("Наблюдение не сохраняется в истории");if(readAloud)localVoice.speak(reply);});
+            return;
+        }
         if (localMode) {
             localChats.submit(value, id -> {
                 if (composer != null && composer.getText().toString().trim().equals(value)) composer.setText("");
                 PhoneCommands.Action action = StructuredActionAdapter.requiresPlan(value)?null:PhoneCommands.parse(value, true);
                 if (action != null) new PhoneActionEngine(this, message -> localReply(id, message), appCatalog, () -> resumed).execute(action);
                 else if (new ModelManager(this).selected()!=BrainProvider.Kind.LOCAL || (llmModels.active() != null && !llmModels.busy())) generateLocal(id);
-                else localReply(id, llmModels.busy() ? "Дождитесь окончания установки разговорной модели в разделе «Компоненты»." : "Для разговора установите Qwen3 в «Компоненты → Разговорная модель» или выберите ПК. Команды телефону работают без LLM. Сообщение сохранено только на телефоне.");
+                else localReply(id, llmModels.busy() ? "Дождитесь окончания установки разговорной модели в разделе «Локальные модели»." : "Для разговора установите Qwen3 в «Настройки → Мозг → Локальные модели» или выберите ПК. Команды телефону работают без LLM. Сообщение сохранено только на телефоне.");
             });
             return;
         }
@@ -585,7 +925,7 @@ public final class MainActivity extends Activity {
             composer.setText(""); addMessage("user", value); addMessage("assistant", "Не распознала команду телефону. Например: «открой YouTube», «пауза», «громкость 50»."); return;
         }
         if (!chatting.compareAndSet(false, true)) return;
-        composer.setText(""); addMessage("user", value); streaming = addMessage("assistant", "");
+        logoStart();composer.setText(""); addMessage("user", value); streaming = addMessage("assistant", "");
         send.setEnabled(false); stop.setVisibility(View.VISIBLE); note("Уайли думает…");
         String id = UUID.randomUUID().toString().replace("-", ""); requestId = id;
         background(() -> {
@@ -604,17 +944,42 @@ public final class MainActivity extends Activity {
                     public void speechResult(String value) { spokenResult[0] = value; }
                 });
                 lastAnswer = answer.toString();
-                onUi(() -> { if (selected.equals(conversation) && streaming != null) MessageRenderer.render(streaming, lastAnswer); note("Ответ получен"); });
+                onUi(() -> { if (selected.equals(conversation) && streaming != null) MessageRenderer.render(streaming, lastAnswer); note("Ответ получен");logoEnd(true); });
                 String speech = actionSpeech[0] ? ("off".equals(speechPreference[0]) ? "" : "full".equals(speechPreference[0]) ? lastAnswer : spokenResult[0]) : lastAnswer;
                 if ((readAloud || forceRead[0]) && !speech.isEmpty() && selected.equals(conversation) && resumed) {
                     if (settings.preferences.getBoolean("pc_local_voice", false)) { String spoken = speech; onUi(() -> { if (resumed && selected.equals(conversation)) localVoice.speak(spoken); }); }
                     else speak(speech);
                 }
-            } catch (Exception e) { onUi(() -> { note(e.getMessage()); if (streaming != null && answer.length() == 0) streaming.setText(e.getMessage()); }); }
+            } catch (Exception e) { onUi(() -> { note(e.getMessage());logoEnd(false); if (streaming != null && answer.length() == 0) streaming.setText(e.getMessage()); }); }
             finally { gateway.activeChat = null; chatting.set(false); requestId = ""; onUi(() -> { if (send != null) send.setEnabled(true); if (stop != null) stop.setVisibility(View.GONE); }); }
         });
     }
+    private void handleMemoryCommand(MemoryCommand.Request request){
+        PersonalPreferences memory=new PersonalPreferences(this);
+        if(request.kind()==MemoryCommand.Kind.SAVE){
+            ui.dialog().setTitle("Сохранить воспоминание?").setMessage(request.text()).setNegativeButton("Отмена",null)
+                .setPositiveButton("Сохранить",(dialog,which)->{
+                    try{memory.saveMemory(null,request.text());composer.setText("");note("Воспоминание сохранено на телефоне");}
+                    catch(IllegalStateException failure){error(failure.getMessage());}
+                }).show();return;
+        }
+        java.util.List<PersonalPreferences.Memory> records;
+        try{records=memory.memories();}catch(IllegalStateException failure){error(failure.getMessage());return;}
+        if(request.kind()==MemoryCommand.Kind.LIST){
+            String content=records.isEmpty()?"Воспоминаний пока нет.":android.text.TextUtils.join("\n\n",records.stream().map(PersonalPreferences.Memory::text).toArray(String[]::new));
+            ui.dialog().setTitle("Память WileyAI").setMessage(content).setPositiveButton("Закрыть",null).show();return;
+        }
+        java.util.List<PersonalPreferences.Memory> matches=new java.util.ArrayList<>();
+        for(var record:records)if(MemoryCommand.matches(record.text(),request.text()))matches.add(record);
+        if(matches.isEmpty()){ui.dialog().setMessage("Подходящее воспоминание не найдено.").setPositiveButton("Закрыть",null).show();return;}
+        java.util.function.Consumer<PersonalPreferences.Memory> confirm=record->ui.dialog().setTitle("Удалить воспоминание?").setMessage(record.text())
+            .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{try{memory.removeMemory(record.id());composer.setText("");note("Воспоминание удалено");}catch(IllegalStateException failure){error(failure.getMessage());}}).show();
+        if(matches.size()==1)confirm.accept(matches.get(0));else ui.dialog().setTitle("Выберите воспоминание")
+            .setItems(matches.stream().map(PersonalPreferences.Memory::text).toArray(String[]::new),(d,i)->confirm.accept(matches.get(i)))
+            .setNegativeButton("Отмена",null).show();
+    }
     private void stopChat() {
+        DiagnosticLog.event(DiagnosticJournal.Event.MODEL_CANCEL,0);logoCancelled=true;logoState(NeonVoiceView.Mode.IDLE);
         if(brain!=null&&brain.busy()){brain.cancel();note("Останавливаю план…");return;}
         if(gatewayChat.busy()){gatewayChat.cancelPending(this::note);note("Останавливаю ответ Gateway…");return;}
         if(cloudChat.busy()){cloudChat.cancel();note("Останавливаю облачный ответ…");return;}
@@ -624,23 +989,25 @@ public final class MainActivity extends Activity {
         background(() -> { try { jsonRequest("/chat/stop", "POST", new JSONObject().put("request_id", id)); } catch (Exception e) { onUi(() -> note(e.getMessage())); } });
     }
 
-    private void phoneReply(String message) { addMessage("assistant", message); note("Команда телефона · локально, без сохранения в истории"); }
+    private void phoneReply(String message) { addMessage("assistant", message); note("Команда телефона · локально, без сохранения в истории"); if(readAloud && resumed) localVoice.speak(message); }
     private void generateLocal(String id) {
         if (HandsFreeService.answering()) { localReply(id, "Дождитесь окончания голосового ответа помощника."); return; }
         if (!chatting.compareAndSet(false, true)) return;
-        stop.setVisibility(View.VISIBLE); send.setEnabled(false); composer.setEnabled(false);
+        logoStart();stop.setVisibility(View.VISIBLE); send.setEnabled(false); composer.setEnabled(false);
         localChats.context(id, context -> {
             if (destroyed) return;
             ModelManager modelManager=new ModelManager(this);
-            if(modelManager.toolsAllowed()||modelManager.selected()==BrainProvider.Kind.ACCOUNT_OAUTH){
+            if(modelManager.selected()==BrainProvider.Kind.LOCAL&&(!resumed||!page.equals("chat")||!localMode)){finishLocalAnswer();return;}
+            if(modelManager.automatic()||modelManager.toolsAllowed()||modelManager.selected()==BrainProvider.Kind.ACCOUNT_OAUTH){
                 streaming=addMessage("assistant","Понимаю просьбу…");
                 brain.generate(context,new BrainController.Host(){
                     public boolean active(){return !destroyed;}
                     public void state(String text){note(text);}
                     public void confirm(String plan,java.util.function.Consumer<Boolean> reply){if(!resumed||destroyed){reply.accept(false);return;}ui.dialog().setTitle("Выполнить план?").setMessage(plan).setNegativeButton("Отмена",(d,w)->reply.accept(false)).setOnCancelListener(d->reply.accept(false)).setPositiveButton("Выполнить",(d,w)->reply.accept(true)).show();}
                     public void launch(Intent intent){if(destroyed||((android.app.KeyguardManager)getSystemService(KEYGUARD_SERVICE)).isDeviceLocked())throw new IllegalStateException();startActivity(intent);}
-                    public void done(String text){localReply(id,text);}
-                    public void error(String text){localReply(id,text);}
+                    public void done(String text){logoEnd(true);localReply(id,text);}
+                    public void error(String text){logoEnd(false);localReply(id,text);}
+                    public void declined(String text){logoTerminal=true;logoState(NeonVoiceView.Mode.ERROR);localReply(id,text);}
                     public void finished(){finishLocalAnswer();}
                 });return;
             }
@@ -651,21 +1018,39 @@ public final class MainActivity extends Activity {
             LocalLlm.Listener listener = new LocalLlm.Listener() {
                 public void state(String text) { note(text); }
                 public void partial(String text) { if (streaming != null) { streaming.setText(text); scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN)); } }
-                public void done(String text, boolean stopped) { if(remote&&gatewayChat.savedResponse()){localChats.load();if(readAloud&&resumed&&localMode)localVoice.speak(text);}else localReply(id, text.isEmpty() ? "Ответ остановлен или не получен. Попробуйте короткий вопрос." : text + (stopped ? "\n\n[Ответ остановлен]" : "")); }
-                public void error(String text) { localReply(id, text); }
+                public void done(String text, boolean stopped) { if(stopped){logoCancelled=true;logoState(NeonVoiceView.Mode.IDLE);}else logoEnd(text!=null&&!text.isEmpty()); if(remote&&gatewayChat.savedResponse()){localChats.load();if(readAloud&&resumed&&localMode)localVoice.speak(text);}else localReply(id, text.isEmpty() ? "Ответ остановлен или не получен. Попробуйте короткий вопрос." : text + (stopped ? "\n\n[Ответ остановлен]" : "")); }
+                public void error(String text) { logoEnd(false);localReply(id, text); }
                 public void finished() { finishLocalAnswer(); }
             };
-            if(remote)gatewayChat.generate(id,context,listener);else if(cloud)cloudChat.generate(context,listener);else localLlm.generate(llmModels.active(),LocalLlm.prompt(context),listener);
+            if(remote)gatewayChat.generate(id,context,listener);else if(cloud)cloudChat.generate(context,listener);else localLlm.generate(llmModels.active(),LocalLlm.prompt(context,new PersonalPreferences(this).localResponseContext(context.isEmpty()?"":context.get(context.size()-1).content())),listener);
         });
     }
     private String phoneModeLabel(){if(new ModelManager(this).selected()==BrainProvider.Kind.ACCOUNT_OAUTH)return new ModelManager(this).label()+"  ▾";if(GatewayClient.enabled(this)){try{JSONObject selected=settings.readGateway();return selected==null?"Gateway · настройка  ▾":selected.optString("provider_name","Gateway")+" · "+selected.optString("model_name","выберите модель")+"  ▾";}catch(Exception ignored){return "Gateway · проверить подключение  ▾";}}if(CloudChat.enabled(this))return "Телефон · облачный чат  ▾";return llmModels.active()!=null?"Телефон · Qwen3 0.6B  ▾":"Телефон · без разговорной модели  ▾";}
-    private void finishLocalAnswer() { chatting.set(false); if (send != null) send.setEnabled(localReady); if (composer != null) composer.setEnabled(localReady); if (stop != null) stop.setVisibility(View.GONE); note("Готово · "+new ModelManager(this).label()); }
+    private void finishLocalAnswer() { if(!logoTerminal)logoState(NeonVoiceView.Mode.IDLE);chatting.set(false); if (send != null) send.setEnabled(localReady); if (composer != null) composer.setEnabled(localReady); if (stop != null) stop.setVisibility(View.GONE); note("Готово · "+new ModelManager(this).label()); }
     private void localReply(String id, String message) { localChats.reply(id, message); if (readAloud && resumed && localMode) localVoice.speak(message); }
+    private void setRecordIcon(boolean recording) {if(record!=null)ui.controlIcon(record,recording?R.drawable.ui_stop:R.drawable.ui_mic);}
     private void toggleRecording() {
-        if (HandsFreeService.running()) { WileyVoiceService.invoke(); return; }
-        if (recognitionBusy()) { if (systemSpeech.busy()) systemSpeech.finish(); else offlineSpeech.finish(); note("Завершаю распознавание…"); return; }
+        if (recognitionBusy()) { if (systemSpeech.busy()) systemSpeech.finish(); else if (gigaAmSpeech.busy()) gigaAmSpeech.finish(); else offlineSpeech.finish(); note("Завершаю распознавание…"); return; }
         if (recorder != null) { finishRecording(); return; }
-        if (localMode && settings.preferences.getInt("asr_engine", 0) == 0 && (speechModels.active() == null || speechModels.busy())) { ui.dialog().setTitle("Русский голосовой комплект").setMessage(speechModels.busy() ? "Дождитесь установки или остановите её в разделе «Компоненты»." : "Установите русский комплект в разделе «Компоненты». Он занимает 44,1 МиБ для загрузки и не требует разговорной LLM. Текстовые команды уже доступны без установки.").setPositiveButton("Понятно", null).show(); return; }
+        if (manualWakeSuspended) { note("Подготавливаю микрофон…"); return; }
+        if (HandsFreeService.running()) {
+            if (WileyVoiceService.invoke()) return;
+            if (!localMode) { note("Голосовое окно недоступно. Откройте настройки голосового помощника."); return; }
+            if (chatting.get()) { note("Дождитесь ответа перед записью"); return; }
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { note("Разрешите микрофон в настройках Android."); return; }
+            int engine=settings.preferences.getInt("asr_engine",0);
+            if (engine==0 && (speechModels.active()==null || speechModels.busy())) { note("Распознавание Vosk недоступно. Откройте настройки речи."); return; }
+            if (engine==3 && (asrModels.active()==null || asrModels.busy())) { note("GigaAM недоступен. Откройте настройки речи."); return; }
+            note("Голосовое окно недоступно. Запускаю распознавание в чате…");
+            manualWakeSuspended=true;
+            HandsFreeService.pauseExternal(() -> {
+                if(destroyed || !resumed || !localMode || !page.equals("chat") || composer==null) { releaseManualWake(); return; }
+                beginLocalRecognition();
+                if(!recognitionBusy()) releaseManualWake();
+            });
+            return;
+        }
+        if (localMode && settings.preferences.getInt("asr_engine", 0) == 0 && (speechModels.active() == null || speechModels.busy())) { ui.dialog().setTitle("Русский голосовой комплект").setMessage(speechModels.busy() ? "Дождитесь установки или остановите её в разделе «Локальные модели»." : "Установите русский комплект в разделе «Локальные модели». Он занимает 44,1 МиБ для загрузки и не требует разговорной LLM. Текстовые команды уже доступны без установки.").setPositiveButton("Понятно", null).show(); return; }
         if (!localMode && profile == null) { showPair(""); return; }
         if (chatting.get()) { note("Дождитесь ответа перед записью"); return; }
         micForPhone = localMode;
@@ -680,15 +1065,18 @@ public final class MainActivity extends Activity {
         }
         else if (code == MIC_PERMISSION) note("Разрешите микрофон в настройках Android");
     }
+    private void releaseManualWake(){if(manualWakeSuspended){manualWakeSuspended=false;HandsFreeService.resumeExternal();}}
     private void beginLocalRecognition() {
         if (!localMode || destroyed || !page.equals("chat")) return;
         final int asrEngine = settings.preferences.getInt("asr_engine", 0);
         if (asrEngine == 0 && (speechModels.active() == null || speechModels.busy())) return;
+        if (asrEngine == 3 && (asrModels.active() == null || asrModels.busy())) { note("Модель GigaAM не установлена. Установите её в разделе «Распознавание»."); return; }
         localVoice.stop(); releasePlayer();
         final EditText destination = composer;
         final String previous = composer.getText().toString();
-        final String generation = asrEngine == 0 ? speechModels.active().getFileName().toString() : "android-system";
-        record.setText("■"); send.setEnabled(false); composer.setEnabled(false);
+        final String generation = asrEngine == 0 ? speechModels.active().getFileName().toString() : asrEngine == 3 ? "gigaam-v3" : "android-system";
+        setRecordIcon(true); send.setEnabled(false); composer.setEnabled(false);
+        final long diagnosticSttStarted=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_BEGIN,asrEngine);
         OfflineSpeechEngine.Listener recognition = new OfflineSpeechEngine.Listener() {
             public void ready(Runnable startMicrophone){
                 if(!resumed||composer!=destination)return;
@@ -697,20 +1085,24 @@ public final class MainActivity extends Activity {
                 Runnable begin=()->{if(!destroyed&&resumed&&composer==destination&&once.compareAndSet(false,true)){localVoice.stop();pingHandler.postDelayed(startMicrophone,160);}};
                 localVoice.speakCompleted("Слушаю",begin);pingHandler.postDelayed(begin,5000);
             }
-            public void state(String message) { note(message); }
+            public void state(String message) { note(message);logoState(message.contains("Распознаю")?NeonVoiceView.Mode.PROCESSING:NeonVoiceView.Mode.LISTENING); }
             public void partial(String text) { note("Слышу: " + text); }
             public void result(String text) {
+                DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_RESULT,text.isEmpty()?0:1);DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_MS,android.os.SystemClock.elapsedRealtime()-diagnosticSttStarted);
                 if (!resumed || !localMode || composer != destination) return;
+                VoiceDiagnostics.stt(-1, asrEngine == 0 ? "Vosk" : asrEngine == 3 ? "GigaAM" : "Android", text.isEmpty() ? "пустой результат" : "готово", !text.isEmpty(), 0);
                 if (text.isEmpty()) { note("Речь не распознана. Попробуйте ещё раз."); return; }
                 settings.preferences.edit().putString("speech_verified_generation", generation).putLong("speech_verified_at", System.currentTimeMillis()).apply();
                 composer.setText(previous.trim().isEmpty() ? text : previous + " " + text); composer.setSelection(composer.length());
-                note(asrEngine == 0 ? "Распознано локально. Проверьте текст." : "Распознано Android. Проверьте текст.");
+                note(asrEngine == 0 ? "Распознано локально. Проверьте текст." : asrEngine == 3 ? "Распознано GigaAM (экспериментально). Проверьте текст." : "Распознано Android. Проверьте текст.");
                 if (previous.trim().isEmpty() && settings.preferences.getBoolean("voice_commands", true) && PhoneCommands.parse(text, true) != null) send();
             }
-            public void error(String message) { note(message); }
-            public void finished() { if (record != null) record.setText("🎙"); if (composer != null && localReady) composer.setEnabled(true); if (send != null) send.setEnabled(localReady && !chatting.get()); }
+            public void error(String message) { DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_ERROR,0);VoiceDiagnostics.stt(-1, asrEngine == 0 ? "Vosk" : asrEngine == 3 ? "GigaAM" : "Android", "ошибка распознавания", false, 0); note(message); }
+            public void finished() { DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_END,0);releaseManualWake();if(!chatting.get())logoState(NeonVoiceView.Mode.IDLE);if (record != null) setRecordIcon(false); if (composer != null && localReady) composer.setEnabled(true); if (send != null) send.setEnabled(localReady && !chatting.get()); }
         };
-        if (asrEngine == 0) offlineSpeech.start(speechModels.active(), recognition); else systemSpeech.start(asrEngine == 2, recognition);
+        if (asrEngine == 0) offlineSpeech.start(speechModels.active(), recognition);
+        else if (asrEngine == 3) gigaAmSpeech.start(15000, recognition);
+        else systemSpeech.start(asrEngine == 2, recognition);
     }
     private void beginRecording() {
         if (destroyed || localMode || profile == null || !page.equals("chat")) return;
@@ -719,7 +1111,7 @@ public final class MainActivity extends Activity {
             recorder = new MediaRecorder(); recorder.setAudioSource(MediaRecorder.AudioSource.MIC); recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC); recorder.setAudioSamplingRate(16000); recorder.setAudioEncodingBitRate(64000);
             recorder.setOutputFile(recording.getAbsolutePath()); recorder.setMaxDuration(60000); recorder.setOnInfoListener((r, what, extra) -> { if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) finishRecording(); });
-            recorder.prepare(); recorder.start(); record.setText("■"); note("Запись… Нажмите ■, чтобы завершить");
+            recorder.prepare(); recorder.start(); setRecordIcon(true); note("Запись… Нажмите ■, чтобы завершить");
         } catch (Exception e) { if (recorder != null) recorder.release(); recorder = null; if (recording != null) recording.delete(); recording = null; error("Не удалось начать запись. Проверьте микрофон."); }
     }
     private void discardRecording() {
@@ -728,8 +1120,8 @@ public final class MainActivity extends Activity {
     }
     private void finishRecording() {
         if (recorder == null) return;
-        try { recorder.stop(); } catch (RuntimeException e) { recorder.release(); recorder = null; if (recording != null) recording.delete(); recording = null; record.setText("🎙"); note("Запись слишком короткая"); return; }
-        recorder.release(); recorder = null; record.setText("🎙"); note("Распознаю речь на компьютере…");
+        try { recorder.stop(); } catch (RuntimeException e) { recorder.release(); recorder = null; if (recording != null) recording.delete(); recording = null; setRecordIcon(false); note("Запись слишком короткая"); return; }
+        recorder.release(); recorder = null; setRecordIcon(false); note("Распознаю речь на компьютере…");
         File file = recording; recording = null;
         final EditText destination = composer;
         background(() -> {
@@ -789,7 +1181,7 @@ public final class MainActivity extends Activity {
                     try { jsonRequest((tasks ? "/tasks/" : "/notes/") + item.getString("id") + "?conversation_id=" + query(conversation), "DELETE", null); onUi(() -> note("Запись удалена")); }
                     catch (Exception e) { error(e.getMessage()); }
                 })).show());
-        if (tasks) dialog.setNeutralButton(taskDone(item) ? "Вернуть в работу" : "Выполнено", (d, w) -> background(() -> {
+        if (tasks) { dialog.setNeutralButton(taskDone(item) ? "Вернуть в работу" : "Выполнено", (d, w) -> background(() -> {
             try {
                 JSONObject body = new JSONObject().put("title", item.getString("title")).put("kind", item.optString("kind", "todo"))
                         .put("due", item.isNull("due") ? JSONObject.NULL : item.opt("due")).put("done", !taskDone(item));
@@ -800,7 +1192,7 @@ public final class MainActivity extends Activity {
                 jsonRequest("/tasks/" + item.getString("id") + "?conversation_id=" + query(conversation), "PUT", body);
                 onUi(() -> note("Задача обновлена"));
             } catch (Exception e) { error(e.getMessage()); }
-        }));
+        })); }
         dialog.show();
     }
     private void createItem(boolean tasks) {

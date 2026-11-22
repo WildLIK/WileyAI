@@ -17,7 +17,7 @@ test("music and 15/30/60 FPS ignore UI/system reduced motion, respect avatar swi
   });
   try {
     await app.context().addInitScript(() => {
-      const state = { active: true, streams: 0 };
+      const state = { active: true, streams: 0, stalled: false, revision: 0 };
       (window as unknown as { musicFixture: typeof state }).musicFixture =
         state;
       const original = window.fetch.bind(window);
@@ -40,13 +40,16 @@ test("music and 15/30/60 FPS ignore UI/system reduced motion, respect avatar swi
             };
             init?.signal?.addEventListener("abort", close, { once: true });
             timer = setInterval(() => {
-              if (closed) return;
+              if (closed || state.stalled) return;
               const phase = performance.now() / 500;
               controller.enqueue(
                 encoder.encode(
                   "data: " +
                     JSON.stringify({
                       type: "music",
+                      observation: "sample",
+                      revision: ++state.revision,
+                      fresh_ms: 1000,
                       active: state.active,
                       source: state.active ? "AIMP" : "",
                       level: state.active ? 0.6 : 0,
@@ -116,6 +119,17 @@ test("music and 15/30/60 FPS ignore UI/system reduced motion, respect avatar swi
     await expect(stage).toHaveAttribute("data-ready", "true", {
       timeout: 20000,
     });
+    await expect(stage).toHaveAttribute("data-dancing", "true");
+    // Keep the pipe open without samples: the real renderer must release the dance.
+    const stall = (value: boolean) =>
+      avatar.evaluate((v) => {
+        (
+          window as unknown as { musicFixture: { stalled: boolean } }
+        ).musicFixture.stalled = v;
+      }, value);
+    await stall(true);
+    await expect(stage).toHaveAttribute("data-dancing", "false");
+    await stall(false);
     await expect(stage).toHaveAttribute("data-dancing", "true");
     await expect(avatar.locator("html")).toHaveAttribute(
       "data-motion",

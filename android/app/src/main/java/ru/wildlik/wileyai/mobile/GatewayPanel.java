@@ -83,7 +83,7 @@ final class GatewayPanel {
         },this::error);
     }
     private void select(JSONObject account,JSONObject model){
-        if(model==null)return;LinearLayout form=ui.vertical();ui.padded(form,12);Switch search=new Switch(activity);search.setText("Поиск в интернете");search.setTextColor(ui.theme.text);if(usable(model,"web_search"))form.addView(search);
+        if(model==null)return;LinearLayout form=ui.vertical();ui.padded(form,12);Switch search=new Switch(activity);search.setText("Поиск в интернете");search.setTextColor(ui.theme.text);ui.styleControl(search); if(usable(model,"web_search"))form.addView(search);
         JSONArray modes=model.optJSONArray("reasoning_modes");Spinner reasoning=new Spinner(activity);List<String> labels=new ArrayList<>();labels.add("Режим по умолчанию");if(modes!=null)for(int i=0;i<modes.length();i++)labels.add(modes.optString(i));reasoning.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,labels));if(labels.size()>1)form.addView(reasoning);
         ui.dialog().setTitle(model.optString("name")).setMessage("Использовать этот аккаунт и модель для чата и голосового разговора? Сообщения будут проходить через ваш Gateway к выбранному провайдеру. Неподтверждённые функции остаются недоступны.").setView(form).setNegativeButton("Отмена",null).setPositiveButton("Использовать",(d,w)->{
             try{JSONObject profile=settings.readGateway();if(profile==null)throw new Exception();profile.put("connection_id",account.getString("id")).put("model_id",model.getString("id")).put("model_name",model.optString("name")).put("provider_name",account.optString("label")).put("capabilities",model.optJSONObject("capabilities")).put("web_search",search.isChecked()).remove("pending_attachments");

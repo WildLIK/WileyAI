@@ -117,6 +117,7 @@ def test_screenshot_search_and_followup_never_call_model(tmp_path, monkeypatch):
     token = "verified-actions-tests-0123456789"
     app = create_app(tmp_path, token)
     app.state.store.patch_settings({"music_player": "yandex"})
+    monkeypatch.setattr(app.state.music, "status", lambda: {"connected": True})
     calls = []
     def forbidden(*args, **kwargs): raise AssertionError("Search must use the music tool, not model text or Windows media")
     monkeypatch.setattr(providers, "chat", forbidden)
@@ -127,13 +128,16 @@ def test_screenshot_search_and_followup_never_call_model(tmp_path, monkeypatch):
         return {"confirmed": False, "text": "Запуск этой песни не подтверждён"}
     monkeypatch.setattr(app.state.music, "execute", search)
     with TestClient(app, headers={"Authorization": "Bearer " + token}) as api:
-        for phrase in ("найти песню турбина туриста", "так, включи её"):
+        # A search-only request no longer silently starts playback (E2).
+        for phrase in ("найти и включить песню турбина туриста", "так, включи её"):
             result = api.post("/chat", json={"text": phrase, "mode": "conversation"})
             events = [json.loads(line[6:]) for line in result.text.splitlines() if line.startswith("data: ")]
             answer = events[-1]["message"]["content"]
             assert answer == "Запуск этой песни не подтверждён"
         assert [command.query for command in calls] == ["турбина туриста", "турбина туриста"]
-        assert len(api.get("/actions").json()) == 2
+        # Media Manager also records its routing outcome. Count actual adapter
+        # executions, not the total number of diagnostic wrapper records.
+        assert len([item for item in api.get("/actions").json() if item["kind"] == "music.yandex"]) == 2
 
 
 def test_yandex_music_spoken_dot_uses_added_app(tmp_path):
@@ -148,6 +152,9 @@ def test_lets_start_music_controls_existing_player_without_model(tmp_path, monke
         calls.append(action)
         return {"available": True, "player": "Test Player", "state": "Воспроизведение", "confirmed": action == "play", "accepted": True}
     monkeypatch.setattr(windows_media, "perform", media)
+    # Keep testing dispatch from pause; already-playing has a separate D2 test.
+    monkeypatch.setattr(windows_media, "sessions", lambda: [{"id": "smtc:Test", "app_id": "Test", "player": "Test Player", "state": "Paused", "commands": ["play"], "available": True}])
+    monkeypatch.setattr(windows_media, "perform_selected", lambda session_id, action: media(action))
     async def forbidden(*args):
         pytest.fail("A real media command must not be answered by the model")
         yield ""
@@ -155,12 +162,12 @@ def test_lets_start_music_controls_existing_player_without_model(tmp_path, monke
     token = "verified-actions-tests-0123456789"
     with TestClient(create_app(tmp_path, token), headers={"Authorization": "Bearer " + token}) as api:
         response = api.post("/chat", json={"text": "Запустим музыку"})
-        assert "Плеер подтвердил" in response.text and calls == ["read", "play"]
+        assert "Плеер подтвердил" in response.text and calls == ["play"]
         calls.clear()
         response = api.post("/chat", json={"text": "Включи музыку на компьютере"})
-        assert "Плеер подтвердил" in response.text and calls == ["read", "play"]
+        assert "Плеер подтвердил" in response.text and calls == ["play"]
         entry = api.get("/actions").json()[0]
-        assert entry["status"] == "confirmed" and entry["details"]["media"]["player"] == "Test Player"
+        assert entry["status"] == "confirmed" and entry["details"]["result"]["media"]["player"] == "Test Player"
         store = Store(tmp_path)
         store.patch_settings({"allow_audio_control": False})
         api.post("/chat", json={"text": "Поставь музыку на паузу"})

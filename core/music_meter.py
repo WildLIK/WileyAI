@@ -170,19 +170,42 @@ SILENT = {"active": False, "source": "", "level": 0, "beat": 0, "phase": 0, "bpm
 
 class MusicMeter:
     """A single shared worker, leased by visible avatar streams only."""
-    def __init__(self, enabled):
+    # 20 Hz samples. A blocked device/driver is unknown, not continuing playback.
+    TTL_S = 1.0
+
+    def __init__(self, enabled, clock=time.monotonic):
         self.enabled = enabled
+        self.clock = clock
         self.lock = threading.Lock()
         self.clients = 0
         self.closed = threading.Event()
         self.thread = None
-        self.value = dict(SILENT)
+        self._epoch = 0
+        self._revision = 0
+        self._latest = (SILENT, None, "waiting")
+
+    @property
+    def value(self):
+        with self.lock:
+            pulse, observed, state = self._latest
+            remaining = 0 if observed is None else max(0, round(1000 * (self.TTL_S - (self.clock() - observed))))
+            if state == "sample" and remaining == 0:
+                pulse, state = {**SILENT, "error": "Данные измерителя звука устарели"}, "stale"
+            return {**pulse, "revision": self._revision, "observation": state, "fresh_ms": remaining}
+
+    def _publish(self, epoch, pulse, state):
+        with self.lock:
+            if self.closed.is_set() or not self.clients or self._epoch != epoch:
+                return False
+            self._revision += 1
+            self._latest = (pulse, self.clock() if state == "sample" else None, state)
+            return True
 
     @contextmanager
     def subscribe(self):
         with self.lock:
             self.clients += 1
-            if self.thread is None or not self.thread.is_alive():
+            if not self.closed.is_set() and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._run, name="avatar-music-meter", daemon=True)
                 self.thread.start()
         try:
@@ -190,33 +213,42 @@ class MusicMeter:
         finally:
             with self.lock:
                 self.clients -= 1
+                if not self.clients and not self.closed.is_set():
+                    self._epoch += 1
+                    self._latest = (SILENT, None, "waiting")
 
     def _run(self):
-        rhythm = Rhythm()
+        rhythm, previous_epoch = Rhythm(), None
         while not self.closed.is_set():
             with self.lock:
                 if not self.clients:
-                    self.value = dict(SILENT)
                     self.thread = None
                     return
-            if not self.enabled():
-                self.value = dict(SILENT)
-                self.closed.wait(.2)
-                continue
+                epoch = self._epoch
+            if previous_epoch != epoch:
+                rhythm, previous_epoch = Rhythm(), epoch
             try:
+                if not self.enabled():
+                    self._publish(epoch, SILENT, "disabled")
+                    rhythm = Rhythm()
+                    self.closed.wait(.2)
+                    continue
                 with session_meters() as meters:
                     until = time.monotonic() + 1.5
-                    # The setting is re-read once per 1.5 s session cycle, not on every 50 ms sample.
                     while not self.closed.is_set() and time.monotonic() < until:
-                        if not self.clients:
+                        sample = rhythm.update(peaks(meters), self.clock())
+                        if not self._publish(epoch, sample, "sample"):
                             break
-                        self.value = rhythm.update(peaks(meters), time.monotonic())
                         self.closed.wait(.05)
             except Exception:
-                self.value = {**SILENT, "error": "Не удалось прочитать уровень звука Windows"}
+                self._publish(epoch, {**SILENT, "error": "Не удалось прочитать уровень звука Windows"}, "error")
+                rhythm = Rhythm()
                 self.closed.wait(2)
 
     def close(self):
-        self.closed.set()
-        if self.thread:
-            self.thread.join(timeout=3)
+        with self.lock:
+            self.closed.set()
+            self._latest = (SILENT, None, "closed")
+            thread = self.thread
+        if thread:
+            thread.join(timeout=3)

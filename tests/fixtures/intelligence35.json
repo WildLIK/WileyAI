@@ -1,0 +1,1214 @@
+[
+  {
+    "text": "Открой Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой Chrome",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Chrome"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой Яндекс Браузер",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой AIMP",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "AIMP"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой Яндекс Музыку",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Музыка"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти Chrome",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Chrome"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти Яндекс Браузер",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти AIMP",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "AIMP"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти Яндекс Музыку",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Музыка"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне Chrome",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Chrome"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне Яндекс Браузер",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне AIMP",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "AIMP"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне Яндекс Музыку",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Музыка"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Давай запустим Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Давай запустим Chrome",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Chrome"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Давай запустим Яндекс Браузер",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Давай запустим AIMP",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "AIMP"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Давай запустим Яндекс Музыку",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Музыка"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пожалуйста, открой Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пожалуйста, открой Chrome",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Chrome"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пожалуйста, открой Яндекс Браузер",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пожалуйста, открой AIMP",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "AIMP"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пожалуйста, открой Яндекс Музыку",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Яндекс Музыка"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Воспроизведи музыку",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Воспроизведи музыку.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Продолжи музыку",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Продолжи музыку.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Продолжи воспроизведение",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Продолжи воспроизведение.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "play",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Поставь музыку на паузу",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "pause",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Поставь музыку на паузу.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "pause",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Следующий трек",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "next",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Следующий трек.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "next",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Предыдущий трек",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "previous",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Предыдущий трек.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "previous",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Сделай музыку потише",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Сделай музыку потише.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Убавь звук",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "system"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Убавь звук.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "system"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Прибавь звук",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "system"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Прибавь звук.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "change_volume",
+      "scope": "system"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пауза",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "pause",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Пауза.",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "pause",
+      "scope": "player"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Вот ты меня слышишь",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Вот ты меня слышишь?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Ты меня слышишь",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Ты меня слышишь?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Расскажи о звёздах",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Расскажи о звёздах?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Расскажи кратко о звёздах",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Расскажи кратко о звёздах?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Что такое нейросеть",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Что такое нейросеть?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Почему Луна светится",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Почему Луна светится?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Чем отличается Blender от FreeCAD",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Чем отличается Blender от FreeCAD?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Какие существуют программы для рисования",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Какие существуют программы для рисования?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Сегодня хороший день",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Сегодня хороший день?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Мне нравится Blender",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Мне нравится Blender?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Объясни, как открыть Chrome",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Объясни, как открыть Chrome?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Что ты умеешь",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Что ты умеешь?",
+    "expected_type": "conversation",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не открывай Blender",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не запускай ничего",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не надо открывать Chrome",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Никогда не запускай AIMP",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Если попрошу, открой Blender",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Он сказал открой Chrome",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Расскажи, как открыть приложение, но пока не запускай его",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не запускай музыку",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не включай песню",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Не удаляй файлы",
+    "expected_type": "blocked",
+    "tool": "",
+    "parameters": {},
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне браузер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой браузер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти браузер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой плеер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой мне плеер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой программу для рисования",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой графический редактор",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти видеоплеер",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой IDE",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой текстовый редактор",
+    "expected_type": "clarify",
+    "tool": "applications.search",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Хочу что-нибудь нарисовать",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Хочу поработать в Blender",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Мне нужно заняться моделированием",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Хочу поработать с текстом",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Подготовь мне рабочее окружение",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой вторую",
+    "expected_type": "context_missing",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Нет, другую",
+    "expected_type": "context_missing",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Ещё немного потише",
+    "expected_type": "context_missing",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Отмена",
+    "expected_type": "context_missing",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Закрой то, что только что открыл",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти песню",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Найди музыку",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Включи песню Кино",
+    "expected_type": "media",
+    "tool": "media",
+    "parameters": {
+      "action": "search_play",
+      "scope": "song",
+      "query": "Кино"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой блендир",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой неизвестныйРедактор",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой браузер и сделай музыку потише",
+    "expected_type": "clarify",
+    "tool": "",
+    "parameters": {},
+    "clarification": true,
+    "confirmation": true,
+    "launch_allowed": false,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой браузер, но музыку не трогай",
+    "expected_type": "open",
+    "tool": "browser.open",
+    "parameters": {
+      "name": "браузер"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Запусти калькулятор",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "калькулятор"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Открой. Blender",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  },
+  {
+    "text": "Ты можешь открыть Blender?",
+    "expected_type": "open",
+    "tool": "windows.app.open",
+    "parameters": {
+      "name": "Blender"
+    },
+    "clarification": false,
+    "confirmation": false,
+    "launch_allowed": true,
+    "on_error": "Ничего не выполнять; сообщить об ошибке или уточнить"
+  }
+]

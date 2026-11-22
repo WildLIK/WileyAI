@@ -52,6 +52,11 @@ public final class SpokenNames {
         for(char c:value.toCharArray()){int i=latin.indexOf(c);if(i<0)result.append(c);else if(c=='x')result.append("кс");else result.append(russian.charAt(i));}
         return result.toString();
     }
+    static String phonetic(String text) {
+        String s=latinToRussian(app(text)).replace('ё','е').replace('й','и').replace('з','с').replace('б','п').replace('д','т').replace('г','к').replace('в','ф');
+        s=s.replaceAll("[аеёиоуыэюяьъ]", "").replaceAll("[^\\p{L}\\p{N}]", "");
+        return s.replaceAll("(.)\\1+", "$1");
+    }
     public static String app(String value) {
         String normalized = value.toLowerCase(Locale.ROOT).replace('ё', 'е').trim().replaceFirst("[.!?]+$", "");
         String canonical=CANONICAL.get(compact(normalized));if(canonical!=null)return canonical;

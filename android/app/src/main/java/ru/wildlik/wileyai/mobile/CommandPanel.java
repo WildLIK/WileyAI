@@ -20,9 +20,9 @@ final class CommandPanel {
             new PhoneActionEngine(activity, result::setText, catalog, foreground).execute(action);
         })); parent.addView(result);
         Switch automatic = new Switch(activity); automatic.setText("Выполнять голосовые команды сразу"); automatic.setTextColor(ui.theme.text); automatic.setTextSize(16); automatic.setMinHeight(ui.dp(56));
-        automatic.setChecked(settings.getBoolean("voice_commands", true)); automatic.setOnCheckedChangeListener((button, checked) -> settings.edit().putBoolean("voice_commands", checked).apply()); parent.addView(automatic);
+        automatic.setChecked(settings.getBoolean("voice_commands", true)); automatic.setOnCheckedChangeListener((button, checked) -> settings.edit().putBoolean("voice_commands", checked).apply()); ui.styleControl(automatic); parent.addView(automatic);
         LinearLayout examples = ui.disclosure(parent, "Примеры и ограничения");
-        ui.card(examples, "Без интернета и языковой модели", "«Открой Телеграм», «открой музыку», «пауза», «следующая песня», «прибавить громкость», «сделай музыку потише», «громкость пятьдесят процентов», «сколько времени», «какая сегодня дата», «уровень заряда». Приложения и названия для голоса находятся в «Мои приложения». На Samsung панель использует шкалу 0–150: 50 из 150 — около 33% максимума. Запросы в процентах используют шкалу 0–100. Отрицательные и условные просьбы не выполняются; совпадения названий требуют выбора.");
+        ui.card(examples, "Без интернета и языковой модели", "«Открой Телеграм», «открой музыку», «пауза», «следующая песня», «прибавить громкость», «сделай музыку потише», «громкость пятьдесят процентов», «сколько времени», «какая сегодня дата», «уровень заряда». Приложения и названия для голоса находятся в «Моё → Любимые приложения». На Samsung панель использует шкалу 0–150: 50 из 150 — около 33% максимума. Запросы в процентах используют шкалу 0–100. Отрицательные и условные просьбы не выполняются; совпадения названий требуют выбора.");
     }
     private CommandPanel() {}
 }

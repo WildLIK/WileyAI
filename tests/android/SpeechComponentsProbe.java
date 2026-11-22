@@ -31,6 +31,12 @@ public final class SpeechComponentsProbe {
         if (scenario.equals("wake-phrase")) {
             check(WakePhrase.matches(WakePhrase.DEFAULT, "Окей, Вайли!", .75));
             check(WakePhrase.matches(WakePhrase.DEFAULT, "окей уайли", 1)); check(WakePhrase.matches(WakePhrase.DEFAULT, "окей вай ли", 1));
+            check(WakePhrase.matches(WakePhrase.SHORT, "Вайли!", .8));
+            check(WakePhrase.matches(WakePhrase.SHORT, "уайли", .8));
+            check(WakePhrase.matches(WakePhrase.SHORT, "вай ли", .8));
+            check(WakePhrase.matches(WakePhrase.SHORT, "окей уайли", .8));
+            check(!WakePhrase.matches(WakePhrase.SHORT, "вали", 1));
+            check(!WakePhrase.matches(WakePhrase.SHORT, "уайли", .74));
             check(WakePhrase.matches("привет помощник", "Привет, помощник!", .75));
             check(WakePhrase.matches("слушай помощник", "слушай   помощник", 1));
             for (String text : new String[]{"окей", "вайли", "окей вай", "не окей вайли", "он сказал окей вайли", "окей вайли открой музыку", "окей вали", "", "слушай помощник"}) check(!WakePhrase.matches(WakePhrase.DEFAULT, text, 1));

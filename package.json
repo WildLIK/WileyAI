@@ -12,6 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "electron .",
     "test": "node scripts/python.mjs -m pytest",
+    "benchmark:intents": "node scripts/python.mjs scripts/benchmark-intent-suite.py",
     "test:voice": "node --experimental-strip-types --test tests/voice/*.test.ts tests/voice/*.test.cjs",
     "test:avatar": "node scripts/test-avatar.mjs",
     "test:avatar-cloth": "node scripts/check-avatar-cloth.mjs",
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@pixiv/three-vrm": "3.5.5",
+    "onnxruntime-web": "1.31.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "^0.180.0"

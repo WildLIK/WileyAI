@@ -61,14 +61,20 @@ class OpenTools:
         commands.validate(command)
         return tool
 
-    def execute(self, command, dry_run=False, on_dispatch=None):
+    def execute(self, command, dry_run=False, on_dispatch=None, request_id=None):
         try:
             self.validate(command)
+            if request_id:
+                self.store.audit("command.permission", command.label, "allowed", {"request_id": request_id, "tool": command.kind})
+                self.store.audit("command.tool", command.label, "called", {"request_id": request_id, "tool": command.kind})
             with action_dispatch.notify_with(on_dispatch):
                 result = commands.execute(command, dry_run=dry_run)
         except Exception as error:
-            self.store.audit(command.kind, command.target, "error", {"text": str(error), "label": command.label})
+            if request_id and isinstance(error, ToolDisabled):
+                self.store.audit("command.permission", command.label, "denied", {"request_id": request_id, "tool": command.kind})
+            self.store.audit(command.kind, command.target, "error", {"text": str(error), "label": command.label, **({"request_id": request_id} if request_id else {})})
             raise
         evidence = getattr(result, "evidence", None)
-        self.store.audit(command.kind, command.target, "preview" if dry_run else evidence["status"] if evidence else "launched", evidence or {"text": str(result), "label": command.label})
+        details = evidence or {"text": str(result), "label": command.label}
+        self.store.audit(command.kind, command.target, "preview" if dry_run else evidence["status"] if evidence else "dispatched", {**details, **({"request_id": request_id} if request_id else {})})
         return result

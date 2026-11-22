@@ -60,11 +60,48 @@ public final class StageOneInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Context context = getTargetContext(); Bundle result = new Bundle();
         try {
+            if(only.equals("wakeAcousticNext8"))test("wakeAcousticNext8",()->result.putString("wake_acoustic_next8",AcousticDiagnosticsDeviceProbe.run(context)));
+            if(only.equals("wakeStudyNext11"))test("wakeStudyNext11",()->WakeStudySessionsProbe.run(context));
+            if(only.equals("wakeNext12"))test("wakeNext12",()->result.putString("wake_next12",WakeNext12Probe.run(context)));
             if(only.equals("phoneFinishChecks"))test("phoneFinishChecks",()->result.putString("phone_final_checks",GatewayDeviceProbe.finalChecks(this,context)));
+            if(only.equals("appNameMemory"))test("appNameMemory",()->AppNameMemoryProbe.run(context));
+            if(only.equals("c8Lifecycle"))test("c8Lifecycle",()->result.putString("c8_lifecycle",LocalLlmLifecycleProbe.run(context)));
+            if(only.equals("c8Extended"))test("c8Extended",()->LocalLlmExtendedProbe.run(context));
+            if(only.equals("c9SyntheticModel"))test("c9SyntheticModel",()->C9SyntheticModelProbe.run(context));
+            if(only.equals("ttsDiagnostic"))test("ttsDiagnostic",()->TtsDiagnosticProbe.run(this,context,false));
+            if(only.equals("wakeAudioB5"))test("wakeAudioB5",()->WakeAudioProbe.run(context,getContext(),result));
+            if(only.equals("wakePcmHandoff"))test("wakePcmHandoff",()->{
+                PcmHandoff pipe=new PcmHandoff(4096,8192);short[] first=new short[2048],second=new short[2048];
+                for(int i=0;i<2048;i++){first[i]=(short)i;second[i]=(short)(i+2048);}
+                pipe.append(first,first.length);pipe.activate(500);pipe.append(second,second.length);
+                short[] buffer=new short[512];int seen=0;while(seen<3596){int n=pipe.read(buffer,1000);check(n>0);for(int i=0;i<n;i++)check(buffer[i]==(short)(seen+i+500));seen+=n;}
+                pipe.close();check(pipe.read(buffer,1)==-1);check(WakeSampleActivity.wavHeader(32000).length==44);
+            });
+            if(only.equals("wakeSyntheticGigaam"))test("wakeSyntheticGigaam",()->{
+                if(GigaAmModelManager.activeModel(context)==null){result.putString("wake_gigaam","SKIPPED: GigaAM model not installed");return;}
+                byte[] wav;try(java.io.InputStream in=getContext().getAssets().open("wake_music_synthetic.wav");java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);wav=out.toByteArray();}
+                check(wav.length>44 && (wav.length-44)%2==0);short[] pcm=new short[(wav.length-44)/2];for(int i=0;i<pcm.length;i++)pcm[i]=(short)((wav[44+i*2]&255)|(wav[45+i*2]<<8));
+                int boundary=13004, detected=Math.min(pcm.length,boundary+1000);check(detected>boundary);
+                PcmHandoff pipe=new PcmHandoff(pcm.length+1,pcm.length+1);pipe.append(java.util.Arrays.copyOfRange(pcm,0,detected),detected);pipe.activate(boundary);pipe.append(java.util.Arrays.copyOfRange(pcm,detected,pcm.length),pcm.length-detected);
+                GigaAmSpeechEngine engine=new GigaAmSpeechEngine(context,GigaAmRuntime.get(context));java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);java.util.concurrent.atomic.AtomicReference<String> answer=new java.util.concurrent.atomic.AtomicReference<>(""),failure=new java.util.concurrent.atomic.AtomicReference<>("");
+                engine.startFromPcm(15000,new OfflineSpeechEngine.Listener(){public void state(String s){}public void partial(String s){}public void result(String s){answer.set(s);}public void error(String s){failure.set(s);}public void finished(){done.countDown();}},pipe);
+                long until=android.os.SystemClock.elapsedRealtime()+8000;while(pipe.bufferedSamples()>0&&android.os.SystemClock.elapsedRealtime()<until)Thread.sleep(10);check(pipe.bufferedSamples()==0);engine.finish();check(done.await(35,java.util.concurrent.TimeUnit.SECONDS));engine.close();
+                check(failure.get().isEmpty());result.putString("wake_gigaam","synthetic WAV result: "+answer.get());String normalized=answer.get().toLowerCase(java.util.Locale.ROOT);check(normalized.contains("включ")&&normalized.contains("музык"));
+            });
+            if(only.equals("ttsMusicSpeech"))test("ttsMusicSpeech",()->TtsDiagnosticProbe.runPhrase(this,context,false,"Музыка остановлена."));
+            if(only.equals("musicBrowserReadOnly"))test("musicBrowserReadOnly",()->MusicBrowserProbe.run(this,context));
+            if(only.equals("musicBrowserPlay"))test("musicBrowserPlay",()->MusicBrowserProbe.run(this,context,true));
+            if(only.equals("mediaColdWatchdog"))test("mediaColdWatchdog",()->MediaProbe.coldCoordinatorLostCallback(this,context));
+            if(only.equals("mediaColdCatalog"))test("mediaColdCatalog",()->MediaProbe.coldCatalog(this,context));
+            if(only.equals("mediaScreenOffCold"))test("mediaScreenOffCold",()->RealMediaSpeechProbe.screenOffCold(this,context));
+            if(only.equals("ttsSystemDiagnostic"))test("ttsSystemDiagnostic",()->TtsDiagnosticProbe.run(this,context,true));
             if(only.equals("brainPlans"))test("brainPlans",()->result.putString("brain_plans",BrainProbe.plans(this,context)));
             if(only.equals("brainLoop"))test("brainLoop",()->result.putString("brain_loop",BrainProbe.loop(this,context)));
             if(only.equals("brainNative"))test("brainNative",()->result.putString("brain_native",BrainProbe.nativeFixture(this,context)));
             if(only.equals("brainConversation"))test("brainConversation",()->result.putString("brain_conversation",BrainProbe.conversation(this,context)));
+            if(only.equals("brainNext"))test("brainNext",()->result.putString("brain_next",BrainNextProbe.run(this,context)));
+            if(only.equals("voicePerformance"))test("voicePerformance",()->result.putString("voice_performance",VoicePerformanceProbe.run(this,context)));
+            if(only.equals("wakeReliability"))test("wakeReliability",()->result.putString("wake_reliability",WakeReliabilityProbe.run(this,context)));
             if(only.equals("gatewayDevice"))test("gatewayDevice",()->{
                 try(java.io.InputStream input=getContext().getAssets().open("gateway-fixture.json")){
                     java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buffer=new byte[4096];int count;while((count=input.read(buffer))!=-1)bytes.write(buffer,0,count);
@@ -234,7 +271,7 @@ public final class StageOneInstrumentation extends Instrumentation {
             if (only.equals("publicYoutubeSearch")) test("publicYoutubeSearch",()->{Bundle extra=new Bundle();extra.putString("public_youtube",IterationNineProbe.publicYoutube(context));sendStatus(0,extra);});
             if (googleVoice) test("googleVoiceCompleted", () -> result.putString("voice_probe", AssistantProbe.googleVoice(this, context)));
             if (routingProbe) test("assistantTemporalRouting", () -> { Bundle extra=new Bundle();extra.putString("temporal_routing",AssistantProbe.temporalRouting(context));sendStatus(0,extra); });
-            if (mediaProbe) { test("mediaPermissionMetadata", () -> MediaProbe.permissionMetadata(context)); test("mediaColdStart", () -> MediaProbe.cold(this, context)); test("mediaTransportAndSeek", () -> MediaProbe.transport(this, context)); test("mediaUnsupportedAndUnconfirmed", () -> MediaProbe.failure(this, context)); test("mediaSearchIntents", () -> MediaProbe.intents(this, context)); test("conversationWakePhrase", () -> { Bundle extra=new Bundle();extra.putString("conversation_wake",SyntheticSpeechProbe.conversation(this,context));sendStatus(0,extra); }); }
+            if (mediaProbe) { test("mediaPermissionMetadata", () -> MediaProbe.permissionMetadata(context)); test("mediaColdStart", () -> MediaProbe.cold(this, context)); if("mediaColdCoordinator".equals(only))test("mediaColdCoordinator",()->MediaProbe.coldCoordinator(this,context)); if("mediaColdCancel".equals(only))test("mediaColdCancel",()->MediaProbe.coldCoordinatorCancel(this,context)); if("mediaColdTimeout".equals(only))test("mediaColdTimeout",()->MediaProbe.coldCoordinatorTimeout(this,context)); test("mediaTransportAndSeek", () -> MediaProbe.transport(this, context)); test("mediaUnsupportedAndUnconfirmed", () -> MediaProbe.failure(this, context)); test("mediaSearchIntents", () -> MediaProbe.intents(this, context)); if ("mediaRealDevice".equals(only)) test("mediaRealDevice", () -> RealMediaSpeechProbe.run(this, context)); if("mediaScreenOff".equals(only))test("mediaScreenOff",()->RealMediaSpeechProbe.screenOff(this,context)); test("conversationWakePhrase", () -> { Bundle extra=new Bundle();extra.putString("conversation_wake",SyntheticSpeechProbe.conversation(this,context));sendStatus(0,extra); }); }
             if (wakeVocabulary) { test("shortWakePhrase", () -> { Bundle extra = new Bundle(); extra.putString("wake", SyntheticSpeechProbe.wake(this, context, false)); sendStatus(0, extra); }); test("shortWakeRejectsOkayAlone", () -> { Bundle extra = new Bundle(); extra.putString("wake_negative", SyntheticSpeechProbe.wake(this, context, true)); sendStatus(0, extra); }); }
             if (wakeVocabulary) test("wakeVocabulary", () -> { Bundle extra = new Bundle(); extra.putString("vocabulary", AssistantProbe.vocabulary(context)); sendStatus(0, extra); });
             if (loopback) test("physicalBackgroundWakeCycle", () -> result.putString("assistant_loopback", AssistantLoopbackProbe.run(this, context)));

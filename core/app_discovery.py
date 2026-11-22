@@ -32,6 +32,130 @@ def normalized_name(value):
     return re.sub(r"(?:\s+(?:v?\d+(?:\.\d+)*|20\d\d|x64|x86|64\s*bit|32\s*bit)|\s*\((?:x64|x86|64\s*bit|32\s*bit)\))+$", "", full_name(value)).strip()
 
 
+# Purpose labels are hints over verified installed rows, never executable targets.
+# A None category means match by the known-name list only, so unrelated rows of any
+# category (including unknown installs with category "other") are never pulled in.
+PURPOSES = {
+    "браузер": ("browsers", ("Chrome", "Google Chrome", "Яндекс Браузер", "Firefox", "Microsoft Edge", "Opera")),
+    "плеер": ("music", ("AIMP", "Яндекс Музыка", "Spotify", "foobar2000", "VLC")),
+    "видеоплеер": ("video", ("VLC", "MPC-HC", "PotPlayer", "KMPlayer")),
+    "графический редактор": ("graphics", ("Paint", "Krita", "GIMP", "Adobe Photoshop", "Adobe Illustrator")),
+    "3d редактор": ("modeling", ("Blender", "FreeCAD", "Autodesk Maya", "3ds Max")),
+    "ide": ("ide", ("Visual Studio Code", "Visual Studio", "PyCharm", "IntelliJ IDEA")),
+    "текстовый редактор": ("text", ("Notepad", "Блокнот", "Notepad++", "Visual Studio Code")),
+    "офисное приложение": ("office", ("Microsoft Word", "LibreOffice Writer", "Microsoft Excel")),
+    "игру": ("games", ()),
+    "просмотр изображений": (None, ("Microsoft Photos", "Paint", "IrfanView", "XnView", "XnView MP", "FastStone Image Viewer", "Paint.NET", "Honeyview")),
+    "обработка фотографий": (None, ("Adobe Photoshop", "GIMP", "Krita", "Paint.NET", "Affinity Photo", "Adobe Lightroom Classic", "Adobe Lightroom")),
+    "видеоредактор": (None, ("Adobe Premiere Pro", "DaVinci Resolve", "Vegas Pro", "Shotcut", "Kdenlive", "OpenShot", "CapCut", "Movavi Video Editor")),
+    "запись экрана": (None, ("OBS Studio", "Bandicam", "Camtasia Studio", "Camtasia", "ShareX", "Snipping Tool", "Ножницы")),
+    "просмотр pdf": (None, ("Adobe Acrobat Reader", "Adobe Acrobat", "SumatraPDF", "Foxit Reader", "PDF-XChange Viewer", "Microsoft Edge")),
+    "архиватор": (None, ("7-Zip", "7zip", "WinRAR", "PeaZip", "NanaZip")),
+}
+PURPOSE_ALIASES = {"проигрыватель": "плеер", "музыкальный плеер": "плеер", "для рисования": "графический редактор", "для моделирования": "3d редактор", "редактор кода": "ide", "для текста": "текстовый редактор", "офис": "офисное приложение",
+    "рисование": "графический редактор", "рисовать": "графический редактор", "нарисовать": "графический редактор", "графика": "графический редактор",
+    "обработка фотографий": "обработка фотографий", "обработку фотографий": "обработка фотографий", "обработка фото": "обработка фотографий", "фотообработка": "обработка фотографий", "редактор фото": "обработка фотографий", "фоторедактор": "обработка фотографий", "ретушь фотографий": "обработка фотографий",
+    "просмотр изображений": "просмотр изображений", "просмотр картинок": "просмотр изображений", "просмотр фотографий": "просмотр изображений", "смотреть изображения": "просмотр изображений", "смотреть картинки": "просмотр изображений",
+    "видеоредактор": "видеоредактор", "видеоредакторы": "видеоредактор", "редактор видео": "видеоредактор", "видеомонтаж": "видеоредактор", "монтаж видео": "видеоредактор", "обработка видео": "видеоредактор",
+    "запись экрана": "запись экрана", "запись видео с экрана": "запись экрана", "скринкаст": "запись экрана", "записать экран": "запись экрана",
+    "просмотр pdf": "просмотр pdf", "читалка pdf": "просмотр pdf", "pdf": "просмотр pdf",
+    "3d модель": "3d редактор", "3d модели": "3d редактор", "3d моделирование": "3d редактор", "моделирование": "3d редактор", "3d": "3d редактор",
+    "архиватор": "архиватор", "распаковать архив": "архиватор", "упаковать архив": "архиватор", "распаковка архивов": "архиватор",
+    "архивы": "архиватор", "архив": "архиватор",
+    "посмотреть кино": "видеоплеер", "посмотреть фильм": "видеоплеер", "смотреть фильмы": "видеоплеер",
+    "послушать музыку": "плеер", "рисунок": "графический редактор", "рисунки": "графический редактор"}
+
+# Slots naming a file format resolve to a task, never to a program name to launch.
+TASK_EXTENSIONS = {
+    "pdf": "просмотр pdf",
+    "doc": "офисное приложение", "docx": "офисное приложение", "rtf": "офисное приложение", "odt": "офисное приложение",
+    "xls": "офисное приложение", "xlsx": "офисное приложение", "ppt": "офисное приложение", "pptx": "офисное приложение",
+    "jpg": "просмотр изображений", "jpeg": "просмотр изображений", "png": "просмотр изображений", "gif": "просмотр изображений",
+    "webp": "просмотр изображений", "bmp": "просмотр изображений",
+    "psd": "обработка фотографий",
+    "mp3": "плеер", "wav": "плеер", "flac": "плеер",
+    "mp4": "видеоплеер", "mkv": "видеоплеер", "avi": "видеоплеер",
+    "zip": "архиватор", "rar": "архиватор", "7z": "архиватор",
+    "obj": "3d редактор", "fbx": "3d редактор", "stl": "3d редактор", "blend": "3d редактор",
+}
+
+_QUESTION_PREFIX = re.compile(
+    r"^(?:чем (?:мне |можно |мне можно )*(?:открыть|посмотреть|просмотреть|послушать|проиграть)"
+    r"|какая программа [а-яё]+\s*"
+    r"|какую программу [а-яё]+\s*"
+    r"|программы |приложения "
+    r"|покажи (?:установленны[ее] )?(?:программы |приложения )?"
+    r"|у меня (?:есть|имеется) (?:что-нибудь |что-то )?(?:приложение |программу |программа )?"
+    r"|есть (?:что-нибудь |что-то )?(?:приложение |программу |программа )?"
+    r"|для )")
+
+_VOWEL_TAIL = "аеёиоуыэюяйьъ"
+
+
+def _stem(word):
+    return word[:-1] if len(word) > 4 and word[-1] in _VOWEL_TAIL else word
+
+
+def _morphology_match(phrase):
+    words = [w for w in phrase.split() if w]
+    if not words or len(words) > 2:
+        return None
+    if any(len(_stem(w)) < 4 for w in words):
+        return None
+    candidates = {alias: key for alias, key in PURPOSE_ALIASES.items()}
+    candidates.update({key: key for key in PURPOSES})
+    for candidate, key in sorted(candidates.items()):
+        reference = [w for w in normalized_name(candidate).split() if w]
+        if len(reference) != len(words):
+            continue
+        if all(_stem(a) == _stem(b) or (len(a) >= 4 and a.startswith(_stem(b))) or (len(b) >= 4 and b.startswith(_stem(a)))
+               for a, b in zip(words, reference)):
+            return key
+    return None
+
+
+def purpose_key(name):
+    key = normalized_name(name)
+    key = _QUESTION_PREFIX.sub("", key, count=1).strip()
+    if not key:
+        return None
+    for _ in range(2):
+        key = PURPOSE_ALIASES.get(key, key)
+        if key in PURPOSES:
+            return key
+    tail = re.sub(r"\s+(?:файл[а-яё]*|формат[а-яё]*|документ[а-яё]*)$", "", key).strip()
+    if tail in TASK_EXTENSIONS or key in TASK_EXTENSIONS:
+        return TASK_EXTENSIONS.get(key) or TASK_EXTENSIONS.get(tail)
+    return _morphology_match(key) or _morphology_match(tail)
+
+
+def distinct_installations(items):
+    """Collapse exact paths and the verified Blender launcher/main pair only.
+
+    Similar names or a common parent alone are never sufficient evidence.
+    """
+    main_paths = {os.path.normcase(os.path.realpath(item["target"])) for item in items
+                  if Path(item["target"]).name.casefold() == "blender.exe" and normalized_name(item["name"]) == "blender" and local_file(item["target"])}
+    grouped = {}
+    for item in items:
+        target = item["target"]
+        key = target.casefold() if target.startswith("aumid:") else os.path.normcase(os.path.realpath(target))
+        if Path(target).name.casefold() == "blender-launcher.exe" and normalized_name(item["name"]) == "blender" and local_file(target):
+            main = str(Path(target).with_name("blender.exe"))
+            expected = os.path.normcase(os.path.realpath(main))
+            if expected in main_paths:
+                key = expected
+        previous = grouped.get(key)
+        if previous is None:
+            grouped[key] = dict(item)
+            continue
+        preferred = item if Path(item["target"]).name.casefold() == "blender.exe" else previous
+        aliases = list(dict.fromkeys([previous["name"], item["name"], *previous.get("aliases", []), *item.get("aliases", [])]))
+        sources = list(dict.fromkeys([*previous.get("sources", [previous["source"]]), item["source"]]))
+        grouped[key] = {**preferred, "aliases": aliases, "sources": sources}
+    return list(grouped.values())
+
+
 _SOUNDS = {"а":"a", "б":"b", "в":"v", "г":"g", "д":"d", "е":"e", "ё":"e", "ж":"zh", "з":"z", "и":"i", "й":"i", "к":"k", "л":"l", "м":"m", "н":"n", "о":"o", "п":"p", "р":"r", "с":"s", "т":"t", "у":"u", "ф":"f", "х":"h", "ц":"ts", "ч":"ch", "ш":"sh", "щ":"sh", "ы":"y", "э":"e", "ю":"yu", "я":"ya", "ь":"", "ъ":""}
 
 
@@ -89,8 +213,16 @@ def registry_candidates():
                             with winreg.OpenKey(parent, exe, 0, winreg.KEY_READ | view) as opened:
                                 value, kind = winreg.QueryValueEx(opened, None)
                             if kind in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
-                                spec = next((s for s in CATALOG if exe.casefold() in (n.casefold() for n in s.executables)), None)
-                                results.append(Candidate(spec.id if spec else "", value, "Регистрация Windows", Path(exe).stem))
+                                target = local_file(value)
+                                if target is None or not safe_application_name(target.stem):
+                                    continue
+                                # An App Paths key is a launch alias, not product
+                                # identity. Only attach catalog metadata when the
+                                # actual executable agrees; portable paths work too.
+                                spec = next((s for s in CATALOG if
+                                             exe.casefold() in (n.casefold() for n in s.executables) and
+                                             target.name.casefold() in (n.casefold() for n in s.executables)), None)
+                                results.append(Candidate(spec.id if spec else "", str(target), "Регистрация Windows", target.stem))
                         except OSError:
                             continue
             except OSError:
@@ -248,6 +380,7 @@ def discover():
                       "name": name, "category": spec.category if spec else "other", "target": str(path),
                       "source": item.source, "aliases": list((spec.name, *spec.aliases)) if spec else [], "launch_type": "exe"})
     order = list(CATEGORIES)
+    items = distinct_installations(items)
     items.sort(key=lambda item: (order.index(item["category"]), item["name"].casefold()))
     return {"supported": True, "items": items, "categories": CATEGORIES, "warnings": warnings}
 
@@ -336,11 +469,27 @@ class ApplicationScanner:
             valid = self.valid_item({**item, "target": target})
             if valid:
                 result.append(valid)
-        return result
+        return distinct_installations(result)
 
     @staticmethod
     def choice_label(item):
         return (item["name"] + " · " + item["source"] + " · " + Path(item["target"]).parent.name)[:150]
+
+    def purpose_matches(self, name):
+        key = purpose_key(name)
+        if key is None: return None
+        category, names = PURPOSES[key]
+        allowed = {normalized_name(canonical_name(n) or n) for n in names}
+        result = []
+        for item in self.valid_items():
+            if not safe_application_name(item["name"]):
+                continue
+            labels = [item["name"], *item.get("aliases", [])]
+            exact = any(normalized_name(canonical_name(label) or label) in allowed for label in labels)
+            if exact or (category is not None and item.get("category") == category):
+                result.append(item)
+        # Known-name matches first, then category matches; ties stay alphabetical.
+        return sorted(result, key=lambda item: (0 if normalized_name(canonical_name(item["name"]) or item["name"]) in allowed else 1, item["name"].casefold(), item["target"].casefold()))
 
     def find_matches(self, name):
         key = normalized_name(canonical_name(name) or name)
@@ -348,7 +497,7 @@ class ApplicationScanner:
             return []
         def matching(items):
             result = []
-            for item in items:
+            for item in distinct_installations(items):
                 names = [item["name"], *item.get("aliases", [])]
                 if not any(normalized_name(canonical_name(n) or n) == key for n in names):
                     continue
@@ -359,7 +508,7 @@ class ApplicationScanner:
                 exact = [item for item in result if any(full_name(n) == full_name(name) for n in [item["name"], *item.get("aliases", [])])]
                 if exact:
                     return exact
-            return result
+            return distinct_installations(result)
         saved = self.saved()
         found = matching(saved["items"])
         if found:

@@ -6,6 +6,9 @@ import java.util.regex.Pattern;
 
 /** Only complete, explicit user requests become local actions. */
 public final class PhoneCommands {
+    private static final Pattern ADDRESS=Pattern.compile("(?iu)^\\s*(?:окей[\\s,]+)?(?:[ув]ай[\\s,]*ли|wiley)(?=$|[\\s,.:;!?—-])[\\s,.:;!?—-]*");
+    private static final Pattern REFUSED=Pattern.compile("(?iu)^не\\s+(?:открывай|открой|запускай|запусти|включай|включи|выключай|выключи|переключай|переключи|ставь|поставь|убавляй|убавь|прибавляй|прибавь)(?=$|[\\s,.:;!?—-]).*");
+    private static final Pattern INCOMPLETE=Pattern.compile("(?iu)^(?:(?:открой|запусти|включи|выключи)(?: (?:мне )?(?:приложение|программу|сайт))?|(?:сделай|установи)(?: (?:звук|громкость|музыку))?|поставь)[,.:;!?—\\s-]*$");
     public static final class Action {
         public final String kind, value, target;
         Action(String kind, String value) { this(kind,value,""); }
@@ -14,7 +17,7 @@ public final class PhoneCommands {
     private PhoneCommands() {}
 
     public static Action parse(String input, boolean selectedPhone) {
-        if (input == null || input.length() > 300 || input.matches("(?s).*[\\r\\n\"«»“”].*")) return null;
+        if (input == null || input.length() > 300 || input.matches("(?s).*[\\r\\n\"«»“”].*") || blockedVoice(input)!=0) return null;
         String original = input.trim();
         String value = java.text.Normalizer.normalize(original, java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replace('ё', 'е').replaceAll("\\s+", " ");
         if (value.matches(".*\\b(?:не|никогда|если|например|расскажи|объясни)\\b.*")) return null;
@@ -63,8 +66,14 @@ public final class PhoneCommands {
         return SpokenNames.percent(value);
     }
     private static String cleanRequest(String value) {
-        String cleaned = value.replaceFirst("(?iu)^(?:уайли|вайли|wiley)[,! ]+", "");
+        String cleaned = stripAddress(value);
         for (int i = 0; i < 3; i++) cleaned = cleaned.replaceFirst("(?iu)^(?:а теперь|а еще|теперь|а|еще вопрос|еще|пожалуйста|можешь|можете|давай|будь добра)[, ]+", "");
         return cleaned.replaceFirst("(?iu)[, ]+пожалуйста[.!? ]*$", "").replaceFirst("[.!? ]+$", "").trim();
+    }
+    static String stripAddress(String text){return ADDRESS.matcher(text).replaceFirst("");}
+    /** 1 means an explicit refusal, 2 means an imperative without the required remainder. */
+    static int blockedVoice(String text){
+        String clean=cleanRequest(text.trim());
+        return REFUSED.matcher(clean).matches()?1:INCOMPLETE.matcher(clean).matches()?2:0;
     }
 }

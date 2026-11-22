@@ -38,21 +38,36 @@ def open_result(outcome, display, gender):
     else:
         verb = {"feminine": "Отправила команду", "masculine": "Отправил команду", "neutral": "Отправлена команда"}.get(gender, "Отправлена команда")
         spoken = f"{verb} открытия {name}. Результат не подтверждён."
-    return ActionResponse(action, status, name, display, spoken, outcome.get("details") or {})
+    details = outcome.get("details") or {}
+    if details.get("autoplay"):
+        spoken += " " + details["autoplay"].get("spoken", "Воспроизведение не подтверждено.")
+    return ActionResponse(action, status, name, display, spoken, details)
 
 
 def audio_result(outcome, display, gender):
     action, data = outcome.get("action", ""), outcome.get("result", {})
     state = data.get("state") if isinstance(data.get("state"), dict) else {}
+    if action in {"status", "read"} and data.get("confirmed"):
+        track = data.get("media", {}).get("track", {}) if isinstance(data.get("media"), dict) else {}
+        title = state.get("title") or track.get("title")
+        artist = state.get("artists") or track.get("artist")
+        spoken = " — ".join(str(part).strip() for part in (title, artist) if part and str(part).strip())
+        if spoken:
+            return ActionResponse("audio", "confirmed", action, display, spoken + ".", data)
     if action in {"volume", "change_volume"} and data.get("confirmed") and isinstance(state.get("volume"), (int, float)):
         return ActionResponse("audio", "confirmed", action, display, f"Громкость — {round(state['volume'])} процентов.")
     if "volume" in data:
-        if action in {"mute", "unmute"} and isinstance(data.get("muted"), bool):
+        if data.get("confirmed") is False:
+            return ActionResponse("audio", "unconfirmed", action, display, "Изменение громкости не подтверждено.", data)
+        if data["volume"] == 0:
+            spoken = "Громкость — ноль процентов. Звук не слышен."
+            if data.get("muted"): spoken += " Mute включён."
+        elif action in {"mute", "unmute"} and isinstance(data.get("muted"), bool):
             spoken = "Звук выключен." if data["muted"] else "Звук включён."
         else:
             spoken = f"Громкость — {data['volume']} процентов."
             if data.get("muted") is True: spoken += " Звук выключен."
-        return ActionResponse("audio", "confirmed", action, display, spoken)
+        return ActionResponse("audio", "confirmed", action, display, spoken, data)
     media = data.get("media", data)
     if data.get("candidates"):
         spoken, status = "Нашлось несколько вариантов. Уточните исполнителя или название.", "clarification"

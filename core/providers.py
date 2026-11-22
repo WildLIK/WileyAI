@@ -67,11 +67,13 @@ async def list_models(settings: Settings) -> list[dict]:
         response.raise_for_status()
     data = response.json()
     if settings.provider == "ollama":
-        return [{"id": item["name"], "size": item.get("size", 0)} for item in data.get("models", [])]
+        return [{"id": item["name"], "size": item.get("size", 0),
+                 **({"remote": True} if item.get("remote_model") or item.get("remote_host") else {})}
+                for item in data.get("models", [])]
     return [{"id": item["id"], "size": 0} for item in data.get("data", [])]
 
 
-async def chat(settings: Settings, messages: list[dict], output_schema: dict | None = None) -> AsyncIterator[str]:
+async def chat(settings: Settings, messages: list[dict], output_schema: dict | None = None, *, max_tokens: int | None = None, diagnostics: dict | None = None) -> AsyncIterator[str]:
     if settings.provider == "chatgpt":
         output = chatgpt.connection(settings.chatgpt_connection).reply(settings.model, messages, output_schema)
         repetition = RepetitionGuard()
@@ -91,6 +93,7 @@ async def chat(settings: Settings, messages: list[dict], output_schema: dict | N
     if settings.provider == "ollama":
         endpoint = "api/chat"
         body = {"model": settings.model, "messages": messages, "stream": True, "options": {"num_ctx": settings.context_tokens, "num_predict": response_limit(settings), "temperature": settings.temperature}, "keep_alive": {"eco": "1m", "balanced": "5m", "quality": "15m"}[settings.profile]}
+        if max_tokens is not None: body["options"]["num_predict"] = max(1, min(response_limit(settings), max_tokens))
         if "qwen3" in settings.model.casefold():
             body["think"] = False
         if output_schema is not None:
@@ -131,12 +134,14 @@ async def chat(settings: Settings, messages: list[dict], output_schema: dict | N
                 if reason in {"length", "max_tokens"}:
                     raise ResponseLimitReached("Ответ достиг лимита длины. Можно продолжить его кнопкой «Продолжить ответ».")
                 if item.get("done") is True or reason:
+                    if diagnostics is not None and settings.provider == "ollama":
+                        diagnostics.update({key:item[key] for key in ("load_duration", "prompt_eval_duration", "eval_duration", "prompt_eval_count", "eval_count") if type(item.get(key)) is int})
                     finished = True
             if not finished:
                 raise IncompleteResponse("Поток ответа оборвался без подтверждения завершения. Можно продолжить сохранённый текст.")
 
 
-async def structured(settings: Settings, messages: list[dict], schema: dict, *, max_chars: int = 2048) -> str:
+async def structured(settings: Settings, messages: list[dict], schema: dict, *, max_chars: int = 2048, max_tokens: int | None = None, diagnostics: dict | None = None) -> str:
     """A bounded internal decision, separate from user-visible answer streaming."""
     async def collect(output_schema):
         result = ""
@@ -145,7 +150,10 @@ async def structured(settings: Settings, messages: list[dict], schema: dict, *, 
             instruction = "\nВерни только JSON по этой схеме: " + json.dumps(schema, ensure_ascii=False)
             payload = ([{**messages[0], "content": messages[0]["content"] + instruction}, *messages[1:]]
                        if messages and messages[0]["role"] == "system" else [{"role": "system", "content": instruction}, *messages])
-        async with aclosing(chat(settings, payload, output_schema=output_schema)) as output:
+        options = {}
+        if max_tokens is not None: options["max_tokens"] = max_tokens
+        if diagnostics is not None: options["diagnostics"] = diagnostics
+        async with aclosing(chat(settings, payload, output_schema=output_schema, **options)) as output:
             async for delta in output:
                 result += delta
                 if len(result) > max_chars:

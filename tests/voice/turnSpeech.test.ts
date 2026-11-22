@@ -68,3 +68,11 @@ test("a failure after dispatch produces a short follow-up", async () => {
   router.finish("Техническая ошибка."); await router.done;
   assert.deepEqual(synthesized, ["Запускаю Blender.", "Не удалось открыть Blender."]);
 });
+test("a prohibited action speaks the local acknowledgement once", async () => {
+  const { router, synthesized } = route("brief");
+  router.event({ type: "speech_mode", mode: "action" });
+  router.event({ type: "delta", text: "Хорошо, не буду открывать Blender." });
+  router.event({ type: "speech_result", action: { status: "prohibited", spoken: "Хорошо, не буду открывать Blender." } });
+  router.finish("Хорошо, не буду открывать Blender."); await router.done;
+  assert.deepEqual(synthesized, ["Хорошо, не буду открывать Blender."]);
+});

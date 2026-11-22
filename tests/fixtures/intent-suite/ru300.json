@@ -1,0 +1,2036 @@
+{
+  "meta": {
+    "name": "wileyai-ru300",
+    "date": "2026-11-09",
+    "note": "Исследовательский набор. expect: open.app|open.proposal|open.folder|open.url|media.*|audio.*|prohibit|cancel|inspect|clarify|chat|no_mutation. target_hint/query_hint уточняют проверку. turns — последующие реплики в том же диалоге.",
+    "aliases_registered": [
+      "blender",
+      "krita",
+      "word",
+      "excel",
+      "telegram",
+      "chrome",
+      "aimp",
+      "spotify",
+      "notepad++",
+      "пainted"
+    ],
+    "proposal_map": {
+      "рисовать": "krita",
+      "рисования": "krita",
+      "моделировани": "blender",
+      "текст": "word",
+      "таблиц": "excel",
+      "таблицы": "excel",
+      "почту": "chrome",
+      "интернет": "chrome"
+    }
+  },
+  "cases": [
+    {
+      "c": "base",
+      "t": "Открой калькулятор",
+      "e": "open.app",
+      "th": "calc",
+      "id": "ru300-001"
+    },
+    {
+      "c": "base",
+      "t": "Открой блокнот",
+      "e": "open.app",
+      "th": "notepad",
+      "id": "ru300-002"
+    },
+    {
+      "c": "base",
+      "t": "Открой проводник",
+      "e": "open.app",
+      "th": "explorer",
+      "id": "ru300-003"
+    },
+    {
+      "c": "base",
+      "t": "Открой Blender",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-004"
+    },
+    {
+      "c": "base",
+      "t": "Открой Telegram",
+      "e": "open.app",
+      "th": "telegram",
+      "id": "ru300-005"
+    },
+    {
+      "c": "base",
+      "t": "Открой папку Загрузки",
+      "e": "open.folder",
+      "th": "загрузки",
+      "id": "ru300-006"
+    },
+    {
+      "c": "base",
+      "t": "Открой папку Документы",
+      "e": "open.folder",
+      "th": "документы",
+      "id": "ru300-007"
+    },
+    {
+      "c": "base",
+      "t": "Открой рабочий стол",
+      "e": "open.folder",
+      "th": "рабочий стол",
+      "id": "ru300-008"
+    },
+    {
+      "c": "base",
+      "t": "Открой ютуб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-009"
+    },
+    {
+      "c": "base",
+      "t": "Открой гитхаб",
+      "e": "open.url",
+      "th": "github",
+      "id": "ru300-010"
+    },
+    {
+      "c": "base",
+      "t": "Открой example.com",
+      "e": "open.url",
+      "th": "example.com",
+      "id": "ru300-011"
+    },
+    {
+      "c": "base",
+      "t": "Громкость 30 процентов",
+      "e": "audio.volume.set",
+      "qv": 30,
+      "id": "ru300-012"
+    },
+    {
+      "c": "base",
+      "t": "Убавь звук",
+      "e": "audio.volume.down",
+      "id": "ru300-013"
+    },
+    {
+      "c": "base",
+      "t": "Прибавь громкость",
+      "e": "audio.volume.up",
+      "id": "ru300-014"
+    },
+    {
+      "c": "base",
+      "t": "Включи звук",
+      "e": "audio.unmute",
+      "id": "ru300-015"
+    },
+    {
+      "c": "base",
+      "t": "Выключи звук",
+      "e": "audio.mute",
+      "id": "ru300-016"
+    },
+    {
+      "c": "base",
+      "t": "Следующий трек",
+      "e": "media.next",
+      "id": "ru300-017"
+    },
+    {
+      "c": "base",
+      "t": "Предыдущий трек",
+      "e": "media.previous",
+      "id": "ru300-018"
+    },
+    {
+      "c": "base",
+      "t": "Пауза",
+      "e": "media.pause",
+      "id": "ru300-019"
+    },
+    {
+      "c": "base",
+      "t": "Продолжи музыку",
+      "e": "media.play",
+      "id": "ru300-020"
+    },
+    {
+      "c": "base",
+      "t": "Проверь, работает ли Blender",
+      "e": "inspect",
+      "id": "ru300-021"
+    },
+    {
+      "c": "base",
+      "t": "Что сейчас играет",
+      "e": "media.status",
+      "id": "ru300-022"
+    },
+    {
+      "c": "base",
+      "t": "Запусти мою волну",
+      "e": "media.wave",
+      "id": "ru300-023"
+    },
+    {
+      "c": "base",
+      "t": "Включи мою волну",
+      "e": "media.wave",
+      "id": "ru300-024"
+    },
+    {
+      "c": "base",
+      "t": "Сделай музыку потише",
+      "e": "media.volume.down",
+      "id": "ru300-025"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Продолжим музыку",
+      "e": "media.play",
+      "note": "ASR-форма; сейчас провал?",
+      "id": "ru300-026"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Продолжим воспроизведение",
+      "e": "media.play",
+      "id": "ru300-027"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Поставим на паузу",
+      "e": "media.pause",
+      "id": "ru300-028"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Поставим музыку",
+      "e": "media.play",
+      "id": "ru300-029"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Запустим музыку",
+      "e": "media.play",
+      "note": "music_help: источник-уточнение",
+      "id": "ru300-030"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Включим музыку",
+      "e": "media.play",
+      "note": "music_help",
+      "id": "ru300-031"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Откроем браузер",
+      "e": "open.proposal",
+      "th": "chrome",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-032"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Откроем калькулятор",
+      "e": "open.proposal",
+      "th": "калькулятор",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-033"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Давай откроем Blender",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-034"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Переключим трек",
+      "e": "media.next",
+      "id": "ru300-035"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Следующая песня",
+      "e": "media.next",
+      "id": "ru300-036"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Предыдущую песню",
+      "e": "media.previous",
+      "id": "ru300-037"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Громкость сделаем 50",
+      "e": "audio.volume.set",
+      "qv": 50,
+      "note": "редкая форма",
+      "id": "ru300-038"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Убавим звук",
+      "e": "audio.volume.down",
+      "id": "ru300-039"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Прибавим громкость",
+      "e": "audio.volume.up",
+      "id": "ru300-040"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Возобновим музыку",
+      "e": "media.play",
+      "id": "ru300-041"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Остановим музыку",
+      "e": "media.pause",
+      "id": "ru300-042"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Сделаем потише",
+      "e": "audio.volume.down",
+      "id": "ru300-043"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Включим мою волну",
+      "e": "media.wave",
+      "id": "ru300-044"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Запустим мою волну",
+      "e": "media.wave",
+      "id": "ru300-045"
+    },
+    {
+      "c": "colloquial",
+      "t": "Музыка что-то слишком громкая",
+      "e": "media.volume.down",
+      "id": "ru300-046"
+    },
+    {
+      "c": "colloquial",
+      "t": "Уйми музыку",
+      "e": "media.pause",
+      "id": "ru300-047"
+    },
+    {
+      "c": "colloquial",
+      "t": "Подкрути звук",
+      "e": "audio.volume.up",
+      "id": "ru300-048"
+    },
+    {
+      "c": "colloquial",
+      "t": "Прибавь музыкашку",
+      "e": "media.volume.up",
+      "id": "ru300-049"
+    },
+    {
+      "c": "colloquial",
+      "t": "Давай тишину",
+      "e": "audio.mute",
+      "id": "ru300-050"
+    },
+    {
+      "c": "colloquial",
+      "t": "Погромче музыку",
+      "e": "media.volume.up",
+      "id": "ru300-051"
+    },
+    {
+      "c": "colloquial",
+      "t": "Тут шумно, прибавь голос",
+      "e": "audio.volume.up",
+      "id": "ru300-052"
+    },
+    {
+      "c": "colloquial",
+      "t": "Сделай нормальную громкость",
+      "e": "clarify",
+      "id": "ru300-053"
+    },
+    {
+      "c": "colloquial",
+      "t": "А можно потише?",
+      "e": "media.volume.down",
+      "id": "ru300-054"
+    },
+    {
+      "c": "colloquial",
+      "t": "Дальше",
+      "e": "media.next",
+      "id": "ru300-055"
+    },
+    {
+      "c": "colloquial",
+      "t": "Крутани дальше",
+      "e": "media.next",
+      "id": "ru300-056"
+    },
+    {
+      "c": "colloquial",
+      "t": "Что там играет-то?",
+      "e": "media.status",
+      "id": "ru300-057"
+    },
+    {
+      "c": "colloquial",
+      "t": "Какая песня?",
+      "e": "media.status",
+      "id": "ru300-058"
+    },
+    {
+      "c": "colloquial",
+      "t": "Мне нужен интернет",
+      "e": "open.proposal",
+      "th": "chrome",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-059"
+    },
+    {
+      "c": "colloquial",
+      "t": "Музыку погромче, пожалуйста",
+      "e": "media.volume.up",
+      "id": "ru300-060"
+    },
+    {
+      "c": "colloquial",
+      "t": "Тише сделай",
+      "e": "audio.volume.down",
+      "id": "ru300-061"
+    },
+    {
+      "c": "colloquial",
+      "t": "Громче",
+      "e": "audio.volume.up",
+      "id": "ru300-062"
+    },
+    {
+      "c": "colloquial",
+      "t": "Тише",
+      "e": "audio.volume.down",
+      "id": "ru300-063"
+    },
+    {
+      "c": "colloquial",
+      "t": "Лайкни песню",
+      "e": "media.like",
+      "id": "ru300-064"
+    },
+    {
+      "c": "colloquial",
+      "t": "Убери из любимых",
+      "e": "media.unlike",
+      "id": "ru300-065"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню Numb",
+      "e": "media.search",
+      "qh": "numb",
+      "id": "ru300-066"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню Numb и включи",
+      "e": "media.search",
+      "qh": "numb",
+      "id": "ru300-067"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди трек Вояджер",
+      "e": "media.search",
+      "qh": "вояджер",
+      "id": "ru300-068"
+    },
+    {
+      "c": "music_search",
+      "t": "Поищи песню группы Кино",
+      "e": "media.search",
+      "qh": "кино",
+      "id": "ru300-069"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню группы Линкин Парк Numb",
+      "e": "media.search",
+      "qh": "numb",
+      "id": "ru300-070"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи Noize MC Вояджер",
+      "e": "media.search_play",
+      "qh": "вояджер",
+      "id": "ru300-071"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи Носим Сип Вояджер",
+      "e": "media.search_play",
+      "qh": "вояджер",
+      "id": "ru300-072"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи Нумб Линкин Парк",
+      "e": "media.search_play",
+      "qh": "нумб",
+      "id": "ru300-073"
+    },
+    {
+      "c": "music_search",
+      "t": "Поставь песню Кино Пачка сигарет",
+      "e": "media.search_play",
+      "qh": "пачка",
+      "id": "ru300-074"
+    },
+    {
+      "c": "music_search",
+      "t": "Воспроизведи трек Гражданская оборона",
+      "e": "media.search_play",
+      "qh": "гражданская",
+      "id": "ru300-075"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи в Яндекс Музыке песню Numb",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-076"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи песню Numb в Яндекс Музыке",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-077"
+    },
+    {
+      "c": "music_search",
+      "t": "Запусти песню",
+      "e": "clarify",
+      "id": "ru300-078"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню Numb",
+      "e": "media.select",
+      "turns": [
+        "вторую"
+      ],
+      "chain": "search_then_select",
+      "id": "ru300-079"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди трек Вояджер",
+      "e": "media.select",
+      "turns": [
+        "первую"
+      ],
+      "chain": "search_then_select",
+      "id": "ru300-080"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди трек Вояджер",
+      "e": "media.select",
+      "turns": [
+        "включи найденную"
+      ],
+      "chain": "search_then_select",
+      "note": "один кандидат",
+      "id": "ru300-081"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню Numb",
+      "e": "clarify",
+      "turns": [
+        "отмена"
+      ],
+      "chain": "search_cancel",
+      "id": "ru300-082"
+    },
+    {
+      "c": "music_search",
+      "t": "Так включи её",
+      "e": "no_mutation",
+      "note": "followup после search_play; без истории — clarify/no",
+      "id": "ru300-083"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи её",
+      "e": "no_mutation",
+      "note": "followup",
+      "id": "ru300-084"
+    },
+    {
+      "c": "music_search",
+      "t": "Поставь джаз",
+      "e": "media.search_play",
+      "qh": "джаз",
+      "id": "ru300-085"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи что-нибудь спокойное",
+      "e": "media.search_play",
+      "qh": "спокойное",
+      "id": "ru300-086"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи лёгкую музыку",
+      "e": "media.search_play",
+      "qh": "лёгкая",
+      "id": "ru300-087"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди видео про космос",
+      "e": "chat",
+      "note": "не музыка; некуда искать",
+      "id": "ru300-088"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи музыку погромче",
+      "e": "media.volume.up",
+      "id": "ru300-089"
+    },
+    {
+      "c": "music_search",
+      "t": "Сделай её потише",
+      "e": "media.volume.down",
+      "id": "ru300-090"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи Linkin Park Numb",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-091"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи рамштайн",
+      "e": "media.search_play",
+      "qh": "рамштайн",
+      "id": "ru300-092"
+    },
+    {
+      "c": "foreign",
+      "t": "Поставь песню Rammstein Deutschland",
+      "e": "media.search_play",
+      "qh": "deutschland",
+      "id": "ru300-093"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи имидж дрегонс",
+      "e": "media.search_play",
+      "qh": "имидж",
+      "id": "ru300-094"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи Imagine Dragons Believer",
+      "e": "media.search_play",
+      "qh": "believer",
+      "id": "ru300-095"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи билли айлиш",
+      "e": "media.search_play",
+      "qh": "билли",
+      "id": "ru300-096"
+    },
+    {
+      "c": "foreign",
+      "t": "Поставь Billie Eilish Bad Guy",
+      "e": "media.search_play",
+      "qh": "bad",
+      "id": "ru300-097"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи нойз эм си",
+      "e": "media.search_play",
+      "qh": "нойз",
+      "id": "ru300-098"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи ac/dc",
+      "e": "media.search_play",
+      "qh": "ac",
+      "id": "ru300-099"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи асе дси",
+      "e": "media.search_play",
+      "qh": "асе",
+      "id": "ru300-100"
+    },
+    {
+      "c": "foreign",
+      "t": "Поставь Queen Bohemian Rhapsody",
+      "e": "media.search_play",
+      "qh": "bohemian",
+      "id": "ru300-101"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи квина",
+      "e": "media.search_play",
+      "qh": "квин",
+      "id": "ru300-102"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи Twenty One Pilots Stressed Out",
+      "e": "media.search_play",
+      "qh": "stressed",
+      "id": "ru300-103"
+    },
+    {
+      "c": "foreign",
+      "t": "Включи тванти ван пилотс",
+      "e": "media.search_play",
+      "qh": "тванти",
+      "id": "ru300-104"
+    },
+    {
+      "c": "foreign",
+      "t": "Поставь Daft Punk Around the World",
+      "e": "media.search_play",
+      "qh": "around",
+      "id": "ru300-105"
+    },
+    {
+      "c": "translit",
+      "t": "Открой ютюб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-106"
+    },
+    {
+      "c": "translit",
+      "t": "Открой кит-хаб",
+      "e": "open.url",
+      "th": "github",
+      "id": "ru300-107"
+    },
+    {
+      "c": "translit",
+      "t": "Открой гит хаб",
+      "e": "open.url",
+      "th": "github",
+      "id": "ru300-108"
+    },
+    {
+      "c": "translit",
+      "t": "Открой вк",
+      "e": "no_mutation",
+      "note": "SITES нет вк; уточнение/чат",
+      "id": "ru300-109"
+    },
+    {
+      "c": "translit",
+      "t": "Открой яндекс",
+      "e": "open.url",
+      "th": "ya.ru",
+      "id": "ru300-110"
+    },
+    {
+      "c": "translit",
+      "t": "Открой гугл",
+      "e": "open.url",
+      "th": "google",
+      "id": "ru300-111"
+    },
+    {
+      "c": "translit",
+      "t": "Открой ю туб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-112"
+    },
+    {
+      "c": "translit",
+      "t": "Включи музику",
+      "e": "media.play",
+      "note": "украинизм",
+      "id": "ru300-113"
+    },
+    {
+      "c": "translit",
+      "t": "Открой вижуал студию",
+      "e": "no_mutation",
+      "note": "нет алиаса",
+      "id": "ru300-114"
+    },
+    {
+      "c": "translit",
+      "t": "Открой сай зис",
+      "e": "no_mutation",
+      "note": "непонятный транслит",
+      "id": "ru300-115"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой фотожоп",
+      "e": "no_mutation",
+      "id": "ru300-116"
+    },
+    {
+      "c": "unknown",
+      "t": "Запусти зуму",
+      "e": "no_mutation",
+      "id": "ru300-117"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой 1С",
+      "e": "no_mutation",
+      "id": "ru300-118"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой кубейс",
+      "e": "no_mutation",
+      "id": "ru300-119"
+    },
+    {
+      "c": "unknown",
+      "t": "Запусти фотошоп",
+      "e": "no_mutation",
+      "id": "ru300-120"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой corr_приложение",
+      "e": "no_mutation",
+      "id": "ru300-121"
+    },
+    {
+      "c": "unknown",
+      "t": "Проверь установлен ли гимп",
+      "e": "no_mutation",
+      "note": "приложение в фикстуре отсутствует",
+      "id": "ru300-122"
+    },
+    {
+      "c": "unknown",
+      "t": "Проверь наличие приложения Blender",
+      "e": "no_mutation",
+      "th": "blender",
+      "note": "инспект каталога",
+      "id": "ru300-123"
+    },
+    {
+      "c": "unknown",
+      "t": "Найди в системе приложение Крита",
+      "e": "no_mutation",
+      "th": "krita",
+      "id": "ru300-124"
+    },
+    {
+      "c": "unknown",
+      "t": "Есть ли у меня приложение Телеграм",
+      "e": "no_mutation",
+      "th": "telegram",
+      "id": "ru300-125"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой программу для рисования",
+      "e": "open.proposal",
+      "th": "krita",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-126"
+    },
+    {
+      "c": "unknown",
+      "t": "Хочу порисовать",
+      "e": "open.proposal",
+      "th": "krita",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-127"
+    },
+    {
+      "c": "unknown",
+      "t": "Хочу заняться моделированием",
+      "e": "open.proposal",
+      "th": "blender",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-128"
+    },
+    {
+      "c": "unknown",
+      "t": "Мне нужно написать письмо",
+      "e": "no_mutation",
+      "id": "ru300-129"
+    },
+    {
+      "c": "unknown",
+      "t": "Открой программу для таблиц",
+      "e": "open.proposal",
+      "th": "excel",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-130"
+    },
+    {
+      "c": "questions",
+      "t": "Можешь отправить сообщение?",
+      "e": "chat",
+      "id": "ru300-131"
+    },
+    {
+      "c": "questions",
+      "t": "Что произойдёт, если выключить компьютер?",
+      "e": "chat",
+      "id": "ru300-132"
+    },
+    {
+      "c": "questions",
+      "t": "Объясни, как удалить файл",
+      "e": "chat",
+      "id": "ru300-133"
+    },
+    {
+      "c": "questions",
+      "t": "Как открыть Telegram?",
+      "e": "chat",
+      "id": "ru300-134"
+    },
+    {
+      "c": "questions",
+      "t": "Умеешь ли ты управлять музыкой?",
+      "e": "chat",
+      "id": "ru300-135"
+    },
+    {
+      "c": "questions",
+      "t": "Кто тебя сделал?",
+      "e": "chat",
+      "id": "ru300-136"
+    },
+    {
+      "c": "questions",
+      "t": "Что ты умеешь?",
+      "e": "chat",
+      "id": "ru300-137"
+    },
+    {
+      "c": "questions",
+      "t": "Можно ли поставить будильник на компьютере?",
+      "e": "chat",
+      "id": "ru300-138"
+    },
+    {
+      "c": "questions",
+      "t": "Почему интернет не работает?",
+      "e": "chat",
+      "id": "ru300-139"
+    },
+    {
+      "c": "questions",
+      "t": "Где мои документы?",
+      "e": "open.folder",
+      "th": "документы",
+      "id": "ru300-140"
+    },
+    {
+      "c": "questions",
+      "t": "Какая песня играет?",
+      "e": "media.status",
+      "id": "ru300-141"
+    },
+    {
+      "c": "questions",
+      "t": "Что сейчас играет?",
+      "e": "media.status",
+      "id": "ru300-142"
+    },
+    {
+      "c": "questions",
+      "t": "Который час?",
+      "e": "chat",
+      "id": "ru300-143"
+    },
+    {
+      "c": "questions",
+      "t": "Как погода?",
+      "e": "no_mutation",
+      "id": "ru300-144"
+    },
+    {
+      "c": "questions",
+      "t": "Расскажи анекдот",
+      "e": "chat",
+      "id": "ru300-145"
+    },
+    {
+      "c": "questions",
+      "t": "Можешь открыть Blender?",
+      "e": "open.app",
+      "note": "вопрос-вежливость: вежливый open? проверяем",
+      "th": "blender",
+      "id": "ru300-146"
+    },
+    {
+      "c": "questions",
+      "t": "Ты можешь включить музыку?",
+      "e": "media.play",
+      "id": "ru300-147"
+    },
+    {
+      "c": "questions",
+      "t": "Можешь включить музыку?",
+      "e": "media.play",
+      "id": "ru300-148"
+    },
+    {
+      "c": "questions",
+      "t": "Ты можешь открыть калькулятор?",
+      "e": "open.app",
+      "th": "calc",
+      "id": "ru300-149"
+    },
+    {
+      "c": "questions",
+      "t": "А если бы я попросил открыть Blender?",
+      "e": "chat",
+      "id": "ru300-150"
+    },
+    {
+      "c": "negations",
+      "t": "Не открывай Blender",
+      "e": "prohibit",
+      "id": "ru300-151"
+    },
+    {
+      "c": "negations",
+      "t": "Не открывай калькулятор",
+      "e": "prohibit",
+      "id": "ru300-152"
+    },
+    {
+      "c": "negations",
+      "t": "Никогда не открывай игры",
+      "e": "prohibit",
+      "id": "ru300-153"
+    },
+    {
+      "c": "negations",
+      "t": "Не надо ничего открывать",
+      "e": "no_mutation",
+      "id": "ru300-154"
+    },
+    {
+      "c": "negations",
+      "t": "Музыку не трогай",
+      "e": "no_mutation",
+      "id": "ru300-155"
+    },
+    {
+      "c": "negations",
+      "t": "Открой браузер, но не закрывай другие программы",
+      "e": "open.url",
+      "th": "браузер",
+      "id": "ru300-156"
+    },
+    {
+      "c": "negations",
+      "t": "Открой Word, а PowerPoint не надо",
+      "e": "open.app",
+      "th": "word",
+      "id": "ru300-157"
+    },
+    {
+      "c": "negations",
+      "t": "Отмени запуск",
+      "e": "cancel",
+      "id": "ru300-158"
+    },
+    {
+      "c": "negations",
+      "t": "Не хочу слушать музыку",
+      "e": "no_mutation",
+      "id": "ru300-159"
+    },
+    {
+      "c": "negations",
+      "t": "Не включай ничего",
+      "e": "no_mutation",
+      "id": "ru300-160"
+    },
+    {
+      "c": "negations",
+      "t": "Не открывай ничего",
+      "e": "prohibit",
+      "id": "ru300-161"
+    },
+    {
+      "c": "negations",
+      "t": "Если откроешь Blender — закрой его",
+      "e": "no_mutation",
+      "id": "ru300-162"
+    },
+    {
+      "c": "negations",
+      "t": "Я не просил открывать музыку",
+      "e": "no_mutation",
+      "id": "ru300-163"
+    },
+    {
+      "c": "negations",
+      "t": "Без звука открой видео",
+      "e": "open.url",
+      "note": "пограничный",
+      "id": "ru300-164"
+    },
+    {
+      "c": "negations",
+      "t": "Открой, но не запускай Blender",
+      "e": "no_mutation",
+      "note": "противоречивая; безопасный исход",
+      "id": "ru300-165"
+    },
+    {
+      "c": "negations",
+      "t": "Ни в коем случае не открывай телеграм",
+      "e": "no_mutation",
+      "note": "усиленное отрицание",
+      "id": "ru300-166"
+    },
+    {
+      "c": "negations",
+      "t": "Стоп",
+      "e": "no_mutation",
+      "id": "ru300-167"
+    },
+    {
+      "c": "negations",
+      "t": "Отмена",
+      "e": "no_mutation",
+      "id": "ru300-168"
+    },
+    {
+      "c": "negations",
+      "t": "Хватит",
+      "e": "no_mutation",
+      "id": "ru300-169"
+    },
+    {
+      "c": "negations",
+      "t": "Не сейчас",
+      "e": "no_mutation",
+      "id": "ru300-170"
+    },
+    {
+      "c": "compound",
+      "t": "Открой Blender и включи музыку",
+      "e": "clarify",
+      "id": "ru300-171"
+    },
+    {
+      "c": "compound",
+      "t": "Открой браузер, потом Blender",
+      "e": "clarify",
+      "id": "ru300-172"
+    },
+    {
+      "c": "compound",
+      "t": "Сделай тише и включи следующий трек",
+      "e": "clarify",
+      "id": "ru300-173"
+    },
+    {
+      "c": "compound",
+      "t": "Включи музыку и поставь 40 процентов",
+      "e": "clarify",
+      "id": "ru300-174"
+    },
+    {
+      "c": "compound",
+      "t": "Закрой всё и открой Word",
+      "e": "no_mutation",
+      "id": "ru300-175"
+    },
+    {
+      "c": "compound",
+      "t": "Напомни про обед и открой календарь",
+      "e": "no_mutation",
+      "id": "ru300-176"
+    },
+    {
+      "c": "compound",
+      "t": "Открой сайт банка и погоду",
+      "e": "no_mutation",
+      "id": "ru300-177"
+    },
+    {
+      "c": "compound",
+      "t": "Проверь почту, погоду и курс",
+      "e": "no_mutation",
+      "id": "ru300-178"
+    },
+    {
+      "c": "compound",
+      "t": "Открой папку и создай заметку",
+      "e": "clarify",
+      "id": "ru300-179"
+    },
+    {
+      "c": "compound",
+      "t": "Включи музыку, потом следующую",
+      "e": "clarify",
+      "id": "ru300-180"
+    },
+    {
+      "c": "compound",
+      "t": "Открой Word и Excel",
+      "e": "clarify",
+      "id": "ru300-181"
+    },
+    {
+      "c": "compound",
+      "t": "Убавь звук на 10 и на 20",
+      "e": "clarify",
+      "note": "пограничный: последнее значение",
+      "id": "ru300-182"
+    },
+    {
+      "c": "compound",
+      "t": "Открой ютуб и включи там музыку",
+      "e": "clarify",
+      "id": "ru300-183"
+    },
+    {
+      "c": "compound",
+      "t": "Поставь паузу и открой телеграм",
+      "e": "clarify",
+      "id": "ru300-184"
+    },
+    {
+      "c": "compound",
+      "t": "Громкость 50 и след трек",
+      "e": "clarify",
+      "id": "ru300-185"
+    },
+    {
+      "c": "compound",
+      "t": "Включи Numb и поставь на паузу",
+      "e": "clarify",
+      "id": "ru300-186"
+    },
+    {
+      "c": "compound",
+      "t": "Найди песню и включи вторую",
+      "e": "clarify",
+      "id": "ru300-187"
+    },
+    {
+      "c": "compound",
+      "t": "Открой калькулятор или блокнот",
+      "e": "clarify",
+      "id": "ru300-188"
+    },
+    {
+      "c": "compound",
+      "t": "Сначала музыку, потом Blender",
+      "e": "clarify",
+      "id": "ru300-189"
+    },
+    {
+      "c": "compound",
+      "t": "Открой Blender, но не включай музыку",
+      "e": "open.app",
+      "th": "blender",
+      "note": "открытие+запрет",
+      "id": "ru300-190"
+    },
+    {
+      "c": "clarify",
+      "t": "Да",
+      "e": "no_mutation",
+      "id": "ru300-191"
+    },
+    {
+      "c": "clarify",
+      "t": "Нет",
+      "e": "no_mutation",
+      "id": "ru300-192"
+    },
+    {
+      "c": "clarify",
+      "t": "Вторую",
+      "e": "no_mutation",
+      "id": "ru300-193"
+    },
+    {
+      "c": "clarify",
+      "t": "Первый",
+      "e": "no_mutation",
+      "id": "ru300-194"
+    },
+    {
+      "c": "clarify",
+      "t": "Другую",
+      "e": "no_mutation",
+      "id": "ru300-195"
+    },
+    {
+      "c": "clarify",
+      "t": "Открой второй вариант",
+      "e": "no_mutation",
+      "id": "ru300-196"
+    },
+    {
+      "c": "clarify",
+      "t": "Повтори",
+      "e": "no_mutation",
+      "id": "ru300-197"
+    },
+    {
+      "c": "clarify",
+      "t": "Ещё раз",
+      "e": "no_mutation",
+      "id": "ru300-198"
+    },
+    {
+      "c": "clarify",
+      "t": "Включи найденную",
+      "e": "no_mutation",
+      "id": "ru300-199"
+    },
+    {
+      "c": "clarify",
+      "t": "Включи её",
+      "e": "no_mutation",
+      "id": "ru300-200"
+    },
+    {
+      "c": "clarify",
+      "t": "Она",
+      "e": "no_mutation",
+      "id": "ru300-201"
+    },
+    {
+      "c": "clarify",
+      "t": "Номер 2",
+      "e": "no_mutation",
+      "id": "ru300-202"
+    },
+    {
+      "c": "clarify",
+      "t": "2",
+      "e": "no_mutation",
+      "id": "ru300-203"
+    },
+    {
+      "c": "clarify",
+      "t": "Ту же программу, но для таблиц",
+      "e": "no_mutation",
+      "id": "ru300-204"
+    },
+    {
+      "c": "clarify",
+      "t": "А теперь громче",
+      "e": "audio.volume.up",
+      "note": "контекстная; без контекста всё же громче",
+      "id": "ru300-205"
+    },
+    {
+      "c": "context",
+      "t": "Открой программу для рисования",
+      "e": "open.proposal",
+      "th": "krita",
+      "turns": [
+        "нет, другую"
+      ],
+      "id": "ru300-206"
+    },
+    {
+      "c": "context",
+      "t": "Хочу порисовать",
+      "e": "open.proposal",
+      "th": "krita",
+      "turns": [
+        "2"
+      ],
+      "id": "ru300-207"
+    },
+    {
+      "c": "context",
+      "t": "Хочу заняться моделированием",
+      "e": "open.proposal",
+      "th": "blender",
+      "turns": [
+        "да"
+      ],
+      "chain2": "потом: а теперь Word",
+      "id": "ru300-208"
+    },
+    {
+      "c": "context",
+      "t": "Открой Telegram",
+      "e": "open.app",
+      "th": "telegram",
+      "turns": [],
+      "chain": null,
+      "id": "ru300-209"
+    },
+    {
+      "c": "context",
+      "t": "Открой Word",
+      "e": "open.app",
+      "th": "word",
+      "turns": [],
+      "chain": null,
+      "id": "ru300-210"
+    },
+    {
+      "c": "context",
+      "t": "Открой программу для текста",
+      "e": "open.proposal",
+      "th": "word",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-211"
+    },
+    {
+      "c": "context",
+      "t": "Открой программу для таблиц",
+      "e": "open.proposal",
+      "th": "excel",
+      "turns": [
+        "отмена"
+      ],
+      "id": "ru300-212"
+    },
+    {
+      "c": "context",
+      "t": "Мне нужен интернет",
+      "e": "open.proposal",
+      "th": "chrome",
+      "turns": [
+        "да"
+      ],
+      "id": "ru300-213"
+    },
+    {
+      "c": "context",
+      "t": "Найди песню Numb",
+      "e": "media.select",
+      "turns": [
+        "да"
+      ],
+      "chain": "search_then_select",
+      "id": "ru300-214"
+    },
+    {
+      "c": "context",
+      "t": "Найди трек Вояджер",
+      "e": "clarify",
+      "turns": [
+        "нет"
+      ],
+      "chain": "search_cancel",
+      "id": "ru300-215"
+    },
+    {
+      "c": "context",
+      "t": "Запусти мою волну",
+      "e": "media.wave",
+      "id": "ru300-216"
+    },
+    {
+      "c": "context",
+      "t": "Открой ютуб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-217"
+    },
+    {
+      "c": "context",
+      "t": "Открой такое же приложение, но для кода",
+      "e": "no_mutation",
+      "id": "ru300-218"
+    },
+    {
+      "c": "context",
+      "t": "Открой его на телефоне",
+      "e": "no_mutation",
+      "id": "ru300-219"
+    },
+    {
+      "c": "context",
+      "t": "Прочитай предыдущий ответ",
+      "e": "no_mutation",
+      "id": "ru300-220"
+    },
+    {
+      "c": "context",
+      "t": "Что ты открыла в прошлый раз?",
+      "e": "chat",
+      "id": "ru300-221"
+    },
+    {
+      "c": "context",
+      "t": "Открой то же самое",
+      "e": "no_mutation",
+      "id": "ru300-222"
+    },
+    {
+      "c": "context",
+      "t": "Ещё раз громкость 20",
+      "e": "audio.volume.set",
+      "qv": 20,
+      "id": "ru300-223"
+    },
+    {
+      "c": "context",
+      "t": "Ту же песню",
+      "e": "no_mutation",
+      "id": "ru300-224"
+    },
+    {
+      "c": "context",
+      "t": "Продолжи",
+      "e": "media.play",
+      "id": "ru300-225"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Включи Кино",
+      "e": "media.search_play",
+      "qh": "кино",
+      "id": "ru300-226"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой Моцарт",
+      "e": "no_mutation",
+      "id": "ru300-227"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Запусти офис",
+      "e": "no_mutation",
+      "id": "ru300-228"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой мой проект",
+      "e": "no_mutation",
+      "id": "ru300-229"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой файл",
+      "e": "clarify",
+      "id": "ru300-230"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой папку",
+      "e": "clarify",
+      "id": "ru300-231"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Включи музыку",
+      "e": "media.play",
+      "id": "ru300-232"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Включи что-нибудь",
+      "e": "no_mutation",
+      "id": "ru300-233"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой Chrome в Хроме",
+      "e": "no_mutation",
+      "id": "ru300-234"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Поставь побыстрее музыку",
+      "e": "no_mutation",
+      "id": "ru300-235"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой папку с музыкой",
+      "e": "no_mutation",
+      "id": "ru300-236"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Включи трек из рекламы",
+      "e": "no_mutation",
+      "id": "ru300-237"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой слово",
+      "e": "no_mutation",
+      "id": "ru300-238"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Включи ту самую песню",
+      "e": "no_mutation",
+      "id": "ru300-239"
+    },
+    {
+      "c": "ambiguous",
+      "t": "Открой заметки",
+      "e": "no_mutation",
+      "id": "ru300-240"
+    },
+    {
+      "c": "stt_art",
+      "t": "открой, word",
+      "e": "open.app",
+      "th": "word",
+      "id": "ru300-241"
+    },
+    {
+      "c": "stt_art",
+      "t": "открой. word",
+      "e": "open.app",
+      "th": "word",
+      "id": "ru300-242"
+    },
+    {
+      "c": "stt_art",
+      "t": "Открой Word пожалуйста",
+      "e": "open.app",
+      "th": "word",
+      "id": "ru300-243"
+    },
+    {
+      "c": "stt_art",
+      "t": "Вайли, открой Blender",
+      "e": "no_mutation",
+      "th": "blender",
+      "id": "ru300-244"
+    },
+    {
+      "c": "stt_art",
+      "t": "Открой blender.",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-245"
+    },
+    {
+      "c": "stt_art",
+      "t": "а теперь открой калькулятор",
+      "e": "open.app",
+      "th": "calc",
+      "id": "ru300-246"
+    },
+    {
+      "c": "stt_art",
+      "t": "Ну открой блокнот",
+      "e": "open.app",
+      "th": "notepad",
+      "id": "ru300-247"
+    },
+    {
+      "c": "stt_art",
+      "t": "Слушай, включи музыку",
+      "e": "media.play",
+      "id": "ru300-248"
+    },
+    {
+      "c": "stt_art",
+      "t": "Проверь проверь громкость",
+      "e": "no_mutation",
+      "note": "повтор слова",
+      "id": "ru300-249"
+    },
+    {
+      "c": "stt_art",
+      "t": "Открой открой Blender",
+      "e": "open.app",
+      "th": "blender",
+      "note": "двойной императив",
+      "id": "ru300-250"
+    },
+    {
+      "c": "stt_art",
+      "t": "Првоерь плеер",
+      "e": "media.status",
+      "note": "опечатка; в fixed",
+      "id": "ru300-251"
+    },
+    {
+      "c": "stt_art",
+      "t": "Упаьв громкость на десять",
+      "e": "audio.volume.set",
+      "qv": 10,
+      "note": "ASR-опечатка",
+      "id": "ru300-252"
+    },
+    {
+      "c": "stt_art",
+      "t": "Громкость на триццать",
+      "e": "no_mutation",
+      "note": "испорченное число",
+      "id": "ru300-253"
+    },
+    {
+      "c": "stt_art",
+      "t": "Включи йцукен",
+      "e": "no_mutation",
+      "id": "ru300-254"
+    },
+    {
+      "c": "stt_art",
+      "t": "Открой (неразборчиво)",
+      "e": "no_mutation",
+      "id": "ru300-255"
+    },
+    {
+      "c": "minpairs",
+      "t": "Открой Blender",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-256"
+    },
+    {
+      "c": "minpairs",
+      "t": "Не открывай Blender",
+      "e": "prohibit",
+      "id": "ru300-257"
+    },
+    {
+      "c": "minpairs",
+      "t": "Можешь открыть Blender?",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-258"
+    },
+    {
+      "c": "minpairs",
+      "t": "Расскажи, как открыть Blender",
+      "e": "chat",
+      "id": "ru300-259"
+    },
+    {
+      "c": "minpairs",
+      "t": "Давай откроем Blender",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-260"
+    },
+    {
+      "c": "minpairs",
+      "t": "Открой музыку",
+      "e": "media.play",
+      "id": "ru300-261"
+    },
+    {
+      "c": "minpairs",
+      "t": "Не включай музыку",
+      "e": "no_mutation",
+      "id": "ru300-262"
+    },
+    {
+      "c": "minpairs",
+      "t": "Можешь включить музыку?",
+      "e": "media.play",
+      "id": "ru300-263"
+    },
+    {
+      "c": "minpairs",
+      "t": "Расскажи про музыку",
+      "e": "chat",
+      "id": "ru300-264"
+    },
+    {
+      "c": "minpairs",
+      "t": "Давай включим музыку",
+      "e": "media.play",
+      "note": "music_help",
+      "id": "ru300-265"
+    },
+    {
+      "c": "minpairs",
+      "t": "Открой ютуб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-266"
+    },
+    {
+      "c": "minpairs",
+      "t": "Не открывай ютуб",
+      "e": "prohibit",
+      "id": "ru300-267"
+    },
+    {
+      "c": "minpairs",
+      "t": "Можешь открыть ютуб?",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-268"
+    },
+    {
+      "c": "minpairs",
+      "t": "Как открыть ютуб?",
+      "e": "chat",
+      "id": "ru300-269"
+    },
+    {
+      "c": "minpairs",
+      "t": "Давай откроем ютуб",
+      "e": "open.url",
+      "th": "youtube",
+      "id": "ru300-270"
+    },
+    {
+      "c": "minpairs",
+      "t": "Поставь песню Numb",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-271"
+    },
+    {
+      "c": "minpairs",
+      "t": "Не ставь песню Numb",
+      "e": "no_mutation",
+      "id": "ru300-272"
+    },
+    {
+      "c": "minpairs",
+      "t": "Можешь поставить песню Numb?",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-273"
+    },
+    {
+      "c": "minpairs",
+      "t": "Как поставить песню Numb?",
+      "e": "chat",
+      "id": "ru300-274"
+    },
+    {
+      "c": "minpairs",
+      "t": "Давай поставим песню Numb",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-275"
+    },
+    {
+      "c": "minpairs",
+      "t": "Убавь звук",
+      "e": "audio.volume.down",
+      "id": "ru300-276"
+    },
+    {
+      "c": "minpairs",
+      "t": "Не убавляй звук",
+      "e": "no_mutation",
+      "id": "ru300-277"
+    },
+    {
+      "c": "minpairs",
+      "t": "Можешь убавить звук?",
+      "e": "audio.volume.down",
+      "id": "ru300-278"
+    },
+    {
+      "c": "minpairs",
+      "t": "Как убавить звук?",
+      "e": "chat",
+      "id": "ru300-279"
+    },
+    {
+      "c": "minpairs",
+      "t": "Давай убавим звук",
+      "e": "audio.volume.down",
+      "id": "ru300-280"
+    },
+    {
+      "c": "base",
+      "t": "Открой Excel",
+      "e": "open.app",
+      "th": "excel",
+      "id": "ru300-281"
+    },
+    {
+      "c": "base",
+      "t": "Открой Word",
+      "e": "open.app",
+      "th": "word",
+      "id": "ru300-282"
+    },
+    {
+      "c": "base",
+      "t": "Поставь громкость 0",
+      "e": "audio.volume.set",
+      "qv": 0,
+      "id": "ru300-283"
+    },
+    {
+      "c": "base",
+      "t": "Лайк",
+      "e": "media.like",
+      "id": "ru300-284"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Давай запустим Blender",
+      "e": "open.app",
+      "th": "blender",
+      "id": "ru300-285"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Давай включим музыку",
+      "e": "media.play",
+      "id": "ru300-286"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Давай поставим песню Numb",
+      "e": "media.search_play",
+      "qh": "numb",
+      "id": "ru300-287"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Включим следующую",
+      "e": "media.next",
+      "id": "ru300-288"
+    },
+    {
+      "c": "asr_forms",
+      "t": "Переключим на следующую",
+      "e": "media.next",
+      "id": "ru300-289"
+    },
+    {
+      "c": "music_search",
+      "t": "Найди песню Белые розы",
+      "e": "media.search",
+      "qh": "белые",
+      "id": "ru300-290"
+    },
+    {
+      "c": "music_search",
+      "t": "Включи трек Смуглянка",
+      "e": "media.search_play",
+      "qh": "смуглянка",
+      "id": "ru300-291"
+    },
+    {
+      "c": "music_search",
+      "t": "Поищи песню Гражданская оборона Всё идёт по плану",
+      "e": "media.search",
+      "qh": "плану",
+      "id": "ru300-292"
+    },
+    {
+      "c": "colloquial",
+      "t": "Что-то громко очень",
+      "e": "no_mutation",
+      "note": "слишком свободно; честный разрыв",
+      "id": "ru300-293"
+    },
+    {
+      "c": "colloquial",
+      "t": "Пусть играет",
+      "e": "no_mutation",
+      "id": "ru300-294"
+    },
+    {
+      "c": "colloquial",
+      "t": "Не громко, а тише",
+      "e": "no_mutation",
+      "note": "исправление",
+      "id": "ru300-295"
+    },
+    {
+      "c": "colloquial",
+      "t": "Музыку совсем убери",
+      "e": "media.pause",
+      "note": "двусмысленно",
+      "id": "ru300-296"
+    },
+    {
+      "c": "stt_art",
+      "t": "откройь word",
+      "e": "no_mutation",
+      "note": "двойная буква",
+      "id": "ru300-297"
+    },
+    {
+      "c": "stt_art",
+      "t": "открй word",
+      "e": "no_mutation",
+      "note": "потеряна буква",
+      "id": "ru300-298"
+    },
+    {
+      "c": "stt_art",
+      "t": "включи музон",
+      "e": "media.play",
+      "note": "сленг",
+      "id": "ru300-299"
+    },
+    {
+      "c": "stt_art",
+      "t": "Громкость на 30, ой нет, на 40",
+      "e": "clarify",
+      "note": "самокоррекция",
+      "id": "ru300-300"
+    }
+  ]
+}

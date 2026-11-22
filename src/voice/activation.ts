@@ -106,7 +106,7 @@ export function activated(
   word: string,
   required = true,
 ): string | null {
-  const value = text.trim();
+  const value = text.trim().replace(/^[.…—–\s]+/u, "");
   const end = addressEnd(value, word);
   if (end === null) return required ? null : value;
   // Keep the original language/case of song names and punctuation after the name.
@@ -117,6 +117,18 @@ export function activated(
   if (required) return command || null;
   // The address, even misheard («Майли, пауза»), is not part of the command.
   return command || value;
+}
+
+export type ActivationDecision = { accepted: boolean; reason: string; command: string | null };
+export function inspectActivation(text: string, word: string, required: boolean, music = false): ActivationDecision {
+  if (!text.trim()) return { accepted: false, reason: "empty", command: null };
+  const command = activated(text, word, required);
+  if (command === null) {
+    const value = text.trim().replace(/^[.…—–\s]+/u, "");
+    const end = addressEnd(value, word);
+    return { accepted: false, reason: end !== null ? "name_only" : music ? "music_name_missing" : "name_missing", command: null };
+  }
+  return { accepted: true, reason: required ? "addressed" : "not_required", command };
 }
 
 /** Reject recognized playback, including partial/asr-normalized copies. */

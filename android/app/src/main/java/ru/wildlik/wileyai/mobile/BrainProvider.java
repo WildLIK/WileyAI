@@ -10,9 +10,11 @@ interface BrainProvider extends AutoCloseable {
     record Call(String id,String name,String arguments){}
     record Completion(String text,List<Call> calls,List<Map<String,Object>> continuation){Completion(String text,List<Call> calls){this(text,calls,List.of());}}
     final class Cancellation {
-        private final AtomicBoolean cancelled=new AtomicBoolean();private volatile Runnable abort=()->{};
+        private final AtomicBoolean cancelled=new AtomicBoolean();private volatile Runnable abort=()->{},firstOutput=()->{};
         boolean cancelled(){return cancelled.get();}void check(){if(cancelled())throw new IllegalStateException("Запрос отменён");}
         void onCancel(Runnable action){abort=action;if(cancelled())action.run();}
+        void observeFirstOutput(Runnable action){firstOutput=action;}
+        void firstOutput(){if(!cancelled())firstOutput.run();}
         void cancel(){cancelled.set(true);abort.run();}
     }
     Kind kind();boolean nativeTools();

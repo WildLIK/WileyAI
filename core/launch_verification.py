@@ -133,6 +133,33 @@ def shell_launch(target, arguments=(), directory=None):
         if initialized >= 0: ole.CoUninitialize()
 
 
+def visible_windows(pids):
+    """Read visible top-level HWNDs for exact PIDs, without activating windows."""
+    if os.name != "nt" or not pids:
+        return []
+    try:
+        user = c.WinDLL("user32", use_last_error=True)
+        user.IsWindowVisible.argtypes = [w.HWND]
+        user.IsWindowVisible.restype = w.BOOL
+        user.GetWindowThreadProcessId.argtypes = [w.HWND, c.POINTER(w.DWORD)]
+        user.GetWindowThreadProcessId.restype = w.DWORD
+        callback_type = c.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+        user.EnumWindows.argtypes = [callback_type, w.LPARAM]
+        user.EnumWindows.restype = w.BOOL
+        found = []
+        def visit(hwnd, _):
+            pid = w.DWORD()
+            user.GetWindowThreadProcessId(hwnd, c.byref(pid))
+            if pid.value in pids and user.IsWindowVisible(hwnd):
+                found.append(int(hwnd))
+            return True
+        if not user.EnumWindows(callback_type(visit), 0):
+            return None
+        return found
+    except (OSError, AttributeError):
+        return None
+
+
 def application(target, label):
     expected = local_file(target)
     if Path(target).suffix.casefold() == ".lnk":
@@ -155,7 +182,9 @@ def application(target, label):
         new = found - before
         pid = min(new or found)
         status = "process_started" if new else "already_running"
+        windows = visible_windows(found)
         text = f"Процесс {'запущен и подтверждён' if new else 'уже работает'}: {label}. PID {pid}.\nПроверенный EXE: {expected}"
-        return ExecutionText(text, {"status": status, "pid": pid, "executable": str(expected)})
+        text += "\nВидимое окно обнаружено; готовность программы не проверена." if windows else "\nВидимое окно не подтверждено; готовность программы не проверена."
+        return ExecutionText(text, {"status": status, "pid": pid, "executable": str(expected), "visible_windows": windows, "window_detected": bool(windows), "ready_verified": False})
     text = f"Windows приняла запрос запуска: {label}. Процесс за 3 секунды не подтверждён.\nПуть: {target}. Окно или работоспособность программы не проверены."
     return ExecutionText(text, {"status": "dispatched", "executable": str(expected) if expected else None})

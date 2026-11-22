@@ -18,6 +18,92 @@ const script = await readFile("core/yandex_music_page.js", "utf8");
 const action = (page: Page, value: object) =>
   page.evaluate("(" + script + ")(" + JSON.stringify(value) + ")");
 
+test("Wave target is unique, enabled and unobscured; preparing never plays", async ({ page }) => {
+  await page.setContent('<button data-test-id="MY_VIBE_PLAY_BUTTON" aria-label="Воспроизведение Моей волны">Wave</button>');
+  await page.evaluate(() => { document.querySelector('button')!.onclick = () => { throw new Error('Unexpected playback'); }; });
+  const target = await action(page, { action: "wave_target" });
+  expect(target.x).toBeGreaterThan(0);
+  await page.setContent('<section data-test-id="PLAYERBAR_DESKTOP"><button data-test-id="PAUSE_BUTTON">Pause</button></section><button data-test-id="MY_VIBE_PAUSE_BUTTON" aria-label="Пауза Моей волны">Wave pause</button>');
+  expect(await action(page, { action: "wave_target" })).toEqual({ already_playing: true });
+  await page.setContent('<button data-test-id="MY_VIBE_PLAY_BUTTON" aria-label="Воспроизведение Моей волны">Wave</button>');
+  await page.locator("button").evaluate((e: HTMLButtonElement) => { e.disabled = true; });
+  await expect(action(page, { action: "wave_target" })).rejects.toThrow("недоступна");
+  await page.locator("button").evaluate((e: HTMLButtonElement) => { e.disabled = false; e.after(e.cloneNode(true)); });
+  await expect(action(page, { action: "wave_target" })).rejects.toThrow("единственная");
+  await page.locator("button").last().evaluate((e) => e.remove());
+  await page.evaluate(() => { const e = document.createElement("div"); e.style.cssText = "position:fixed;inset:0;z-index:100;background:white"; document.body.append(e); });
+  await expect(action(page, { action: "wave_target" })).rejects.toThrow("перекрыта");
+});
+
+test("Wave waits for initial React mount and reports a missing button without playback", async ({ page }) => {
+  await page.setContent("<main></main>");
+  await page.evaluate(() => { setTimeout(() => { document.querySelector("main")!.innerHTML = '<button disabled data-test-id="MY_VIBE_PLAY_BUTTON" aria-label="Воспроизведение Моей волны">Wave</button>'; setTimeout(() => { document.querySelector<HTMLButtonElement>("button")!.disabled = false; }, 500); }, 1200); });
+  expect((await action(page, { action: "wave_target" })).x).toBeGreaterThan(0);
+  await expect(page.locator("button")).toBeEnabled();
+  await page.setContent('<a data-test-id="NAVBAR_NAVIGATION_ITEM_HOME" href="/">Home</a>');
+  await page.locator("a").evaluate((a: HTMLAnchorElement) => { a.onclick = (e) => e.preventDefault(); });
+  await expect(action(page, { action: "wave_target" })).rejects.toThrow("WILEY_MUSIC/button_missing/");
+});
+
+test("Song selection rejects replaced, expired or edited searches even with identical rows", async ({ page }) => {
+  await page.setContent('<input data-test-id="SEARCH_PAGE_SEARCH_INPUT"><div data-test-id="SEARCH_TRACK_CARD"><a data-test-id="TRACK_TITLE" href="/track/42">Numb</a><button data-test-id="PLAY_BUTTON">Play</button></div>');
+  const query = "Numb", search_id = "a".repeat(32);
+  await action(page, { action: "search", query, search_id });
+  // Identical results are valid for a repeated query, once stable.
+  await page.evaluate(() => { const w = window as unknown as { __wileyMusicSearch: { previous: string; started: number; changed: number; last: string } }; w.__wileyMusicSearch.previous = "Numb"; w.__wileyMusicSearch.started -= 2000; });
+  await expect.poll(async () => (await action(page, { action: "results", query, search_id })).ready).toBe(true);
+  const selection = { action: "select_target", query, search_id, id: "42", title: "Numb", artists: "" };
+  expect((await action(page, selection)).reveal).toBe(false);
+  await expect(action(page, { ...selection, search_id: "b".repeat(32) })).rejects.toThrow("устарел");
+  await page.evaluate(() => { const w = window as unknown as { __wileyMusicSearch: { started: number } }; w.__wileyMusicSearch.started -= 301000; });
+  await expect(action(page, selection)).rejects.toThrow("устарел");
+  await page.locator("input").fill("Changed query");
+  await expect(action(page, selection)).rejects.toThrow("изменился");
+});
+
+test("Repeated music searches keep the mounted field without navigating again", async ({ page }) => {
+  await page.setContent('<a href="/search">Search</a><input data-test-id="SEARCH_PAGE_SEARCH_INPUT">');
+  await page.evaluate(() => {
+    (window as unknown as { navigations: number }).navigations = 0;
+    document.querySelector('a')!.onclick = (event) => {
+      event.preventDefault();
+      (window as unknown as { navigations: number }).navigations++;
+    };
+  });
+  await action(page, { action: "search", query: "Numb", search_id: "a".repeat(32) });
+  await action(page, { action: "search", query: "Other", search_id: "b".repeat(32) });
+  expect(await page.locator('input').inputValue()).toBe("Other");
+  expect(await page.evaluate(() => (window as unknown as { navigations: number }).navigations)).toBe(0);
+  await expect(action(page, { action: "results", query: "Other", search_id: "a".repeat(32) })).rejects.toThrow("search_id_changed");
+});
+
+test("Search waits for replacement of the React input before recording the query", async ({ page }) => {
+  await page.setContent('<a href="/search">Search</a><main></main>');
+  await page.evaluate(() => {
+    document.querySelector('a')!.onclick = (event) => {
+      event.preventDefault();
+      setTimeout(() => { document.querySelector('main')!.innerHTML = '<input data-test-id="SEARCH_PAGE_SEARCH_INPUT" data-stage="old">'; }, 20);
+      setTimeout(() => { document.querySelector('main')!.innerHTML = '<input data-test-id="SEARCH_PAGE_SEARCH_INPUT" data-stage="new">'; }, 150);
+    };
+  });
+  await action(page, { action: "search", query: "Numb", search_id: "a".repeat(32) });
+  expect(await page.locator('input[data-stage="new"]').inputValue()).toBe("Numb");
+  expect(await page.evaluate(() => (window as unknown as { __wileyMusicSearch: { query: string } }).__wileyMusicSearch.query)).toBe("Numb");
+});
+
+test("Search diagnostics distinguish edited fields, missing sessions and TTL", async ({ page }) => {
+  await page.setContent('<input data-test-id="SEARCH_PAGE_SEARCH_INPUT">');
+  const request = { action: "results", query: "Numb", search_id: "a".repeat(32) };
+  await action(page, { ...request, action: "search" });
+  await page.locator('input').fill('Changed');
+  await expect(action(page, request)).rejects.toThrow("search_input_changed");
+  await page.locator('input').fill('Numb');
+  await page.evaluate(() => { (window as unknown as { __wileyMusicSearch: { started: number } }).__wileyMusicSearch.started -= 301000; });
+  await expect(action(page, request)).rejects.toThrow("search_expired");
+  await page.evaluate(() => { delete (window as unknown as { __wileyMusicSearch?: object }).__wileyMusicSearch; });
+  await expect(action(page, request)).rejects.toThrow("search_session_missing");
+});
+
 test("Yandex renderer: scoped controls, idempotent favorites, new search results and volume", async ({
   page,
 }) => {

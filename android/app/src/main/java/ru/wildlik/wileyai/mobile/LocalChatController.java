@@ -67,7 +67,7 @@ final class LocalChatController {
     void choose(String id) {
         work(() -> {
             selected = id; messageLimit = 200;
-            persist(preferences.edit().putString("phone_chat", id).putString("phone_draft", ""));
+            persist(preferences.edit().putString("phone_chat", id));
             render();
         });
     }

@@ -7,7 +7,8 @@ public final class MediaCommandsProbe {
     public static void main(String[] args){
         switch(args[0]){
             case "transport":
-                is("Пауза в Ютубе","media","pause","youtube");is("Ютуб, продолжи видео","media","play","youtube");is("поставь ютуб на паузу","media","pause","youtube");is("останови кион музыку","media","pause","music");is("продолжи музыку","media","play","music");is("следующее видео","media","next","youtube");is("предыдущая песня в КИОН Музыке","media","previous","music");is("какая песня играет","media","status","");is("какое видео в ютубе","media","status","youtube");break;
+                is("запусти музыку","media","play","music");
+                is("Пауза в Ютубе","media","pause","youtube");is("Ютуб, продолжи видео","media","play","youtube");is("поставь ютуб на паузу","media","pause","youtube");is("останови кион музыку","media","pause","music");is("продолжи музыку","media","play","music");is("следующее видео","media","next","youtube");is("предыдущая песня в КИОН Музыке","media","previous","music");is("какая песня играет","media","status","");is("что сейчас играет подробно","media","status","");is("какое видео в ютубе","media","status","youtube");break;
             case "routing":
                 is("а время?","info","time","");is("а теперь какая сегодня дата?","info","date","");
                 for(String time:new String[]{"время какое","время сколько сейчас","какое время","какое сейчас время","сколько сейчас время","который сейчас час","который час сейчас","скажи какое сейчас время","подскажи пожалуйста сколько времени","сейчас который час"})is(time,"info","time","");

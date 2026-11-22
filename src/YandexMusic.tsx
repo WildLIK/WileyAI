@@ -125,7 +125,7 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
       </div>
       <p className="help">
         Подключите настольную Яндекс Музыку или YandexMusicMod. Музыкальные
-        команды в чате и голосом будут относиться к этому плееру. Если сборке
+        Поиск песен и избранное используют это подключение. Базовые команды выбирают медиасессию; общая громкость относится к Windows. Если сборке
         нужны права администратора, Windows запросит подтверждение запуска.
       </p>
       <div className="button-row">
@@ -185,6 +185,7 @@ export function YandexMusic({ onChanged }: { onChanged: () => Promise<void> }) {
       <div className="button-row">
         {(
           [
+            ["wave", "Моя волна"],
             ["previous", "Предыдущая песня"],
             ["play", "Плей"],
             ["pause", "Пауза"],

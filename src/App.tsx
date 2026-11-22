@@ -36,12 +36,18 @@ import { SearchSettings } from "./WebSearch";
 import { SemanticSearch } from "./SemanticSearch";
 import { BackgroundSettings } from "./BackgroundSettings";
 import { WeatherBar } from "./WeatherBar";
-import { activated, playbackEcho } from "./voice/activation";
+import { activated, inspectActivation, playbackEcho } from "./voice/activation";
+import type { VoiceEvent } from "./voice/diagnostics";
+import { reasonLabels } from "./voice/diagnostics";
+import { activationPolicy, sessionPolicy, type VoiceSessionPolicy } from "./voice/policy";
+import { VoicePolicyStatus } from "./voice/VoicePolicyStatus";
+import { SettingsSwitch } from "./SettingsSwitch";
 import { ChatSpaces } from "./ChatSpaces";
 import { RoutinePanel, ToolAccess } from "./Routines";
 import { DeviceAudio } from "./DeviceAudio";
 import { Applications } from "./Applications";
 import { Pronunciations } from "./Pronunciations";
+import { ActivePlayer } from "./ActivePlayer";
 import { YandexMusic } from "./YandexMusic";
 import { ActionLog } from "./ActionLog";
 import { PlanHistory } from "./PlanHistory";
@@ -73,10 +79,16 @@ import {
   type ConversationState,
 } from "./voice/conversation";
 import { Microphone } from "./voice/microphone";
+import { createLocalVad } from "./voice/vad";
+import type { VoiceDiagnostics } from "./voice/endpoint";
+import { EndpointSettings } from "./voice/EndpointSettings";
+import { VoiceStatus } from "./voice/VoiceStatus";
+import { wav } from "./voice/speech";
 import { ConversationControl } from "./voice/ConversationControl";
 import { AudioDevices } from "./voice/AudioDevices";
 import { SpeechOutput } from "./voice/output";
 import { TurnSpeech } from "./voice/turnSpeech";
+import { SpeechUnavailable } from "./voice/ttsErrors";
 import {
   avatarPhase,
   avatarReaction,
@@ -217,6 +229,8 @@ export function App() {
   const savedSettings = useRef<Settings | undefined>(undefined);
   const voiceSave = useRef<Promise<void>>(Promise.resolve());
   const [voiceSaving, setVoiceSaving] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaveFailed, setSettingsSaveFailed] = useState(false);
   const voiceSaveVersion = useRef(0);
   const settingsEpoch = useRef(0);
   const acceptSettings = useCallback(
@@ -321,6 +335,13 @@ export function App() {
     owner: false,
     phase: "idle",
   });
+  const [voiceDiagnostics, setVoiceDiagnostics] = useState<VoiceDiagnostics | null>(null);
+  const [voiceEvents, setVoiceEvents] = useState<VoiceEvent[]>([]);
+  const [voiceSessionPolicy, setVoiceSessionPolicy] = useState<VoiceSessionPolicy | null>(null);
+  function voicePolicyView() {
+    return <VoicePolicyStatus saved={savedSettings.current} session={voiceSessionPolicy} active={conversation.active && conversation.owner} speaking={conversation.phase === "speaking"} dirty={JSON.stringify(settings) !== JSON.stringify(savedSettings.current)} saving={settingsSaving || voiceSaving} saveFailed={settingsSaveFailed} />;
+  }
+  const voiceTraceEpoch = useRef(0);
   const [avatarCue, setAvatarCue] = useState({ ...idleAvatar });
   const avatarCueRef = useRef(avatarCue);
   avatarCueRef.current = avatarCue;
@@ -473,6 +494,7 @@ export function App() {
           [
             "preparing",
             "transcribing",
+            "executing",
             "thinking",
             "thinking_listening",
             "queued",
@@ -480,7 +502,7 @@ export function App() {
       listening:
         recording ||
         (conversation.owner &&
-          ["calibrating", "listening", "hearing"].includes(conversation.phase)),
+          ["calibrating", "listening", "awaiting", "hearing", "pause", "checking"].includes(conversation.phase)),
     }),
   });
   const speaking =
@@ -846,12 +868,14 @@ export function App() {
       if (current) {
         try {
           await current.session.stop();
+          await request("/voice/conversation/end", "POST", { conversation_id: activeChatRef.current }, AbortSignal.timeout(6000)).catch(() => {});
         } finally {
           await window.wiley.releaseConversation(current.lease);
         }
       }
     } finally {
       releaseMic(owner);
+      if (current || starting) void request("/voice/endpoint/release", "POST").catch(() => {});
     }
   }, [stopAudio]);
   const stop = useCallback(() => {
@@ -1092,11 +1116,17 @@ export function App() {
     if (!next) return;
     if (conversation.active)
       throw new Error("Завершите разговор перед сменой моделей и настроек.");
-    const saved = await request<Settings>("/settings", "PUT", {
-      ...next,
-      ...(keyTouched ? { api_key: apiKey } : {}),
-      ...(searchKeyTouched ? { search_api_key: searchKey } : {}),
-    });
+    setSettingsSaving(true);
+    setSettingsSaveFailed(false);
+    let saved: Settings;
+    try {
+      saved = await request<Settings>("/settings", "PUT", {
+        ...next,
+        ...(keyTouched ? { api_key: apiKey } : {}),
+        ...(searchKeyTouched ? { search_api_key: searchKey } : {}),
+      });
+    } catch (error) { setSettingsSaveFailed(true); throw error; }
+    finally { setSettingsSaving(false); }
     acceptSettings(saved, false);
     setApiKey("");
     setKeyTouched(false);
@@ -1110,14 +1140,22 @@ export function App() {
     config: Settings,
     signal?: AbortSignal,
     onSpeaking?: (text: string) => void | Promise<void>,
+    onSpeechTiming?: (stage: "tts_requested" | "tts_playing") => void,
   ) {
     channel.current?.postMessage({ type: "interrupt-speech" });
     stopAudio();
     const generation = ++speechGeneration.current;
     const speechId = crypto.randomUUID();
+    let synthesisMarked = false;
+    let playbackMarked = false;
     const output = new SpeechOutput<Blob>(
-      (text, signal) =>
-        audioRequest(
+      async (text, signal) => {
+        const began = performance.now();
+        if (!synthesisMarked && !signal.aborted) {
+          synthesisMarked = true;
+          onSpeechTiming?.("tts_requested");
+        }
+        const audio = await audioRequest(
           text,
           config.tts_voice,
           signal,
@@ -1141,7 +1179,10 @@ export function App() {
             openvoice_enabled: !!usesOpenVoice(config),
             openvoice_voice: config.openvoice_voice,
           },
-        ),
+        );
+        if (config.voice_diagnostics && !signal.aborted) setVoiceDiagnostics((value) => value && ({ ...value, ttsMs: performance.now() - began }));
+        return audio;
+      },
       async (blob, signal, text) => {
         await onSpeaking?.(text);
         try {
@@ -1150,8 +1191,13 @@ export function App() {
             config.audio_output_device_id || "",
             signal,
             () => {
-              if (generation === speechGeneration.current && !signal.aborted)
+              if (generation === speechGeneration.current && !signal.aborted) {
+                if (!playbackMarked) {
+                  playbackMarked = true;
+                  onSpeechTiming?.("tts_playing");
+                }
                 setSpeechPhase("playing");
+              }
             },
           );
         } finally {
@@ -1213,7 +1259,13 @@ export function App() {
       signal?: AbortSignal;
       conversation?: boolean;
       speechConfig?: Settings;
+      recognitionId?: string;
+      requestId?: string;
+      onSpeechTiming?: (stage: "tts_requested" | "tts_playing") => void;
       onSpeaking?: (text: string) => void | Promise<void>;
+      onExecuting?: () => void;
+      onDispatched?: () => void;
+      onSpeechFailure?: (error: SpeechUnavailable) => void;
       fullDocument?: boolean;
       webSearch?: boolean;
     } = {},
@@ -1267,10 +1319,19 @@ export function App() {
         config &&
         (force || options.conversation || config.speak_answers)
       )
-        output = startSpeech(config, controller.signal, options.onSpeaking);
+        output = startSpeech(config, controller.signal, options.onSpeaking, options.onSpeechTiming);
       return output;
     };
     const speech = new TurnSpeech<Blob>(config?.action_speech || "brief", startOutput, controller.signal);
+    const finishPlayback = async () => {
+      try { await speech.done; }
+      catch (error) {
+        if (!(error instanceof SpeechUnavailable) || controller.signal.aborted) throw error;
+        fail(error);
+        setNotice("Озвучка недоступна. Текстовый ответ сохранён; разговор активен. Повтор команды не отправлялся.");
+        options.onSpeechFailure?.(error);
+      }
+    };
     try {
       if (historyWindow.current) {
         const latest = await request<Message[]>(scoped("/messages", chatId));
@@ -1278,6 +1339,8 @@ export function App() {
         resetHistory();
         setMessages(latest);
       }
+      controller.signal.throwIfAborted();
+      options.onDispatched?.();
       await stream(
         text,
         selectedDocsRef.current,
@@ -1285,6 +1348,11 @@ export function App() {
         (event) => {
           if (chatId !== activeChatRef.current) return;
           speech.event(event);
+          if (event.type === "voice_timing" && config?.voice_diagnostics && options.conversation)
+            setVoiceDiagnostics((value) => value && ({ ...value, interpretationMs: event.interpretation_ms, llmMs: event.llm_ms,
+              firstOutputMs: event.model_first_ms !== undefined && event.model_begin_ms !== undefined
+                ? event.model_first_ms - event.model_begin_ms : undefined }));
+          if (event.type === "speech_mode" && event.mode === "action") options.onExecuting?.();
           if (event.type === "voice_diagnostic" && config?.voice_diagnostics && event.text)
             setNotice((value) => `${value} ${event.text}`.trim());
           if (event.type === "user" && event.message) {
@@ -1348,10 +1416,12 @@ export function App() {
         useSearch,
         chatId,
         !!options.fullDocument,
+        options.recognitionId,
+        options.requestId,
       );
       if (streamError) {
         speech.finish("");
-        await speech.done;
+        await finishPlayback();
         output = undefined;
         throw new Error(streamError);
       }
@@ -1362,7 +1432,7 @@ export function App() {
       if (options.conversation) {
         setBusy(false);
         busyRef.current = false;
-        await speech.done;
+        await finishPlayback();
       }
       return completed;
     } catch (error) {
@@ -1447,18 +1517,27 @@ export function App() {
         controller.signal,
       );
       if (epoch !== conversationEpoch.current) return null;
+      voiceTraceEpoch.current = epoch;
+      setVoiceEvents([]); setVoiceDiagnostics(null);
+      setVoiceSessionPolicy(sessionPolicy(config));
+      const mainActivation = activationPolicy(config);
+      const recognitionTickets = new WeakMap<Blob, string>();
+      let smartAvailable = config.conversation_smart_turn;
       const transcribe = async (audio: Blob, signal: AbortSignal) => {
         const data = new FormData();
         data.append("file", audio, "utterance.wav");
-        const result = await request<{ text: string; diagnostics?: { engine: string; stt_ms: number } }>(
+        data.append("trace", "true");
+        const result = await request<{ text: string; rejected_reason?: string; rejected_characters?: number; recognition_id?: string; diagnostics?: { engine: string; stt_ms: number } }>(
           "/voice/transcribe",
           "POST",
           data,
           signal,
         );
-        if (config.voice_diagnostics && result.diagnostics && !signal.aborted)
+        if (config.voice_diagnostics && result.diagnostics && result.text && !signal.aborted)
           setNotice(`Распознано: «${result.text}» · ${result.diagnostics.engine} · ${result.diagnostics.stt_ms} мс. Для проверки команды без запуска откройте «Мои произношения».`);
         if (!signal.aborted && result.text) setLastHeard(result.text);
+        if (!signal.aborted && result.recognition_id) recognitionTickets.set(audio, result.recognition_id);
+        if (result.rejected_reason) return { text: "", rejectionReason: result.rejected_reason, rejectedCharacters: result.rejected_characters };
         return result.text;
       };
       session = new Conversation({
@@ -1467,15 +1546,50 @@ export function App() {
           config.stt_environment === "music",
         ),
         listenWhileThinking: config.conversation_listen_while_thinking,
+        queueMode: config.conversation_queue_mode,
+        requireActivation: mainActivation.required,
+        activation: (text) => inspectActivation(text, config.conversation_wake_word, mainActivation.required, config.stt_environment === "music"),
+        sttEngine: config.stt_model,
+        onEvent: (event) => { if (voiceTraceEpoch.current === epoch) setVoiceEvents((events) => [...events.slice(-79), event]); },
+        createVad: config.conversation_vad === "rms" ? undefined : createLocalVad,
+        endpointMode: config.conversation_endpoint_mode,
+        onDiagnostics: config.voice_diagnostics ? (value) => setVoiceDiagnostics((previous) => ({ ...previous, ...value })) : undefined,
+        onWarning: setNotice,
+        smartTurn: config.conversation_smart_turn ? async (audio, signal) => {
+          if (!smartAvailable) return null;
+          const data = new FormData(); data.append("file", new Blob([wav(audio, 16000)], { type: "audio/wav" }), "endpoint.wav");
+          try {
+            const result = await request<{ available: boolean; complete?: boolean; milliseconds?: number }>("/voice/endpoint/check", "POST", data, signal);
+            if (config.voice_diagnostics && !signal.aborted) setVoiceDiagnostics((value) => value && ({ ...value, smartTurnMs: result.milliseconds }));
+            if (!result.available) { smartAvailable = false; setNotice("Smart Turn недоступен. Конец реплики определяется локальным VAD."); return null; }
+            return result.complete ?? null;
+          } catch {
+            if (!signal.aborted || (signal.reason instanceof DOMException && signal.reason.name === "TimeoutError")) { smartAvailable = false; setNotice("Smart Turn недоступен или не ответил вовремя. Используется локальный VAD."); }
+            return null;
+          }
+        } : undefined,
         onBarge: config.conversation_barge_in
           ? async (audio, signal, playback) => {
               const began = performance.now();
-              const text = await transcribe(audio, signal);
+              session?.event("stt_started", { role: "barge", durationMs: Math.max(0, audio.size - 44) / 32 });
+              let text: string;
+              try {
+                const result = await transcribe(audio, signal); signal.throwIfAborted();
+                if (typeof result !== "string") { session?.event("stt_rejected", { role: "barge", reason: result.rejectionReason, characters: result.rejectedCharacters }); return null; }
+                text = result;
+              }
+              catch (error) { session?.event(signal.aborted ? "request_cancelled" : "stt_failed", { role: "barge", reason: signal.aborted ? "user_cancelled" : "stt_error" }); throw error; }
+              session?.event("stt_completed", { role: "barge", characters: text.length, milliseconds: performance.now() - began });
+              if (!text.trim()) { session?.event("stt_empty", { role: "barge", reason: "empty" }); return null; }
+              const decision = inspectActivation(text, config.conversation_wake_word, activationPolicy(config, "barge").required, config.stt_environment === "music");
               if (
-                activated(text, config.conversation_wake_word) === null ||
+                !decision.accepted ||
                 playbackEcho(text, playback)
-              )
+              ) {
+                session?.event("activation_rejected", { role: "barge", reason: decision.accepted ? "playback_echo" : decision.reason, required: true });
                 return null;
+              }
+              session?.event("activation_accepted", { role: "barge", reason: "addressed", required: true });
               setNotice(
                 `Обращение распознано за ${Math.round(performance.now() - began)} мс. Прерываю текущий ответ.`,
               );
@@ -1506,10 +1620,13 @@ export function App() {
           maximumSpeechMs: config.conversation_max_seconds * 1000,
         },
         prepare: async (signal) => {
-          await request("/voice/prepare", "POST", undefined, signal);
+          await request("/voice/prepare", "POST", { conversation_id: activeChatRef.current }, signal);
         },
         onPhase: (phase) => {
-          if (phase === "idle") void window.wiley.releaseConversation(lease);
+          if (phase === "idle") {
+            void window.wiley.releaseConversation(lease);
+            if (config.conversation_smart_turn) void request("/voice/endpoint/release", "POST").catch(() => {});
+          }
           else void window.wiley.updateConversation(lease, phase);
         },
         onError: (error) => {
@@ -1518,14 +1635,21 @@ export function App() {
           releaseMic(owner);
           fail(error);
         },
-        onTurn: async (audio, signal, phase, verifiedText) => {
-          const heard = verifiedText ?? (await transcribe(audio, signal));
+        onRecover: (error) => {
+          if (conversationRef.current?.session !== session) return;
+          fail(error);
+          setNotice("Ошибка реплики обработана. Разговор активен; можно произнести новую команду. Повтор автоматически не отправлялся.");
+        },
+        onTurn: async (audio, signal, phase, verifiedText, utteranceId) => {
+          const result = verifiedText ?? (await transcribe(audio, signal));
+          if (typeof result !== "string") { session?.event("stt_rejected", { reason: result.rejectionReason, characters: result.rejectedCharacters }); return; }
+          const heard = result;
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
           const text = activated(
             heard,
             config.conversation_wake_word,
-            config.conversation_wake_required || config.conversation_barge_in,
+            mainActivation.required,
           );
           if (!text) return;
           if (
@@ -1550,10 +1674,17 @@ export function App() {
             undefined,
             signal,
           );
+          const requestId = crypto.randomUUID();
           const completed = await send(text, {
             signal,
             conversation: true,
             speechConfig: turnConfig,
+            recognitionId: recognitionTickets.get(audio),
+            requestId,
+            onDispatched: () => session?.event("request_dispatched", { requestId, utterance: utteranceId }),
+            onSpeechTiming: config.voice_diagnostics ? (stage) => session?.event(stage, { requestId, utterance: utteranceId }) : undefined,
+            onSpeechFailure: (error) => session?.event("tts_failed", { requestId, utterance: utteranceId, reason: error.rateLimited ? "tts_rate_limited" : "tts_error", milliseconds: error.retryAfterMs }),
+            onExecuting: () => phase("executing"),
             onSpeaking: async (text) => {
               await session?.waitForPhrase(signal);
               signal.throwIfAborted();
@@ -1563,8 +1694,10 @@ export function App() {
           });
           if (signal.aborted)
             throw new DOMException("Разговор остановлен", "AbortError");
-          if (!completed)
-            throw new Error("Ответ не получен. Начните разговор заново.");
+          if (!completed) {
+            session?.event("request_failed", { reason: "server_unavailable" });
+            throw new Error("Ответ не получен. Разговор активен; можно произнести новую фразу.");
+          }
         },
       });
       conversationStarting.current = null;
@@ -1673,7 +1806,7 @@ export function App() {
         new Blob(chunks, { type: "audio/webm" }),
         "speech.webm",
       );
-      request<{ text: string }>(
+      request<{ text: string; rejected_reason?: string }>(
         "/voice/transcribe",
         "POST",
         data,
@@ -1695,7 +1828,7 @@ export function App() {
           if (result.text) setLastHeard(result.text);
           input.current?.focus();
           if (!result.text)
-            setNotice("Речь не распознана. Попробуйте ещё раз.");
+            setNotice(result.rejected_reason ? "Речь не принята: " + (reasonLabels[result.rejected_reason] || "подозрительный результат распознавания") + ". Повторите фразу." : "Речь не распознана. Попробуйте ещё раз.");
         })
         .catch(fail)
         .finally(() => setUploading(false));
@@ -1785,12 +1918,12 @@ export function App() {
     recording ||
     (conversation.active &&
       conversation.owner &&
-      ["listening", "hearing"].includes(conversation.phase))
+      ["listening", "awaiting", "hearing", "pause", "checking"].includes(conversation.phase))
   )
     activity.push({
       id: "listen",
       kind: "listen",
-      label: "Слушаю вас",
+      label: conversation.active ? phaseLabels[conversation.phase] : "Слушаю вас",
       detail: "Микрофон включён",
     });
   if (uploading)
@@ -2129,6 +2262,7 @@ export function App() {
             {notice}
           </div>
         )}
+        {settings?.voice_diagnostics && (conversation.owner || voiceEvents.length > 0) && <VoiceStatus value={voiceDiagnostics} events={voiceEvents} policy={voicePolicyView()} />}
 
         {tab === "chat" && (
           <div className="chat-layout">
@@ -2954,6 +3088,7 @@ export function App() {
               }}
             />
             <DeviceAudio />
+            <ActivePlayer onChanged={async () => { acceptSettings(await request<Settings>("/settings")); channel.current?.postMessage({ type: "settings" }); }} />
             <YandexMusic
               onChanged={async () => {
                 acceptSettings(await request<Settings>("/settings"));
@@ -3118,7 +3253,7 @@ export function App() {
               <button
                 className="primary"
                 disabled={
-                  busy || conversation.active || voiceSaving || appearanceSaving
+                  busy || conversation.active || voiceSaving || appearanceSaving || settingsSaving
                 }
                 onClick={() => run(() => save())}
               >
@@ -3156,6 +3291,12 @@ export function App() {
                 >
                   <div className="card">
                     <h2>Личность</h2>
+                    <label className="checkbox">
+                      <input type="checkbox" checked={settings.semantic_commands}
+                        onChange={(event) => setSettings({ ...settings, semantic_commands: event.target.checked })} />
+                      Подбор свободных команд (3.4)
+                    </label>
+                    <p className="help">Выбранная модель подбирает установленное приложение или действие со звуком для свободной просьбы. Перед изменением требуется подтверждение. Точные команды работают как прежде.</p>
                     <label className="checkbox">
                       <input
                         type="checkbox"
@@ -3269,6 +3410,13 @@ export function App() {
                 >
                   <div className="card">
                     <h2>Подключение модели</h2>
+                    <SettingsSwitch label="Интеллектуальное понимание команд" description="Использует выбранную локальную модель для понимания нестандартных просьб и выбора доступных инструментов" checked={settings.intent_gate} onChange={(value) => setSettings({ ...settings, intent_gate: value })} />
+                    {settings.provider === "ollama" && <label>
+                      Быстрая модель для простых вопросов
+                      <input value={settings.fast_model ?? ""} maxLength={200} placeholder="Пусто — ручной выбор"
+                        onChange={(event) => setSettings({ ...settings, fast_model: event.target.value })} />
+                      <small>Укажите точный тег установленной модели локального Ollama. Основная модель отвечает на остальные вопросы.</small>
+                    </label>}
                     <label>
                       Движок
                       <select
@@ -3680,11 +3828,14 @@ export function App() {
                       conversation.active
                     }
                   />
+                  <EndpointSettings settings={settings} onChange={setSettings} />
+                  <div className="card"><h2>Действующий режим разговора</h2>{voicePolicyView()}</div>
                   <div className="card">
                     <h2>Распознавание и разговор</h2>
                     <label>
                       Условия записи
                       <select
+                        aria-label="Условия записи"
                         value={settings.stt_environment}
                         onChange={(event) =>
                           setSettings({
@@ -3701,47 +3852,15 @@ export function App() {
                     <p className="help">
                       «Музыка и шум» отключает автоусиление фона, фильтрует
                       крайние частоты микрофона разговора и строже отсекает
-                      участки без речи. Первые 0,6 секунды после включения
-                      разговора помолчите — измеряется фон. Громкий вокал может
+                      участки без речи. В резервном RMS-режиме первые 0,6 секунды
+                      помолчите для измерения фона. В этом окружении фразы
+                      принимаются после обращения по имени. Громкий вокал может
                       распознаваться как речь; наушники или более тихая музыка
                       помогут больше.
                     </p>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={settings.conversation_listen_while_thinking}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            conversation_listen_while_thinking:
-                              event.target.checked,
-                          })
-                        }
-                      />
-                      Слушать, пока модель думает
-                    </label>
-                    <p className="help">
-                      Следующие фразы сохраняются в очередь (до трёх) и
-                      обрабатываются после текущего ответа. Без
-                      экспериментального перебивания во время собственной
-                      озвучки и короткой паузы после неё приём фраз
-                      приостановлен. Завершение разговора или «Перебить» очищает
-                      очередь. Изменения применятся после сохранения и нового
-                      включения разговора.
-                    </p>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={settings.conversation_wake_required}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            conversation_wake_required: event.target.checked,
-                          })
-                        }
-                      />
-                      Принимать фразы только после обращения по имени
-                    </label>
+                    <label>Обработка новых фраз во время выполнения<select aria-label="Обработка новых фраз во время выполнения" value={settings.conversation_queue_mode} onChange={(event) => setSettings({ ...settings, conversation_queue_mode: event.target.value as Settings["conversation_queue_mode"] })}><option value="sequential">Последовательно — рекомендуется</option><option value="latest">Сохранять последнюю фразу</option><option value="queue">Очередь до трёх фраз</option></select></label>
+                    <SettingsSwitch label="Слушать, пока модель думает" description={settings.conversation_queue_mode === "sequential" ? "В последовательном режиме новые фразы не записываются до завершения запроса. Остановить ответ можно кнопкой; включённое перебивание озвучки по имени сохраняется." : "При включении сохраняется последняя фраза или очередь до трёх. Повторы текущей просьбы и записи старше 15 секунд не выполняются. Stop очищает очередь."} disabled={settings.conversation_queue_mode === "sequential"} checked={settings.conversation_listen_while_thinking} onChange={(value) => setSettings({ ...settings, conversation_listen_while_thinking: value })} />
+                    <SettingsSwitch label="Принимать фразы только после обращения по имени" description={settings.stt_environment === "music" ? "В музыкальном профиле имя обязательно независимо от этого переключателя — для защиты от фонового вокала." : "Выключено: начатый кнопкой разговор принимает обычные фразы без повторения имени. Это не включает фоновое пробуждение."} checked={settings.conversation_wake_required} onChange={(value) => setSettings({ ...settings, conversation_wake_required: value })} />
                     <label>
                       Активационная фраза
                       <input
@@ -3755,25 +3874,13 @@ export function App() {
                         }
                       />
                     </label>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={settings.conversation_barge_in}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            conversation_barge_in: event.target.checked,
-                          })
-                        }
-                      />
-                      Экспериментально: перебивать озвучку обращением по имени
-                    </label>
+                    <SettingsSwitch label="Экспериментально: перебивать озвучку обращением по имени" description="Во время ответа микрофон проверяет обращение по имени и отбрасывает совпадения с собственной озвучкой. Когда ответ закончен, обычным репликам имя нужно только по вашей настройке или в музыкальном профиле." checked={settings.conversation_barge_in} onChange={(value) => setSettings({ ...settings, conversation_barge_in: value })} />
                     <p className="help">
-                      При перебивании все команды должны начинаться с
+                      Только для перебивания озвучки команды должны начинаться с
                       активационной фразы, например «Уайли, пауза» или «Уайли,
                       стоп». Микрофон работает и во время озвучки; совпадения с
                       произносимым текстом отбрасываются. Сначала проверяется
-                      обращение, затем отменяются ответ и очередь. Проверка
+                      обращение, затем отменяются ответ и очередь.
                       Распознавание добавляет задержку и нагрузку. Ввод через
                       колонки зависит от эхоподавления устройства; режим можно
                       выключить. Это не фоновое прослушивание при закрытом
@@ -3798,9 +3905,7 @@ export function App() {
                     </label>
                     <p className="help">
                       От 25 до 120 секунд одной записи. Более длинная
-                      непрерывная речь делится на части. Без активационной фразы
-                      команды принимаются как раньше, если перебивание
-                      выключено.
+                      непрерывная речь делится на части. При выключенном требовании имени обычный разговор принимает фразы без обращения, кроме музыкального профиля.
                     </p>
                     <label>
                       Модель распознавания
@@ -3876,7 +3981,7 @@ export function App() {
                       />
                     </label>
                     <label>
-                      Порог голоса в режиме разговора
+                      Порог громкости резервного RMS-детектора
                       <input
                         type="number"
                         min={0.003}
@@ -3895,10 +4000,10 @@ export function App() {
                       В режиме разговора отправка и озвучка автоматические. Если
                       фразы обрываются, увеличьте паузу. При срабатывании на
                       фоновый шум увеличьте порог. Перебить ответ пока можно
-                      кнопкой; голосовое перебивание ещё не включено.
+                      кнопкой или включённым выше экспериментальным обращением по имени.
                     </p>
                   </div>
-                  <div className="card"><label><input type="checkbox" checked={settings.voice_diagnostics} onChange={(event) => setSettings({ ...settings, voice_diagnostics: event.target.checked })} /> Диагностика голосовых команд</label><p className="help">Показывает распознанную фразу, движок и время обработки на экране. Аудио не сохраняется.</p></div>
+                  <div className="card"><SettingsSwitch label="Диагностика голосовых команд" description="Показывает действующий режим, результат активации, движок и время обработки. Принятая распознанная фраза может появиться на экране; аудио и полный транскрипт в диагностические логи не сохраняются." checked={settings.voice_diagnostics} onChange={(value) => setSettings({ ...settings, voice_diagnostics: value })} /></div>
                   <Pronunciations onError={fail} heard={lastHeard} />
                   <div className="card voice-resources">
                     <h2>Память моделей речи</h2>

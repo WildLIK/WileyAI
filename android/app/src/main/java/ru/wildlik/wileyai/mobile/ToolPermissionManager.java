@@ -10,6 +10,12 @@ import android.os.Build;
 final class ToolPermissionManager {
     static String denied(Context context,AndroidTools.Call call){
         if(((KeyguardManager)context.getSystemService(Context.KEYGUARD_SERVICE)).isDeviceLocked())return "Разблокируйте телефон для выполнения плана модели.";
+        if(call.tool().startsWith("screen_")){
+            if(!context.getSharedPreferences("wiley-mobile",0).getBoolean("screen_observation_enabled",false))return "Включите наблюдение в «Мозг → Инструменты и разрешения».";
+            ModelManager models=new ModelManager(context);
+            if(!models.toolsAllowed() || models.selected()!=BrainProvider.Kind.LOCAL)return "Наблюдение доступно только с локальной моделью и включёнными инструментами.";
+            if(!ScreenObservationService.running())return "Включите службу WileyAI вручную в специальных возможностях Android.";
+        }
         if(call.tool().startsWith("media_")&&!call.tool().equals("media_set_volume")&&!call.tool().equals("media_search")&&!PlayerControl.permitted(context))return "Для медиасессий включите доступ в «Компоненты → Музыка и YouTube».";
         if(call.tool().equals("get_foreground_app")){
             AppOpsManager ops=(AppOpsManager)context.getSystemService(Context.APP_OPS_SERVICE);

@@ -40,6 +40,14 @@ async function launch(dataDir?: string) {
   await expect(
     page.getByRole("heading", { name: "Привет, я Уайли." }),
   ).toBeVisible();
+  // This suite deliberately feeds a tone, not human speech. Keep its audio
+  // plumbing checks on RMS; endpoint.spec.ts exercises the actual neural VAD.
+  await page.evaluate(async () => {
+    const c = await window.wiley.connection();
+    const headers = { Authorization: "Bearer " + c.token, "Content-Type": "application/json" };
+    const settings = await (await fetch(c.url + "/settings", { headers })).json();
+    await fetch(c.url + "/settings", { method: "PUT", headers, body: JSON.stringify({ ...settings, conversation_vad: "rms" }) });
+  });
   const instrument = () => {
     const stats = { frames: 0, peak: 0, context: "" };
     Object.assign(window, { testAudioStats: stats });
@@ -221,13 +229,13 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
       .getByRole("button", { name: "Начать разговор", exact: true })
       .click();
     await expect(page.locator(".conversation-phase")).toHaveText(
-      /Слушаю вас|Слышу вашу фразу/,
+      /Ожидаю следующую реплику|Слышу речь/,
       { timeout: 10000 },
     );
     await expect
       .poll(() => syntheses, { timeout: 20000 })
       .toBeGreaterThanOrEqual(1);
-    await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
+    await expect(page.locator(".conversation-phase")).toHaveText("Ожидаю следующую реплику");
     await expectStableLayout(page);
     await page.screenshot({
       path: "local/screenshots/conversation-fixed-header.png",
@@ -260,7 +268,7 @@ test("conversation: real AudioWorklet, automatic turns, playback, cross-window s
     await page
       .getByRole("button", { name: "■ Остановить озвучку", exact: true })
       .click();
-    await expect(page.locator(".conversation-phase")).toHaveText("Слушаю вас");
+    await expect(page.locator(".conversation-phase")).toHaveText("Ожидаю следующую реплику");
     const opened = app.waitForEvent("window");
     await page
       .getByRole("button", { name: "Показать аватара", exact: true })
@@ -330,6 +338,65 @@ test("conversation: stopping pending recognition prevents sending its late resul
   }
 });
 
+test("conversation 3.5: sequential mode ignores repeated microphone phrases during a slow task", async () => {
+  const { app, page } = await launch(); let first: Route | undefined, stt = 0, turns = 0;
+  try {
+    await page.route("**/voice/prepare", (route) => route.fulfill({ json: { ok: true } }));
+    await page.route("**/voice/transcribe", (route) => { stt++; return route.fulfill({ json: { text: "Расскажи о Луне" } }); });
+    await page.route("**/chat", (route) => { turns++; first = route; });
+    await page.getByRole("button", { name: "Начать разговор", exact: true }).click();
+    await expect.poll(() => turns, { timeout: 10000 }).toBe(1);
+    await expect(page.locator(".conversation-phase")).toHaveText("Обрабатываю запрос…");
+    // The virtual input repeats at five seconds; wait for a complete second
+    // utterance while the first response is deliberately withheld.
+    await expect.poll(async () => (await audioStats(page)).frames, { timeout: 12000 }).toBeGreaterThan(450);
+    expect(stt).toBe(1); expect(turns).toBe(1);
+    await page.getByRole("button", { name: "Завершить разговор", exact: true }).click();
+    await first?.fulfill({ contentType: "text/event-stream", body: 'data: {"type":"delta","text":"Поздний ответ"}\n\n' }).catch(() => {});
+    await micStopped(page); expect(turns).toBe(1);
+  } finally { await app.close(); }
+});
+
+for (const fault of ["tts429", "tts-network", "tool"] as const) test(`conversation 3.5 D-F: three automatic turns survive ${fault} with one microphone lease`, async () => {
+  const { app, page } = await launch();
+  const texts = ["Открой Яндекс Музыку", "А теперь включи музыку", "Следующий трек"];
+  const chats: string[] = [], history: object[] = [];
+  let syntheses=0, recognitions=0;
+  const began=Date.now();
+  try {
+    await page.route("**/voice/prepare", route => route.fulfill({ json: { ok: true } }));
+    await page.route("**/messages*", route => route.fulfill({ json: history }));
+    await page.route("**/voice/transcribe", route => route.fulfill({ json: { text: texts[Math.min(recognitions++, 2)] } }));
+    await page.route("**/chat", async route => {
+      const text = route.request().postDataJSON().text; chats.push(text);
+      const user = { id: `d-f-u${chats.length}`, role: "user", content: text, created: new Date().toISOString() };
+      const assistant = { id: `d-f-a${chats.length}`, role: "assistant", content: `Результат команды ${chats.length} сохранён.`, created: new Date().toISOString() };
+      history.push(user);
+      const events: object[] = [{ type: "user", message: user }];
+      if (fault === "tool" && chats.length === 1) events.push({ type: "error", text: "Тестовый инструмент недоступен" });
+      else { history.push(assistant); events.push({ type: "speech_mode", mode: "action" }, { type: "speech_result", action: { spoken: "Результат не подтверждён.", status: "unconfirmed" } }, { type: "delta", text: assistant.content }, { type: "done", message: assistant }); }
+      await route.fulfill({ contentType: "text/event-stream", body: events.map(event => "data: " + JSON.stringify(event) + "\n\n").join("") });
+    });
+    await page.route("**/voice/synthesize", async route => {
+      syntheses++;
+      if (fault === "tts429") return route.fulfill({ status: 429, headers: { "Retry-After": "60" }, json: { detail: "Лимит озвучки (HTTP 429)" } });
+      if (fault === "tts-network" && syntheses === 1) return route.abort("failed");
+      return route.fulfill({ contentType: "audio/wav", body: Buffer.from(wav(new Float32Array(1600), 16000)) });
+    });
+    await page.getByRole("button", { name: "Начать разговор", exact: true }).click();
+    await expect.poll(() => chats.length, { timeout: 23000 }).toBe(3);
+    await expect(page.locator(".conversation-phase")).toHaveText("Ожидаю следующую реплику");
+    expect(chats).toEqual(texts); expect(recognitions).toBe(3);
+    expect(syntheses).toBe(fault === "tts429" ? 1 : fault === "tool" ? 2 : 3);
+    await expect(page.getByText("Результат команды 3 сохранён.", { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { testMicTracks: MediaStreamTrack[] }).testMicTracks.map(track => track.readyState))).toEqual(["live"]);
+    await page.getByRole("button", { name: "Завершить разговор", exact: true }).click();
+    await micStopped(page); const count = recognitions;
+    await page.waitForTimeout(300); expect(recognitions).toBe(count);
+    console.log("Conversation35 fixture: " + JSON.stringify({ fault, chats: chats.length, syntheses, elapsed_ms: Date.now()-began }));
+  } finally { await app.close(); }
+});
+
 test("conversation: another real microphone phrase is retained while a reply is pending", async () => {
   const { app, page } = await launch();
   let first: Route | undefined;
@@ -375,6 +442,7 @@ test("conversation: another real microphone phrase is retained while a reply is 
           ...settings,
           stt_environment: "music",
           conversation_listen_while_thinking: true,
+          conversation_queue_mode: "queue",
         }),
       });
       if (!saved.ok) throw new Error("Settings were not saved");
@@ -386,7 +454,7 @@ test("conversation: another real microphone phrase is retained while a reply is 
       transcriptions++;
       return route.fulfill({
         json: {
-          text: transcriptions === 1 ? "Первая мысль" : "Ещё одна мысль",
+          text: transcriptions === 1 ? "Уайли, Первая мысль" : "Уайли, Ещё одна мысль",
         },
       });
     });
@@ -725,7 +793,7 @@ test("audio devices: selected mic in checks/manual/conversation, selected output
       .getByRole("button", { name: "Начать разговор", exact: true })
       .click();
     await expect(page.locator(".conversation-phase")).toHaveText(
-      /Слушаю вас|Слышу вашу фразу/,
+      /Ожидаю следующую реплику|Слышу речь/,
     );
     expect(
       await page.evaluate(

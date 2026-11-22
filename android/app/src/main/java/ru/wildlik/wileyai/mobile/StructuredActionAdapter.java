@@ -52,6 +52,14 @@ public final class StructuredActionAdapter {
     private static String terminal(String value){return "\""+value.replace("\\","\\\\").replace("\"","\\\"")+"\"";}
     private static String jsonLiteral(String value){return terminal("\""+value+"\"");}
     public static String grammar(List<AndroidTools.Tool> tools){
+        if(tools.isEmpty()) {
+            // No actions are permitted: omit their rules rather than emitting an
+            // empty `call ::=` or exposing the unrestricted generic call rule.
+            String base=grammar();
+            return base.substring(0,base.indexOf("actions ::="))
+                .replace("root ::= empty | actions", "root ::= empty")
+                +base.substring(base.indexOf("string ::="));
+        }
         String base=grammar();int begin=base.indexOf("call ::="),end=base.indexOf("string ::=");StringBuilder generated=new StringBuilder(base.substring(0,begin));
         generated.append("call ::= ");for(int i=0;i<tools.size();i++){if(i>0)generated.append(" | ");generated.append("call-").append(i);}generated.append('\n');
         for(int index=0;index<tools.size();index++){

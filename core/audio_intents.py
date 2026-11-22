@@ -26,6 +26,12 @@ class Pending(BaseModel):
     action: AudioAction
     target: Literal["auto", "yandex"] = "auto"
     selected_player: Literal["auto", "yandex"] = "auto"
+    semantic: bool = False
+    source: Literal["music", "system"] = "music"
+    request_id: str = ""
+    intent_gate: bool = False
+    media_source: str = "auto"
+    media_target: str = ""
 
 
 @dataclass
@@ -34,6 +40,11 @@ class Reply:
     action: AudioAction | None = None
     target: Literal["auto", "yandex"] = "auto"
     selected_player: Literal["auto", "yandex"] = "auto"
+    semantic: bool = False
+    source: Literal["music", "system"] = "music"
+    request_id: str = ""
+    intent_gate: bool = False
+    media_target: str = ""
 
 
 def suggest(text, name="Уайли", *, player="auto"):
@@ -44,7 +55,8 @@ def suggest(text, name="Уайли", *, player="auto"):
         return None
     if music_help(value, name) is not None:
         return None  # A correctly understood request still needs its source workflow.
-    target = "yandex" if explicit or player == "yandex" else "auto"
+    # A preferred music integration is not a target for Windows master volume.
+    target = "yandex" if explicit or (player == "yandex" and re.search(r"музык|песн|трек|воспроизвед", value)) else "auto"
     value = re.sub(r"\bгромкость (?:музыки|плеера)\b", "громкость", value)
     words = value.split()
     if not 2 <= len(words) <= 7:
@@ -96,11 +108,11 @@ def remember(store, assistant_id, suggestion):
     # Only the last visible question may own a short reply.
     if isinstance(state.get("calendar"), dict):
         state["calendar"].pop("pending", None)
-    state["pending_audio"] = Pending(assistant_id=assistant_id, created=time.time(), text=suggestion.text, action=suggestion.action, target=suggestion.target, selected_player=suggestion.selected_player).model_dump()
+    state["pending_audio"] = Pending(assistant_id=assistant_id, created=time.time(), text=suggestion.text, action=suggestion.action, target=suggestion.target, selected_player=suggestion.selected_player, semantic=suggestion.semantic, source=suggestion.source, request_id=suggestion.request_id, intent_gate=suggestion.intent_gate, media_source=store.settings().media_source, media_target=suggestion.media_target).model_dump()
     store.save_dialogue(state)
 
 
-def consume(store, text, name="Уайли"):
+def consume(store, text, name="Уайли", cancelled=None):
     state = store.dialogue()
     raw = state.pop("pending_audio", None)
     value = request_text(text, name)
@@ -118,10 +130,16 @@ def consume(store, text, name="Уайли"):
     try:
         pending = Pending.model_validate(raw)
         history = store.list("messages", 2)
-        if not 0 <= time.time() - pending.created <= TTL or len(history) != 2 or history[0]["role"] != "assistant" or history[0]["id"] != pending.assistant_id or history[0]["content"] != pending.text or pending.action.action not in {"change_volume", "play", "pause"} or pending.selected_player != store.settings().music_player:
+        allowed = {"change_volume", "play", "pause", "next", "previous"} if pending.semantic else {"change_volume", "play", "pause"}
+        if not 0 <= time.time() - pending.created <= TTL or len(history) != 2 or history[0]["role"] != "assistant" or history[0]["id"] != pending.assistant_id or history[0]["content"] != pending.text or pending.action.action not in allowed or pending.selected_player != store.settings().music_player:
             raise ValueError("Предложение устарело")
+        if pending.intent_gate and pending.media_source != store.settings().media_source: raise ValueError("Источник изменился")
     except (ValueError, TypeError):
         return Reply(EXPIRED)
     if negative:
         return Reply("Изменение громкости отменено. Громкость не изменена." if pending.action.action == "change_volume" else "Команда плеера отменена. Действие не выполнялось.")
-    return Reply(action=pending.action, target=pending.target, selected_player=pending.selected_player)
+    if pending.intent_gate and not store.settings().allow_audio_control:
+        return Reply("Управление звуком отключено. Действие не выполнялось.")
+    if pending.semantic and (not (store.settings().intent_gate if pending.intent_gate else store.settings().semantic_commands) or pending.request_id in (cancelled or {})):
+        return Reply("Интеллектуальное предложение отключено или остановлено. Действие не выполнено.")
+    return Reply(action=pending.action, target=pending.target, selected_player=pending.selected_player, semantic=pending.semantic, source=pending.source, request_id=pending.request_id, intent_gate=pending.intent_gate, media_target=pending.media_target)

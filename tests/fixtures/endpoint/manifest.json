@@ -1,0 +1,17 @@
+[
+  {
+    "file": "command.wav",
+    "bytes": 54828,
+    "sha256": "8bacbf23a796ce2450e8a0142016d89055dcc03203b349f11e7d768d19fddbeb"
+  },
+  {
+    "file": "sentence.wav",
+    "bytes": 69676,
+    "sha256": "532a3a0e6ddb054caee0e01956d95bc4ba083ea721a386979715a80aaafa79a2"
+  },
+  {
+    "file": "short.wav",
+    "bytes": 159256,
+    "sha256": "6351c916e3744fbefceba9c551649f81eadcf1db5f3088583b8e5a2496a88486"
+  }
+]

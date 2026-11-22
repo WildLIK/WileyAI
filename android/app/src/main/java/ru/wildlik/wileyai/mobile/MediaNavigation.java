@@ -17,15 +17,21 @@ final class MediaNavigation {
         });
     }
     static void execute(Context context,PhoneCommands.Action action,Consumer<Intent> launch,Consumer<String> reply,Consumer<java.util.List<YoutubeSearch.Video>> choose) {
+        executeDetailed(context,action,launch,(display,spoken)->reply.accept(display),choose);
+    }
+    static void executeDetailed(Context context,PhoneCommands.Action action,Consumer<Intent> launch,PhoneActionReply reply,Consumer<java.util.List<YoutubeSearch.Video>> choose) {
         if(action.target.equals("youtube")&&action.kind.equals("media_play_search")&&!action.value.startsWith("https://")){
             YoutubeSearch.find(action.value,videos->{
                 if(videos.isEmpty()){search(context,action,launch,reply);return;}
-                if(context.getSharedPreferences("wiley-mobile",0).getBoolean("youtube_first_result",false))play(context,videos.get(0),launch,reply);else choose.accept(videos);
+                if(context.getSharedPreferences("wiley-mobile",0).getBoolean("youtube_first_result",false))playDetailed(context,videos.get(0),launch,reply);else choose.accept(videos);
             });return;
         }
         search(context,action,launch,reply);
     }
     static void play(Context context,YoutubeSearch.Video video,Consumer<Intent> launch,Consumer<String> reply){
+        playDetailed(context,video,launch,(display,spoken)->reply.accept(display));
+    }
+    static void playDetailed(Context context,YoutubeSearch.Video video,Consumer<Intent> launch,PhoneActionReply reply){
         if(!video.id().matches("[A-Za-z0-9_-]{11}")){reply.accept("Некорректный адрес видео.");return;}
         String pkg=PlayerTargets.packageName(context,"youtube");if(pkg.isEmpty()){reply.accept("Выберите YouTube в настройках плееров.");return;}
         try{
@@ -33,10 +39,10 @@ final class MediaNavigation {
             ResolveInfo resolved=context.getPackageManager().resolveActivity(intent,0);
             if(resolved==null||resolved.activityInfo==null||!resolved.activityInfo.exported||!resolved.activityInfo.enabled){reply.accept("Выбранный YouTube не открывает ссылки на видео.");return;}
             intent.setComponent(new ComponentName(resolved.activityInfo.packageName,resolved.activityInfo.name));launch.accept(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            reply.accept("Открываю видео «"+video.title()+"» в YouTube.");
+            reply.result("Открываю видео «"+video.title()+"» в YouTube.","Открываю видео.");
         }catch(RuntimeException unavailable){reply.accept("Не удалось открыть видео. Проверьте YouTube и повторите команду.");}
     }
-    private static void search(Context context,PhoneCommands.Action action,Consumer<Intent> launch,Consumer<String> reply) {
+    private static void search(Context context,PhoneCommands.Action action,Consumer<Intent> launch,PhoneActionReply reply) {
         String pkg=PlayerTargets.packageName(context,action.target);
         if(pkg.isEmpty()) { reply.accept("Выберите приложение в «Компоненты → Музыка и YouTube»."); return; }
         try {
@@ -54,7 +60,8 @@ final class MediaNavigation {
             if(resolved==null || resolved.activityInfo==null || !resolved.activityInfo.exported || !resolved.activityInfo.enabled) { reply.accept("Выбранное приложение не предоставляет поиск Android. Откройте его и воспользуйтесь поиском внутри."); return; }
             intent.setComponent(new ComponentName(resolved.activityInfo.packageName,resolved.activityInfo.name));
             launch.accept(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            reply.accept((MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH.equals(intent.getAction())?"Запрос на воспроизведение передан в «":"Поиск открыт в «")+PlayerTargets.label(context,pkg)+"»: "+action.value+". Результат выбирает приложение.");
+            boolean playRequest=MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH.equals(intent.getAction());
+            reply.result((playRequest?"Запрос на воспроизведение передан в «":"Поиск открыт в «")+PlayerTargets.label(context,pkg)+"»: "+action.value+". Результат выбирает приложение.",playRequest?"Запрос на воспроизведение отправлен.":"Поиск открыт.");
         } catch(RuntimeException unavailable) { reply.accept("Не удалось открыть поиск в выбранном плеере. Проверьте приложение и подключение к интернету."); }
     }
     private MediaNavigation() {}

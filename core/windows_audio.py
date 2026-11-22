@@ -32,6 +32,17 @@ def release(pointer):
     c.WINFUNCTYPE(c.c_uint32, c.c_void_p)(table[2])(pointer)
 
 
+def device_id(device, ole):
+    """IMMDevice::GetId allocates an opaque endpoint ID with CoTaskMemAlloc."""
+    value = c.c_void_p()
+    try:
+        invoke(device, 5, [c.POINTER(c.c_void_p)], c.byref(value))
+        if not value: raise ValueError("Windows не вернула идентификатор устройства вывода")
+        return c.wstring_at(value)
+    finally:
+        if value: ole.CoTaskMemFree(value)
+
+
 @contextmanager
 def endpoint():
     if os.name != "nt":
@@ -43,6 +54,8 @@ def endpoint():
     ole.CoCreateInstance.restype = c.c_int32
     ole.CoUninitialize.argtypes = []
     ole.CoUninitialize.restype = None
+    ole.CoTaskMemFree.argtypes = [c.c_void_p]
+    ole.CoTaskMemFree.restype = None
     initialized = ole.CoInitializeEx(None, 0)
     if initialized != -2147417850:  # RPC_E_CHANGED_MODE: reuse this thread's apartment.
         check(initialized)
@@ -54,7 +67,14 @@ def endpoint():
         invoke(enumerator, 4, [c.c_int, c.c_int, c.POINTER(c.c_void_p)], 0, 1, c.byref(device))
         iid = GUID.parse("5CDF2C82-841E-4546-9722-0CF74078229A")
         invoke(device, 3, [c.POINTER(GUID), c.c_uint32, c.c_void_p, c.POINTER(c.c_void_p)], c.byref(iid), 23, None, c.byref(volume))
-        yield Endpoint(volume)
+        def current_default():
+            current = c.c_void_p()
+            try:
+                invoke(enumerator, 4, [c.c_int, c.c_int, c.POINTER(c.c_void_p)], 0, 1, c.byref(current))
+                return device_id(current, ole)
+            finally:
+                if current: release(current)
+        yield Endpoint(volume, device_id(device, ole), current_default)
     finally:
         # Release returns ULONG, not HRESULT. Release all acquired references even
         # when device discovery or activation failed part way through.
@@ -66,14 +86,18 @@ def endpoint():
 
 
 class Endpoint:
-    def __init__(self, pointer):
+    def __init__(self, pointer, identity=None, current_default=None):
         self.pointer = pointer
+        self.identity, self.current_default = identity, current_default
 
     def read(self):
         level, muted = c.c_float(), c.c_int32()
         invoke(self.pointer, 9, [c.POINTER(c.c_float)], c.byref(level))
         invoke(self.pointer, 15, [c.POINTER(c.c_int32)], c.byref(muted))
-        return {"volume": max(0, min(100, round(level.value * 100))), "muted": bool(muted.value)}
+        result = {"volume": max(0, min(100, round(level.value * 100))), "muted": bool(muted.value)}
+        if self.identity is not None:
+            result.update(endpoint=self.identity, endpoint_role="multimedia", endpoint_flow="render", default_endpoint=self.current_default())
+        return result
 
     def set_volume(self, value):
         invoke(self.pointer, 7, [c.c_float, c.c_void_p], value / 100, None)

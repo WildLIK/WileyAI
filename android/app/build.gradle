@@ -9,11 +9,19 @@ android {
         applicationId 'ru.wildlik.wileyai.mobile'
         minSdk 26
         targetSdk 34
-        versionCode 11
-        versionName '0.11.0'
+        buildConfigField "boolean", "DIAGNOSTIC", "false"
+        versionCode 77
+        versionName '0.14.35-next12'
         testInstrumentationRunner 'ru.wildlik.wileyai.mobile.StageOneInstrumentation'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' } // also filters jniLibs packaged from the optional sherpa-onnx AAR
         externalNativeBuild { cmake { abiFilters 'arm64-v8a', 'x86_64'; arguments '-DCMAKE_BUILD_TYPE=Release'; cppFlags '-O2' } }
     }
+    buildFeatures { buildConfig true }
+    buildTypes {
+        debug { buildConfigField "boolean", "DIAGNOSTIC", "false" }
+
+    }
+    defaultConfig { manifestPlaceholders = [appLabel: "WileyAI", pairScheme: "wileyai"] }
     signingConfigs {
         debug {
             storeFile file('../../local/android-signing/wiley-debug.keystore')
@@ -31,4 +39,17 @@ android {
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75@aar'
     implementation 'net.java.dev.jna:jna:5.18.1@aar'
+    // Optional GigaAM runtime: packaged only when the user-placed AAR exists (local/, not committed).
+    // The sherpa-onnx Kotlin API needs kotlin-stdlib at runtime (Intrinsics checks, synthetic constructors).
+    def gigaAmAar = file('../../local/android-libs/sherpa-onnx-1.13.5.aar')
+    if (!gigaAmAar.exists() && file('../../local/android-libs/sherpa-onnx-1.12.6.aar').exists()) {
+        throw new GradleException('Установите проверенный sherpa-onnx 1.13.5: scripts/prepare-android-sherpa-16kb.ps1')
+    }
+    if (gigaAmAar.exists()) {
+        def expected = '6419cd8bc983e0c4fab06067f0fe0313fdc0f7103818ac1e7a08d50787b7a82b'
+        def actual = java.security.MessageDigest.getInstance('SHA-256').digest(gigaAmAar.bytes).encodeHex().toString()
+        if (actual != expected) throw new GradleException('Неверная контрольная сумма sherpa-onnx 1.13.5; AAR не используется.')
+        implementation files(gigaAmAar)
+        implementation files('../../local/android-libs/kotlin-stdlib-1.9.24.jar')
+    }
 }

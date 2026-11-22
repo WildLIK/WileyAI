@@ -25,7 +25,7 @@ final class WileyDialogs extends AlertDialog.Builder {
         return super.setAdapter(new ArrayAdapter<CharSequence>(getContext(), android.R.layout.simple_list_item_1, items) {
             @Override public View getView(int position, View convertView, ViewGroup parent) {
                 TextView row = (TextView)super.getView(position, convertView, parent);
-                row.setTextColor(ui.theme.text); row.setTextSize(16); row.setSingleLine(false);
+                row.setTextColor(ui.theme.text); row.setTextSize(16); ui.typography(row,400); row.setSingleLine(false);
                 row.setMinHeight(ui.dp(56)); row.setPadding(ui.dp(24), ui.dp(14), ui.dp(24), ui.dp(14));
                 return row;
             }
@@ -45,7 +45,7 @@ final class WileyDialogs extends AlertDialog.Builder {
             }
             for (int which : new int[]{DialogInterface.BUTTON_POSITIVE, DialogInterface.BUTTON_NEGATIVE, DialogInterface.BUTTON_NEUTRAL}) {
                 Button button = dialog.getButton(which);
-                if (button != null) { button.setAllCaps(false); button.setTextColor(ui.theme.accentText); button.setMinHeight(ui.dp(48)); }
+                if (button != null) ui.styleAction(button);
             }
             if (dialog.getListView() != null) {
                 dialog.getListView().setDivider(new ColorDrawable(ui.theme.border)); dialog.getListView().setDividerHeight(ui.dp(1));

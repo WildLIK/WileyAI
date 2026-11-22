@@ -85,3 +85,63 @@ def test_native_session_meter_is_read_only_and_finite():
     with session_meters() as meters:
         for value in peaks(meters).values():
             assert math.isfinite(value) and 0 <= value <= 1
+
+
+def test_stuck_native_read_expires_then_recovers_without_new_subscription(monkeypatch):
+    from contextlib import nullcontext
+    import core.music_meter as module
+    clock = [0.0]
+    blocked, release_read = threading.Event(), threading.Event()
+    calls = []
+    def read(_):
+        calls.append(1)
+        if len(calls) == 19:
+            blocked.set(); release_read.wait(5)
+        clock[0] += .05
+        return {"AIMP": .5}
+    monkeypatch.setattr(module, 'session_meters', lambda: nullcontext([]))
+    monkeypatch.setattr(module, 'peaks', read)
+    worker = MusicMeter(lambda: True, clock=lambda: clock[0])
+    try:
+        with worker.subscribe():
+            assert blocked.wait(3)
+            good = worker.value
+            assert good['active'] and good['fresh_ms'] == 1000
+            clock[0] += .4
+            assert worker.value['fresh_ms'] == 600
+            clock[0] += .7
+            stale = worker.value
+            assert stale['revision'] == good['revision'] and stale['observation'] == 'stale'
+            assert not stale['active'] and stale['level'] == 0 and stale['error']
+            release_read.set()
+            for _ in range(100):
+                if worker.value['revision'] > good['revision']: break
+                time.sleep(.01)
+            assert worker.value['observation'] == 'sample'
+        assert worker.value['observation'] == 'waiting'
+    finally:
+        release_read.set(); worker.close()
+
+
+def test_released_lease_discards_inflight_sample_and_closure_is_final(monkeypatch):
+    from contextlib import nullcontext
+    import core.music_meter as module
+    entered, unblock, new_read, finish_read = (threading.Event() for _ in range(4))
+    def read(_):
+        if not entered.is_set():
+            entered.set(); unblock.wait(5)
+            return {'AIMP': .9}
+        new_read.set(); finish_read.wait(5); return {}
+    monkeypatch.setattr(module,'session_meters',lambda: nullcontext([]))
+    monkeypatch.setattr(module,'peaks',read)
+    worker = MusicMeter(lambda: True)
+    try:
+        with worker.subscribe(): assert entered.wait(2)
+        with worker.subscribe():
+            unblock.set(); assert new_read.wait(2)
+            assert worker.value['revision'] == 0 and worker.value['level'] == 0
+    finally:
+        unblock.set(); finish_read.set(); worker.close()
+    with worker.subscribe():
+        assert worker.value['observation'] == 'closed'
+    assert worker.value['observation'] == 'closed'

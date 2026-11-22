@@ -4,6 +4,7 @@ import re
 
 
 CATEGORIES = {"music": "Музыка", "video": "Видео", "work": "Графика и работа", "messengers": "Мессенджеры", "browsers": "Браузеры", "windows": "Программы Windows", "other": "Другие"}
+CATEGORIES.update({"graphics": "Графические редакторы", "modeling": "3D-редакторы", "ide": "IDE", "text": "Текстовые редакторы", "office": "Офисные приложения", "games": "Игры"})
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ CATALOG = (
     app("krita", "work", "Krita", "крита", "krita.exe", *pf("Krita (x64)/bin/krita.exe")),
     app("blender", "work", "Blender", "блендер", "blender.exe", *pf("Blender Foundation/Blender */blender.exe")),
     app("vscode", "work", "Visual Studio Code", "vs code|vscode|code|вс код|ви эс код", "Code.exe", *pf("Microsoft VS Code/Code.exe")),
+    app("notepad-plus-plus", "work", "Notepad++", "notepad ++|notepad plus plus|notepadplusplus|нотепад++|нотепад плюс плюс|нотпад++|нотпад плюс плюс|ноутпад++|ноутпад плюс плюс|нотпэд плюс плюс", "notepad++.exe", *pf("Notepad++/notepad++.exe")),
     app("word", "work", "Microsoft Word", "word|ворд", "WINWORD.EXE", *pf("Microsoft Office/root/Office16/WINWORD.EXE")),
     app("excel", "work", "Microsoft Excel", "excel|эксель", "EXCEL.EXE", *pf("Microsoft Office/root/Office16/EXCEL.EXE")),
     app("powerpoint", "work", "Microsoft PowerPoint", "powerpoint|пауэрпоинт", "POWERPNT.EXE", *pf("Microsoft Office/root/Office16/POWERPNT.EXE")),

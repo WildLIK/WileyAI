@@ -123,7 +123,8 @@ def test_legacy_shortcuts_are_batched_and_unc_is_not_read(tmp_path, monkeypatch)
         calls.append(paths)
         return {str(path): str(exe) for path in paths}
     monkeypatch.setattr(discovery, "shortcut_targets", read_links)
-    assert len(discovery.ApplicationScanner(tmp_path).valid_items()) == 2
+    found = discovery.ApplicationScanner(tmp_path).valid_items()
+    assert len(found) == 1 and {"OldApp", "OldApp 2"}.issubset(found[0]["aliases"])
     assert len(calls) == 1 and len(calls[0]) == 2
 
 

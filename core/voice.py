@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import re
+import math
 import subprocess
 import tempfile
 import threading
@@ -23,6 +24,7 @@ from .qwen import QwenSpeech
 from .cloud_speech import CloudSpeech
 from .openvoice import OpenVoice, LOCAL_ENGINES
 from . import gigaam
+from .stt_guard import RecognitionText, assess_transcript
 
 # Published Silero checkpoints. A changed file is rejected rather than loaded with torch.
 SILERO_SHA256 = {
@@ -43,19 +45,15 @@ PHANTOMS = re.compile(
 )
 
 
-def recognized(text: str, prompt: str) -> str:
+def recognized(text: str, prompt: str, seconds=None) -> str:
     """Drop transcripts that are only a known hallucination or a replay of the prompt."""
     value = text.strip()
     if not value or PHANTOMS.fullmatch(value):
-        return ""
-    words = re.findall(r"\w+", value.casefold())
-    # A long exact copy of the vocabulary prompt is not something the user said.
-    if len(words) >= 8 and " ".join(words) in " ".join(re.findall(r"\w+", prompt.casefold())):
-        return ""
-    return value
+        return RecognitionText("", "stt_phantom" if value else "", characters=len(value))
+    return assess_transcript(value, prompt, seconds)
 
 
-def speech_prompt(name: str, vocabulary=()) -> str:
+def speech_prompt(name: str, vocabulary=(), *, seconds=None) -> str:
     """Style the prompt like the commands themselves: the name, a comma, an imperative."""
     name = name.strip() or "Уайли"
     base = (f"{name}, прибавь громкость на десять. {name}, убавь громкость. {name}, продолжи музыку. "
@@ -63,7 +61,11 @@ def speech_prompt(name: str, vocabulary=()) -> str:
             f"{name}, напомни через час. {name}, создай заметку. "
             "Яндекс Музыка, Яндекс Браузер, AIMP, Chrome, Firefox.")
     # Only short app names supplied by the local catalog/user; never history.
-    extra = [v.strip() for v in vocabulary[:8] if isinstance(v, str) and re.fullmatch(r"[\w .-]{1,60}", v.strip())]
+    short = seconds is not None and seconds < 2
+    if short:
+        # Sub-second clips should not be primed with a paragraph of commands.
+        base = name + "."
+    extra = [v.strip() for v in vocabulary[:4 if short else 8] if isinstance(v, str) and re.fullmatch(r"[\w .-]{1,60}", v.strip())]
     return (base[:600] + (" Приложения: " + ", ".join(extra) if extra else ""))[:800]
 
 
@@ -156,21 +158,28 @@ class Voice:
 
     def transcribe(self, data: bytes, model: str, hint: str = "", quality: str = "accurate", environment: str = "normal", vocabulary=()) -> str:
         with self.lock, self._using("stt"):
+            audio = pcm16k(data)
+            if model != gigaam.MODEL_ID and audio is not None and not audio.any():
+                return RecognitionText("", "stt_no_signal")
             self._load_stt(model)
             if model == gigaam.MODEL_ID:
-                return self.models[model].transcribe(data, pcm16k(data), environment)
+                return self.models[model].transcribe(data, audio, environment)
             # A fixed Russian vocabulary helps short device commands. Never use
             # the previous chat/document as a prompt or rewrite the transcript.
-            prompt = speech_prompt(hint, vocabulary)
+            seconds = len(audio) / 16000 if audio is not None else None
+            prompt = speech_prompt(hint, vocabulary, seconds=seconds)
             options = {"vad_parameters": {"threshold": 0.65, "min_speech_duration_ms": 200, "speech_pad_ms": 250}} if environment == "music" else {}
-            audio = pcm16k(data)
+            if seconds is not None and seconds <= 2:
+                # Only short known-duration clips: limit runaway decoding, not
+                # long dictation. Leave enough room for Russian tokenization.
+                options["max_new_tokens"] = max(64, math.ceil(seconds * 40))
             path = None
             if audio is None:  # Recorded webm/ogg: decoded by faster-whisper from a file.
                 with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as file:
                     file.write(data)
                     path = file.name
             try:
-                segments, _ = self.models[model].transcribe(
+                segments, info = self.models[model].transcribe(
                     path or audio, language="ru", vad_filter=True,
                     beam_size={"fast": 1, "balanced": 3, "accurate": 5}.get(quality, 5),
                     temperature=0.0, condition_on_previous_text=False,
@@ -178,7 +187,11 @@ class Voice:
                 # Whisper itself rates a segment as non-speech: noise, breath, music.
                 text = " ".join(segment.text.strip() for segment in segments
                                 if not (getattr(segment, "no_speech_prob", 0) > 0.7 and getattr(segment, "avg_logprob", 0) < -0.5))
-                return recognized(text, prompt)
+                # For formats decoded by Whisper, its metadata supplies duration.
+                # Do not estimate duration from transcript length or infer a score.
+                if seconds is None:
+                    seconds = getattr(info, "duration", None)
+                return recognized(text, prompt, seconds)
             finally:
                 if path:
                     Path(path).unlink(missing_ok=True)

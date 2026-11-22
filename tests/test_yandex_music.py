@@ -24,7 +24,7 @@ from core.device_audio import resolve as audio_resolve
     ("Следующая песня", "next", None), ("Предыдущий трек", "previous", None),
     ("Добавь в любимые", "like", None), ("Убери из любимых", "unlike", None),
     ("Что сейчас играет", "status", None), ("Громкость музыки 30 процентов", "volume", 30),
-    ("Сделай тише", "change_volume", -10),
+    ("Сделай тише в Яндекс Музыке", "change_volume", -10),
     ("включи песню", "play", None), ("включи трек", "play", None),
     ("сними песню с паузы", "play", None), ("Останови музыку", "pause", None),
     ("првоерь проигрыватель", "status", None),
@@ -223,21 +223,24 @@ def test_api_and_chat_target_yandex_without_global_media(tmp_path, monkeypatch):
         calls.append(command)
         return {"confirmed": True, "text": "Подтверждено тестовым плеером"}
     monkeypatch.setattr(app.state.music, "execute", execute)
+    monkeypatch.setattr(app.state.music, "status", lambda: {"connected": True})
     with TestClient(app, headers={"Authorization": "Bearer yandex-test-0123456789abcdef"}) as api:
         assert api.post("/music/yandex/action", json={"action": "play"}).json()["confirmed"]
-        assert api.post("/commands", json={"text": "пауза"}).json()["kind"] == "music.yandex"
+        assert api.post("/commands", json={"text": "пауза"}).json()["kind"] == "media.session"
         assert len(calls) == 1  # Preview has no effects.
-        for text in ("Следующая песня", "Найди песню Linkin Park With You", "Включи песню", "Яндекс Музыка, продолжи музыку", "Убавь в громкость", "найти песню турбина туриста", "так, включи её"):
+        # E2: a search-only request must no longer imply playback. This legacy
+        # adapter regression explicitly requests both existing operations.
+        for text in ("Найди и включи песню Linkin Park With You", "Добавь в любимые", "найти и включить песню турбина туриста", "так, включи её"):
             response = api.post("/chat", json={"text": text})
             events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
             assert events[-1]["type"] == "done" and "Подтверждено" in events[-1]["message"]["content"]
-        assert [c.action for c in calls] == ["play", "next", "search_play", "play", "play", "change_volume", "search_play", "search_play"]
+        assert [c.action for c in calls] == ["play", "search_play", "like", "search_play", "search_play"]
         assert calls[-1].query == calls[-2].query == "турбина туриста"
         assert api.post("/music/yandex/action", json={"action": "shell"}).status_code == 422
 
 
 @pytest.mark.parametrize("player,phrase,expected", [
-    ("yandex", "Упавь в громкость на 10", MusicAction(action="change_volume", value=-10)),
+    ("yandex", "Яндекс Музыка, упавь в громкость на 10", MusicAction(action="change_volume", value=-10)),
     ("yandex", "Протоже музыку", MusicAction(action="play")),
     ("auto", "Яндекс Музыка, протоже музыку", MusicAction(action="play")),
 ])
@@ -250,7 +253,8 @@ def test_confirmation_keeps_named_player_and_never_falls_back(tmp_path, monkeypa
     app = create_app(tmp_path, "yandex-tests-0123456789abcdef")
     store, calls = app.state.store, []
     store.patch_settings({"music_player": player})
-    monkeypatch.setattr(app.state.music, "execute", lambda command, cancel=None: calls.append(command) or {"text": "Подтверждено тестовым плеером"})
+    monkeypatch.setattr(app.state.music, "execute", forbidden)
+    monkeypatch.setattr(app.state.media, "execute", lambda command, *args, **kwargs: calls.append(command) or {"text": "Подтверждено тестовым плеером", "status": "confirmed"})
     from tests.test_device_audio import audio_chat
     with TestClient(app, headers={"Authorization": "Bearer yandex-tests-0123456789abcdef"}) as api:
         question = audio_chat(api, phrase, mode="conversation")
@@ -258,14 +262,14 @@ def test_confirmation_keeps_named_player_and_never_falls_back(tmp_path, monkeypa
         pending = store.dialogue()["pending_audio"]
         assert pending["target"] == "yandex"
         assert "Подтверждено" in audio_chat(api, "да")
-        assert calls == [expected] and "pending_audio" not in store.dialogue()
+        assert [(c.action, c.value, c.target) for c in calls] == [(expected.action, expected.value, "Яндекс Музыка")] and "pending_audio" not in store.dialogue()
         audio_chat(api, phrase)
         assert "отменен" in audio_chat(api, "отмена")
-        assert calls == [expected]
+        assert len(calls) == 1
         audio_chat(api, phrase)
         store.patch_settings({"music_player": "auto" if player == "yandex" else "yandex"})
         assert "устарело" in audio_chat(api, "да")
-        assert calls == [expected]
+        assert len(calls) == 1
 
 
 def test_connect_never_restarts_without_explicit_request(tmp_path, monkeypatch):
@@ -311,9 +315,9 @@ def test_cancel_waits_for_dispatched_operation(controller):
 @pytest.mark.parametrize("fault", [None, "desktop", "foreign_desktop", "foreign_pid", "public_bind", "foreign_page", "foreign_socket"])
 def test_debug_channel_is_process_bound_loopback_and_page_scoped(tmp_path, monkeypatch, fault):
     player = YandexMusic(tmp_path, Store(tmp_path), None)
-    data = {"pid": 12, "exe": str(tmp_path / "Яндекс Музыка.exe"), "port": 32123}
+    data = {"pid": 12, "created": 1, "exe": str(tmp_path / "Яндекс Музыка.exe"), "port": 32123}
     monkeypatch.setattr(player, "descriptor", lambda: data)
-    monkeypatch.setattr("core.yandex_music.psutil.Process", lambda _: SimpleNamespace(children=lambda **_: []))
+    monkeypatch.setattr("core.yandex_music.psutil.Process", lambda _: SimpleNamespace(children=lambda **_: [], create_time=lambda:1, exe=lambda:data['exe'], cmdline=lambda:['--remote-debugging-port=32123']))
     listener = SimpleNamespace(pid=13 if fault == "foreign_pid" else 12, status="LISTEN", laddr=SimpleNamespace(port=32123, ip="0.0.0.0" if fault == "public_bind" else "127.0.0.1"))
     monkeypatch.setattr("core.yandex_music.psutil.net_connections", lambda **_: [listener])
     page = {"type": "page", "url": "https://evil.example/" if fault == "foreign_page" else (tmp_path / "resources" / "index.html").as_uri(), "webSocketDebuggerUrl": "ws://127.0.0.1:32123/devtools/page/test"}

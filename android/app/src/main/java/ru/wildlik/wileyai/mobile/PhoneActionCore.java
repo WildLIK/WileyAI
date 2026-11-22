@@ -8,6 +8,12 @@ import java.util.Locale;
 /** Bounded Android audio/device queries shared by Activity and assistant service. */
 final class PhoneActionCore {
     static void execute(Context context, PhoneCommands.Action action, java.util.function.Consumer<String> reply) {
+        execute(context, action, "", (display, spoken) -> reply.accept(display));
+    }
+    static void execute(Context context, PhoneCommands.Action action, String request, PhoneActionReply reply) {
+        execute(context,action,request,intent->context.startActivity(intent),()->true,reply);
+    }
+    static void execute(Context context, PhoneCommands.Action action, String request, java.util.function.Consumer<android.content.Intent> launch, java.util.function.BooleanSupplier active, PhoneActionReply reply) {
         try {
             if (action.kind.equals("info")) {
                 if (action.value.equals("time")) reply.accept("Сейчас " + java.time.ZonedDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm", new Locale("ru"))) + " по времени телефона.");
@@ -31,9 +37,10 @@ final class PhoneActionCore {
                 if (!action.value.equals("status")) audio.setStreamVolume(AudioManager.STREAM_MUSIC, value, AudioManager.FLAG_SHOW_UI);
                 int actual = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
                 if (actual != value && !action.value.equals("status")) { reply.accept("Android не применил запрошенную громкость. Сейчас: " + Math.round(actual * 100f / Math.max(1, max)) + "%. Проверьте ограничение громкости и устройство вывода."); return; }
-                reply.accept(volumeDescription(actual,max)); return;
+                String description = volumeDescription(actual,max);
+                reply.result(description, MediaSpeech.volume(action.value, current, actual, description)); return;
             }
-            if (action.kind.equals("media")) { PlayerControl.execute(context,action,reply); return; }
+            if (action.kind.equals("media")) { PlayerControl.execute(context,action,request,launch,active,reply); return; }
             reply.accept("Эта команда не поддерживается");
         } catch (Exception e) { reply.accept("Не удалось выполнить команду на телефоне: " + (e.getMessage() == null ? "приложение недоступно" : e.getMessage())); }
     }

@@ -34,9 +34,59 @@ Russian spoken-number preparation uses num2words (LGPL-2.1-or-later).
 Its source and license are available at https://github.com/savoirfairelinux/num2words;
 package license files are included with its Python distribution metadata.
 
-Optional engines and model weights are downloaded separately at the user's
-request and are governed by their respective licenses. They are not included
-in the installer. No user documents, API keys or AI model weights are bundled.
+Optional ASR, TTS, language-model and Smart Turn weights are downloaded separately
+at the user's request and are governed by their respective licenses. User
+documents and API keys are never bundled. The small Silero VAD model below is
+included for local speech endpoint detection.
+
+WileyAI Android 0.13.6b-c9 and later may optionally use the GigaAM v3 RNN-T
+model (MIT, copyright 2024 GigaChat Team,
+https://github.com/salute-developers/GigaAM) as an experimental offline Russian
+speech recognizer. The model is never bundled: the user downloads the pinned
+sherpa-onnx ONNX export
+(csukuangfj/sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16 on
+Hugging Face) at their explicit request, and each file is verified against its
+published SHA-256 before installation. The optional sherpa-onnx Android AAR
+(Apache-2.0, https://github.com/k2-fsa/sherpa-onnx) is likewise a separate
+user-requested component, not part of the default APK.
+
+Desktop speech endpoint detection includes ONNX Runtime Web 1.31.1 (MIT,
+https://github.com/microsoft/onnxruntime) and Silero VAD v5 (MIT, copyright
+2020-present Silero Team, https://github.com/snakers4/silero-vad). The ONNX
+artifact comes from ricky0123/vad revision
+2e5aca93e3902f04ff5b7eb4a9633926cdca9cf6, file silero_vad_v5.onnx, SHA-256
+2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f.
+The vad-web microphone wrapper is not included; WileyAI retains its own
+AudioWorklet and uses a dedicated local inference worker. TEN VAD and WebRTC VAD
+were evaluated locally and are not included in the application.
+
+Silero VAD model license:
+
+Copyright (c) 2020-present Silero Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Optional Smart Turn v3.2 CPU weights and code are BSD-2-Clause, copyright
+2024–2025 Daily, https://github.com/pipecat-ai/smart-turn. WileyAI downloads the
+pinned ONNX artifact only after an explicit request, verifies its SHA-256 and
+does not execute Python from the model repository. The original code and model
+license is included in resources/licenses/voice/Smart-Turn-LICENSE.txt.
 
 Optional GigaAM v3 E2E RNN-T speech recognition uses GigaAM (MIT,
 https://github.com/salute-developers/GigaAM), the unquantized ONNX exports at

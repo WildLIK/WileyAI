@@ -1,0 +1,4304 @@
+{
+  "meta": {
+    "source": "MusicBrainz core metadata",
+    "license": "CC0-1.0",
+    "retrieved_at": "2026-11-09T16:27:14.519319+00:00",
+    "note": "Public metadata, not Yandex search results. Numeric ids are fixture ids, not Yandex ids.",
+    "requests": [
+      {
+        "artist": "Кино",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9A%D0%B8%D0%BD%D0%BE%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Земфира",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%97%D0%B5%D0%BC%D1%84%D0%B8%D1%80%D0%B0%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "ДДТ",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%94%D0%94%D0%A2%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Сплин",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%A1%D0%BF%D0%BB%D0%B8%D0%BD%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Би-2",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%91%D0%B8-2%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Мумий Тролль",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9C%D1%83%D0%BC%D0%B8%D0%B9+%D0%A2%D1%80%D0%BE%D0%BB%D0%BB%D1%8C%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Наутилус Помпилиус",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9D%D0%B0%D1%83%D1%82%D0%B8%D0%BB%D1%83%D1%81+%D0%9F%D0%BE%D0%BC%D0%BF%D0%B8%D0%BB%D0%B8%D1%83%D1%81%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Алиса",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%90%D0%BB%D0%B8%D1%81%D0%B0%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Чайф",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%A7%D0%B0%D0%B9%D1%84%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Ария",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%90%D1%80%D0%B8%D1%8F%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Король и Шут",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9A%D0%BE%D1%80%D0%BE%D0%BB%D1%8C+%D0%B8+%D0%A8%D1%83%D1%82%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Пикник",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9F%D0%B8%D0%BA%D0%BD%D0%B8%D0%BA%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Машина времени",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9C%D0%B0%D1%88%D0%B8%D0%BD%D0%B0+%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%B8%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Мельница",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9C%D0%B5%D0%BB%D1%8C%D0%BD%D0%B8%D1%86%D0%B0%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Михаил Круг",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9C%D0%B8%D1%85%D0%B0%D0%B8%D0%BB+%D0%9A%D1%80%D1%83%D0%B3%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Каста",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22%D0%9A%D0%B0%D1%81%D1%82%D0%B0%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Linkin Park",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Linkin+Park%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Noize MC",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Noize+MC%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Rammstein",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Rammstein%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Imagine Dragons",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Imagine+Dragons%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Billie Eilish",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Billie+Eilish%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Queen",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Queen%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Daft Punk",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Daft+Punk%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Twenty One Pilots",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Twenty+One+Pilots%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Metallica",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Metallica%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Nightwish",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Nightwish%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Radiohead",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Radiohead%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Nirvana",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Nirvana%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Björk",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Bj%C3%B6rk%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Massive Attack",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Massive+Attack%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "Depeche Mode",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22Depeche+Mode%22&limit=100&fmt=json"
+      },
+      {
+        "artist": "AC/DC",
+        "url": "https://musicbrainz.org/ws/2/recording/?query=artist%3A%22AC%2FDC%22&limit=100&fmt=json"
+      }
+    ]
+  },
+  "records": [
+    {
+      "id": "10000",
+      "title": "Без десяти",
+      "artists": "Кино",
+      "mbid": "48157e51-896a-4639-9086-635854def8af",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/48157e51-896a-4639-9086-635854def8af",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10001",
+      "title": "Саша",
+      "artists": "Кино",
+      "mbid": "fa07744f-ad28-49dd-87c6-7ebb4e967716",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/fa07744f-ad28-49dd-87c6-7ebb4e967716",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10002",
+      "title": "Я из тех",
+      "artists": "Кино",
+      "mbid": "faf47d0e-94d1-42bb-a9d9-2b75b559bb1f",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/faf47d0e-94d1-42bb-a9d9-2b75b559bb1f",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10003",
+      "title": "Транквилизатор",
+      "artists": "Кино",
+      "mbid": "5bdf0937-9ec3-4cd0-aedb-dd818b1c42d2",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/5bdf0937-9ec3-4cd0-aedb-dd818b1c42d2",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10004",
+      "title": "Музыка волн",
+      "artists": "Кино",
+      "mbid": "eb9314e9-856d-4445-b63e-93bfed0e0f35",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/eb9314e9-856d-4445-b63e-93bfed0e0f35",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10005",
+      "title": "Троллейбус, который идёт на восток",
+      "artists": "Кино",
+      "mbid": "fdf8b7bb-4bc1-4b94-ba33-1487862684e5",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/fdf8b7bb-4bc1-4b94-ba33-1487862684e5",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10006",
+      "title": "Время есть, а денег нет",
+      "artists": "Кино",
+      "mbid": "3ee13c6a-596a-4edd-9a11-5913e6977be0",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/3ee13c6a-596a-4edd-9a11-5913e6977be0",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10007",
+      "title": "Прохожий",
+      "artists": "Кино",
+      "mbid": "4259f823-5d55-4106-8412-6f68a424b847",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/4259f823-5d55-4106-8412-6f68a424b847",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10008",
+      "title": "В наших глазах",
+      "artists": "Кино",
+      "mbid": "cbb446ac-12eb-45c0-a14c-3550812840ad",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/cbb446ac-12eb-45c0-a14c-3550812840ad",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10009",
+      "title": "Дальше действовать будем мы",
+      "artists": "Кино",
+      "mbid": "7fdaafd4-eec0-41a4-8f25-66f656d58749",
+      "artist_mbids": [
+        "064db6e8-fdfb-4acb-a327-fc2de75b37de"
+      ],
+      "source": "https://musicbrainz.org/recording/7fdaafd4-eec0-41a4-8f25-66f656d58749",
+      "language": "ru",
+      "group": "Кино",
+      "split": "tune"
+    },
+    {
+      "id": "10010",
+      "title": "Мечтой",
+      "artists": "Zемфира",
+      "mbid": "81b4a7f1-fd48-4995-8b59-81f82aab2f27",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/81b4a7f1-fd48-4995-8b59-81f82aab2f27",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10011",
+      "title": "Искала",
+      "artists": "Zемфира",
+      "mbid": "98ccfaf8-63a1-47ee-971e-0d6938312ed5",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/98ccfaf8-63a1-47ee-971e-0d6938312ed5",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10012",
+      "title": "Город",
+      "artists": "Земфира",
+      "mbid": "fd2f23fd-4699-4559-ab35-dbc6f63124ec",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/fd2f23fd-4699-4559-ab35-dbc6f63124ec",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10013",
+      "title": "Каждую ночь",
+      "artists": "Zемфира",
+      "mbid": "f078ed1f-247a-47c1-9be5-a1d88f92edb5",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/f078ed1f-247a-47c1-9be5-a1d88f92edb5",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10014",
+      "title": "Ненавижу",
+      "artists": "Zемфира",
+      "mbid": "75b1504d-ceba-491e-9ee5-4c8b4b10dae5",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/75b1504d-ceba-491e-9ee5-4c8b4b10dae5",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10015",
+      "title": "Мальчик (Nail Bay)",
+      "artists": "Zемфира",
+      "mbid": "a3a98d42-a92a-4294-856f-3d5687d7ea94",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/a3a98d42-a92a-4294-856f-3d5687d7ea94",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10016",
+      "title": "Мальчик (Оттенки Пустоты)",
+      "artists": "Zемфира",
+      "mbid": "534d7e92-049c-45e5-95ac-fd0938b59e95",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/534d7e92-049c-45e5-95ac-fd0938b59e95",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10017",
+      "title": "Лихие-90-е (Земфира рекламирует уфимский мебельный магазин)",
+      "artists": "Земфира",
+      "mbid": "ec055f4a-eed6-461c-93d8-5274af52fc79",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/ec055f4a-eed6-461c-93d8-5274af52fc79",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10018",
+      "title": "Лондон",
+      "artists": "Zемфира",
+      "mbid": "5a1d5a11-2b6b-49b9-b945-62d6e42797b7",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/5a1d5a11-2b6b-49b9-b945-62d6e42797b7",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10019",
+      "title": "Сигареты",
+      "artists": "Zемфира",
+      "mbid": "d2ad223a-341f-4e89-a6f8-62d9eb0420ba",
+      "artist_mbids": [
+        "cec59910-2d12-46ec-8e39-85ca06acb0ed"
+      ],
+      "source": "https://musicbrainz.org/recording/d2ad223a-341f-4e89-a6f8-62d9eb0420ba",
+      "language": "ru",
+      "group": "Земфира",
+      "split": "tune"
+    },
+    {
+      "id": "10020",
+      "title": "За высокой горой",
+      "artists": "ДДТ",
+      "mbid": "9cae3e3c-40ab-4ba5-9259-9b6f11ca0ed0",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/9cae3e3c-40ab-4ba5-9259-9b6f11ca0ed0",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10021",
+      "title": "Фома",
+      "artists": "ДДТ",
+      "mbid": "2eb189fd-c9a5-47ba-98c7-14b62c9e9885",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/2eb189fd-c9a5-47ba-98c7-14b62c9e9885",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10022",
+      "title": "Храм",
+      "artists": "ДДТ",
+      "mbid": "b676e9ed-74df-484d-8288-92fded0f32c3",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/b676e9ed-74df-484d-8288-92fded0f32c3",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10023",
+      "title": "Живой",
+      "artists": "ДДТ",
+      "mbid": "74757637-17cf-42e2-a838-43810674beb1",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/74757637-17cf-42e2-a838-43810674beb1",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10024",
+      "title": "Любовь, подумай обо мне",
+      "artists": "ДДТ",
+      "mbid": "1403b760-22f6-4d84-b4f7-98d13f0494f7",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/1403b760-22f6-4d84-b4f7-98d13f0494f7",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10025",
+      "title": "Ларёк (Бородино)",
+      "artists": "ДДТ",
+      "mbid": "3a6a86b2-83cd-4c7d-8221-9085f3a64063",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/3a6a86b2-83cd-4c7d-8221-9085f3a64063",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10026",
+      "title": "Ночь",
+      "artists": "ДДТ",
+      "mbid": "7c54fc65-1748-499d-8b3d-802f7dd8b28c",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/7c54fc65-1748-499d-8b3d-802f7dd8b28c",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10027",
+      "title": "У тебя есть сын",
+      "artists": "ДДТ",
+      "mbid": "e01aecb3-19db-4d4e-9981-465b94b29eb7",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/e01aecb3-19db-4d4e-9981-465b94b29eb7",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10028",
+      "title": "Террорист",
+      "artists": "ДДТ",
+      "mbid": "c25c0711-635f-47c1-b508-42cd9d922674",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/c25c0711-635f-47c1-b508-42cd9d922674",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10029",
+      "title": "Вороны",
+      "artists": "ДДТ",
+      "mbid": "6d89b06f-7990-41b3-8d91-f86c54dd9d53",
+      "artist_mbids": [
+        "f7456b5b-e5a5-454e-b5db-047308210c8e"
+      ],
+      "source": "https://musicbrainz.org/recording/6d89b06f-7990-41b3-8d91-f86c54dd9d53",
+      "language": "ru",
+      "group": "ДДТ",
+      "split": "tune"
+    },
+    {
+      "id": "10030",
+      "title": "Северо-запад",
+      "artists": "Сплин",
+      "mbid": "ad9b9dd1-8521-4ec9-86f4-5e755c1be9d3",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/ad9b9dd1-8521-4ec9-86f4-5e755c1be9d3",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10031",
+      "title": "Йог спокоен",
+      "artists": "Сплин",
+      "mbid": "8cae8813-1056-4844-8201-d7ef22f37c65",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/8cae8813-1056-4844-8201-d7ef22f37c65",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10032",
+      "title": "Альтависта (Другая точка зрения)",
+      "artists": "Сплин",
+      "mbid": "46754cc4-e878-4bda-9d45-31e6085c3341",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/46754cc4-e878-4bda-9d45-31e6085c3341",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10033",
+      "title": "Мария и Хуана",
+      "artists": "Сплин",
+      "mbid": "d4fc02e7-ce05-4020-91a1-839f82929f1b",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/d4fc02e7-ce05-4020-91a1-839f82929f1b",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10034",
+      "title": "Три цвета",
+      "artists": "Сплин",
+      "mbid": "3c6a685a-718f-4a44-a3cb-2a1ef63c2e95",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/3c6a685a-718f-4a44-a3cb-2a1ef63c2e95",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10035",
+      "title": "Ленинград-Амстердам",
+      "artists": "Сплин",
+      "mbid": "6568d20a-f8d1-4ec4-aa01-e488e15ce2c5",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/6568d20a-f8d1-4ec4-aa01-e488e15ce2c5",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10036",
+      "title": "Линия жизни",
+      "artists": "Сплин",
+      "mbid": "c9777c2e-3f52-4b15-9ff6-6360e46fde1d",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/c9777c2e-3f52-4b15-9ff6-6360e46fde1d",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10037",
+      "title": "На счастье!",
+      "artists": "Сплин",
+      "mbid": "bedacc72-c56b-464d-b68f-a392509712e2",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/bedacc72-c56b-464d-b68f-a392509712e2",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10038",
+      "title": "Любовь идёт по проводам (акустическая версия)",
+      "artists": "Сплин",
+      "mbid": "2b6596e8-d458-44af-af4b-447c5d317e33",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/2b6596e8-d458-44af-af4b-447c5d317e33",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10039",
+      "title": "Остаёмся зимовать (акустическая версия)",
+      "artists": "Сплин",
+      "mbid": "9074b6f2-0bf3-46de-8bbe-9fc7b9f0b39d",
+      "artist_mbids": [
+        "0783b768-6719-450b-a7e1-7e891da17af3"
+      ],
+      "source": "https://musicbrainz.org/recording/9074b6f2-0bf3-46de-8bbe-9fc7b9f0b39d",
+      "language": "ru",
+      "group": "Сплин",
+      "split": "tune"
+    },
+    {
+      "id": "10040",
+      "title": "Реки",
+      "artists": "Би-2",
+      "mbid": "02b0b257-d13d-4c1d-899b-099dd8d8d9e1",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/02b0b257-d13d-4c1d-899b-099dd8d8d9e1",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10041",
+      "title": "Мяу кисс ми",
+      "artists": "Би-2",
+      "mbid": "29955d8c-6880-4982-82c7-ed46fee83c0e",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/29955d8c-6880-4982-82c7-ed46fee83c0e",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10042",
+      "title": "Недотрога",
+      "artists": "Би-2",
+      "mbid": "5a2bb6f2-f24e-4b85-91f4-35a52f6cfba9",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/5a2bb6f2-f24e-4b85-91f4-35a52f6cfba9",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10043",
+      "title": "Прощай, Берлин",
+      "artists": "Би-2",
+      "mbid": "b42d687b-62cd-47dd-b41a-eae8ed402d4d",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/b42d687b-62cd-47dd-b41a-eae8ed402d4d",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10044",
+      "title": "Отражение",
+      "artists": "Би-2",
+      "mbid": "4efa3749-2412-4df5-8061-f29edc55041c",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/4efa3749-2412-4df5-8061-f29edc55041c",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10045",
+      "title": "Мой рок-н-ролл",
+      "artists": "Би-2",
+      "mbid": "db77ed2d-c677-4dbf-a109-e217504e39b8",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/db77ed2d-c677-4dbf-a109-e217504e39b8",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10046",
+      "title": "Ангелы",
+      "artists": "Би-2",
+      "mbid": "8f0f2873-bb60-4fcc-ac7b-f87d119d9b5d",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/8f0f2873-bb60-4fcc-ac7b-f87d119d9b5d",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10047",
+      "title": "Ещё не вечер",
+      "artists": "Би-2",
+      "mbid": "944577e5-be6f-4b3f-8c8c-3f10214c5023",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/944577e5-be6f-4b3f-8c8c-3f10214c5023",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10048",
+      "title": "Волки",
+      "artists": "Би-2",
+      "mbid": "143af4c5-853c-4436-b146-630f3ed649be",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/143af4c5-853c-4436-b146-630f3ed649be",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10049",
+      "title": "Полковнику никто не пишет",
+      "artists": "Би-2",
+      "mbid": "c3cf38b5-96c2-44d7-8025-db30a36c04c8",
+      "artist_mbids": [
+        "5ca35ace-4006-4d4a-af04-5cd91dafab14"
+      ],
+      "source": "https://musicbrainz.org/recording/c3cf38b5-96c2-44d7-8025-db30a36c04c8",
+      "language": "ru",
+      "group": "Би-2",
+      "split": "holdout"
+    },
+    {
+      "id": "10050",
+      "title": "Девочкодруг",
+      "artists": "Мумий Тролль",
+      "mbid": "1d75b7a1-f695-4ff6-8367-0d0d636cdad1",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/1d75b7a1-f695-4ff6-8367-0d0d636cdad1",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10051",
+      "title": "Все будет! (Dzuma & AG mix)",
+      "artists": "Мумий Тролль",
+      "mbid": "242bd989-7eb6-4aa2-ba5f-11def81ba263",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/242bd989-7eb6-4aa2-ba5f-11def81ba263",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10052",
+      "title": "Невеста? (DJ Ram)",
+      "artists": "Мумий Тролль",
+      "mbid": "6474bfef-0b71-4f6f-a708-390adb8189ea",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/6474bfef-0b71-4f6f-a708-390adb8189ea",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10053",
+      "title": "Забавы",
+      "artists": "Мумий Тролль",
+      "mbid": "a5489d17-57ff-47e5-a91e-cfd37d178468",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/a5489d17-57ff-47e5-a91e-cfd37d178468",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10054",
+      "title": "Без обмана",
+      "artists": "Мумий Тролль",
+      "mbid": "9d686436-4bf7-4cc9-9f63-41e161957593",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/9d686436-4bf7-4cc9-9f63-41e161957593",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10055",
+      "title": "Страху нет (Bestoloch vs. Миха Ворон)",
+      "artists": "Мумий Тролль",
+      "mbid": "1046503a-d330-4038-b92a-acc829f70f9b",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/1046503a-d330-4038-b92a-acc829f70f9b",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10056",
+      "title": "С Новым годом, крошка! (DJ Ivan Scratchin’)",
+      "artists": "Мумий Тролль",
+      "mbid": "0d5b252b-9280-47ec-84a1-2727c6d0e10a",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/0d5b252b-9280-47ec-84a1-2727c6d0e10a",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10057",
+      "title": "Нет нет нет",
+      "artists": "Мумий Тролль",
+      "mbid": "fac5081a-73de-40af-aa26-9afe9c6bb721",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/fac5081a-73de-40af-aa26-9afe9c6bb721",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10058",
+      "title": "Утекай (тел/факс микс)",
+      "artists": "Мумий Тролль",
+      "mbid": "231441ed-e9cc-42ce-bff3-b5ed6290d81c",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/231441ed-e9cc-42ce-bff3-b5ed6290d81c",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10059",
+      "title": "С Новым годом, крошка! (Alex version)",
+      "artists": "Мумий Тролль",
+      "mbid": "b56f7831-9c68-435e-a593-98c5a1e2aa84",
+      "artist_mbids": [
+        "f91b9b28-25b7-4064-81d1-f43163085770"
+      ],
+      "source": "https://musicbrainz.org/recording/b56f7831-9c68-435e-a593-98c5a1e2aa84",
+      "language": "ru",
+      "group": "Мумий Тролль",
+      "split": "holdout"
+    },
+    {
+      "id": "10060",
+      "title": "Тихие игры",
+      "artists": "Nautilus Pompilius",
+      "mbid": "c9035f3a-2f65-4278-bf30-abf3e0ca46c0",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/c9035f3a-2f65-4278-bf30-abf3e0ca46c0",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10061",
+      "title": "Красные листья",
+      "artists": "Nautilus Pompilius",
+      "mbid": "4696fdfd-c9e8-4bd4-bb3a-7400c1ecf98d",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/4696fdfd-c9e8-4bd4-bb3a-7400c1ecf98d",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10062",
+      "title": "Бесы",
+      "artists": "Nautilus Pompilius",
+      "mbid": "e979c368-22ef-46f7-be4e-7d33e3119966",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/e979c368-22ef-46f7-be4e-7d33e3119966",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10063",
+      "title": "В который раз я вижу R’N’R",
+      "artists": "Nautilus Pompilius",
+      "mbid": "66929f2e-f86f-4c58-963e-9df8cfb8cda0",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/66929f2e-f86f-4c58-963e-9df8cfb8cda0",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10064",
+      "title": "Жажда",
+      "artists": "Nautilus Pompilius",
+      "mbid": "87238e95-ee79-4031-96c9-2443f054319c",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/87238e95-ee79-4031-96c9-2443f054319c",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10065",
+      "title": "Дыхание",
+      "artists": "Nautilus Pompilius",
+      "mbid": "e929b501-0a24-4274-87c6-6e3af64da317",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/e929b501-0a24-4274-87c6-6e3af64da317",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10066",
+      "title": "Всего лишь быть",
+      "artists": "Nautilus Pompilius",
+      "mbid": "d90a8f82-e588-4dc9-9e89-9a234330c110",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/d90a8f82-e588-4dc9-9e89-9a234330c110",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10067",
+      "title": "Автор",
+      "artists": "Nautilus Pompilius",
+      "mbid": "df37d688-1d39-47c9-ac15-9cbe0f84ab3b",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/df37d688-1d39-47c9-ac15-9cbe0f84ab3b",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10068",
+      "title": "Мальчик-зима",
+      "artists": "Nautilus Pompilius",
+      "mbid": "2f76352d-1550-420c-8ce4-0aa5f8f9a902",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/2f76352d-1550-420c-8ce4-0aa5f8f9a902",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10069",
+      "title": "Золотое пятно",
+      "artists": "Nautilus Pompilius",
+      "mbid": "fff1df1a-ebe9-4a62-8e14-4e9525c32a95",
+      "artist_mbids": [
+        "247efe0f-80f1-477c-a4a0-b5cb1b8c832e"
+      ],
+      "source": "https://musicbrainz.org/recording/fff1df1a-ebe9-4a62-8e14-4e9525c32a95",
+      "language": "ru",
+      "group": "Наутилус Помпилиус",
+      "split": "holdout"
+    },
+    {
+      "id": "10070",
+      "title": "Трасса Е-95",
+      "artists": "Алиса",
+      "mbid": "c57ee33e-d1e0-4a88-af57-2cde9f99a3e8",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/c57ee33e-d1e0-4a88-af57-2cde9f99a3e8",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10071",
+      "title": "Красное на чёрном",
+      "artists": "Алиса",
+      "mbid": "8050d4af-3a72-44e4-8606-787beabb5044",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/8050d4af-3a72-44e4-8606-787beabb5044",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10072",
+      "title": "Движение вспять",
+      "artists": "Алиса",
+      "mbid": "0496917c-b186-463f-a3cd-a91a2d5ea4ee",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/0496917c-b186-463f-a3cd-a91a2d5ea4ee",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10073",
+      "title": "Соковыжиматель",
+      "artists": "Алиса",
+      "mbid": "e5ebdfd1-8ccd-4d1d-994b-b49d5cc7be49",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/e5ebdfd1-8ccd-4d1d-994b-b49d5cc7be49",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10074",
+      "title": "Всё в наших руках",
+      "artists": "Алиса",
+      "mbid": "cea4faef-e7b1-45fe-98e6-770643d50762",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/cea4faef-e7b1-45fe-98e6-770643d50762",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10075",
+      "title": "Спокойная ночь",
+      "artists": "Алиса",
+      "mbid": "970fe12d-172e-4b3d-9aaf-edd922cf3b09",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/970fe12d-172e-4b3d-9aaf-edd922cf3b09",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10076",
+      "title": "Мама",
+      "artists": "Алиса",
+      "mbid": "5f91ba0c-dbd8-4661-bb09-01d03237a8f8",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/5f91ba0c-dbd8-4661-bb09-01d03237a8f8",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10077",
+      "title": "Плач",
+      "artists": "Алиса",
+      "mbid": "f3de729f-5b41-4b40-9633-eab9f42d6de0",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/f3de729f-5b41-4b40-9633-eab9f42d6de0",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10078",
+      "title": "Камикадзе",
+      "artists": "Алиса",
+      "mbid": "1246e006-3d4b-44af-86b5-dec80b3ff417",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/1246e006-3d4b-44af-86b5-dec80b3ff417",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10079",
+      "title": "Православные",
+      "artists": "Алиса",
+      "mbid": "0d1e09e3-950b-48da-a40a-190a13642167",
+      "artist_mbids": [
+        "a1f0bd3b-6977-4ab2-8d5c-2464bada895d"
+      ],
+      "source": "https://musicbrainz.org/recording/0d1e09e3-950b-48da-a40a-190a13642167",
+      "language": "ru",
+      "group": "Алиса",
+      "split": "holdout"
+    },
+    {
+      "id": "10080",
+      "title": "Сальто назад",
+      "artists": "Чайф и Изумруд",
+      "mbid": "ce499eff-b551-49b0-9f60-30ca7e023179",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719",
+        "9a98129e-3dea-4a37-b5f2-20f74c5f1710"
+      ],
+      "source": "https://musicbrainz.org/recording/ce499eff-b551-49b0-9f60-30ca7e023179",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10081",
+      "title": "Не дай мне повод",
+      "artists": "Чайф",
+      "mbid": "84518765-98b1-446b-94cc-6a2357e280ce",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/84518765-98b1-446b-94cc-6a2357e280ce",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10082",
+      "title": "Внеплановый концерт",
+      "artists": "Чайф",
+      "mbid": "8c473a33-0ac4-4984-a7ff-13c13604cac4",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/8c473a33-0ac4-4984-a7ff-13c13604cac4",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10083",
+      "title": "Делай больше денег",
+      "artists": "Чайф",
+      "mbid": "9fb8a35f-5fa7-4bcf-9a5c-01185e21f318",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/9fb8a35f-5fa7-4bcf-9a5c-01185e21f318",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10084",
+      "title": "Псы с городских окраин",
+      "artists": "Чайф",
+      "mbid": "07f990a0-2eb6-4bc8-9700-a5f6619c37b3",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/07f990a0-2eb6-4bc8-9700-a5f6619c37b3",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10085",
+      "title": "Джип-бип-папа",
+      "artists": "Чайф",
+      "mbid": "1f72160a-861c-42af-becd-eb8c5513be6b",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/1f72160a-861c-42af-becd-eb8c5513be6b",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10086",
+      "title": "Ой-йо",
+      "artists": "Чайф",
+      "mbid": "c15777a7-3f6a-44be-8fb6-a6652665faad",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/c15777a7-3f6a-44be-8fb6-a6652665faad",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10087",
+      "title": "Шабенина",
+      "artists": "Чайф",
+      "mbid": "ff8bb9ad-547c-47c9-ad2a-2dbc2ab2ddaa",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/ff8bb9ad-547c-47c9-ad2a-2dbc2ab2ddaa",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10088",
+      "title": "Твоя светлая муза",
+      "artists": "Чайф",
+      "mbid": "12729feb-fa64-4128-b373-1d8bb503daae",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/12729feb-fa64-4128-b373-1d8bb503daae",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10089",
+      "title": "Вперёд",
+      "artists": "Чайф",
+      "mbid": "7cfd455a-ed88-49c3-9f3c-1a000aa08e12",
+      "artist_mbids": [
+        "46c83515-6df3-4afa-b597-cffd21aab719"
+      ],
+      "source": "https://musicbrainz.org/recording/7cfd455a-ed88-49c3-9f3c-1a000aa08e12",
+      "language": "ru",
+      "group": "Чайф",
+      "split": "holdout"
+    },
+    {
+      "id": "10090",
+      "title": "Кровь королей",
+      "artists": "Ария",
+      "mbid": "ededbedf-cdac-4bda-9078-62b904a41e63",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/ededbedf-cdac-4bda-9078-62b904a41e63",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10091",
+      "title": "Там высоко",
+      "artists": "Ария",
+      "mbid": "e250c7de-8816-46f6-a382-35a75a4d1a71",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/e250c7de-8816-46f6-a382-35a75a4d1a71",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10092",
+      "title": "Новый крестовый поход",
+      "artists": "Ария",
+      "mbid": "eb14df3d-c2fa-499f-8da8-fa5818c0320f",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/eb14df3d-c2fa-499f-8da8-fa5818c0320f",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10093",
+      "title": "Страж империи",
+      "artists": "Ария",
+      "mbid": "0886e2ae-5193-4e63-9ec6-bbb73de230c1",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/0886e2ae-5193-4e63-9ec6-bbb73de230c1",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10094",
+      "title": "Патриот",
+      "artists": "Ария",
+      "mbid": "9d48f36a-0ea6-466d-922b-b7b6c4e5f042",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/9d48f36a-0ea6-466d-922b-b7b6c4e5f042",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10095",
+      "title": "Зомби",
+      "artists": "Ария",
+      "mbid": "ba193190-aef8-4c95-be69-5114dcf08e76",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/ba193190-aef8-4c95-be69-5114dcf08e76",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10096",
+      "title": "Следуй за мной!",
+      "artists": "Ария",
+      "mbid": "797dd112-da27-40ae-acf9-44af589dad94",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/797dd112-da27-40ae-acf9-44af589dad94",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10097",
+      "title": "Пробил час",
+      "artists": "Ария",
+      "mbid": "3836923c-e97f-4b5b-8fc8-9f631c40f5bb",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/3836923c-e97f-4b5b-8fc8-9f631c40f5bb",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10098",
+      "title": "Машина смерти",
+      "artists": "Ария",
+      "mbid": "06664142-3c46-46f2-9422-710aa475d0a2",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/06664142-3c46-46f2-9422-710aa475d0a2",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10099",
+      "title": "Потерянный рай",
+      "artists": "Ария",
+      "mbid": "8d40f0ca-ea67-442c-aae8-0f95aeac3159",
+      "artist_mbids": [
+        "1f36a3a2-9687-4819-ac55-54d7ff0b8b88"
+      ],
+      "source": "https://musicbrainz.org/recording/8d40f0ca-ea67-442c-aae8-0f95aeac3159",
+      "language": "ru",
+      "group": "Ария",
+      "split": "holdout"
+    },
+    {
+      "id": "10100",
+      "title": "Задира и солдат",
+      "artists": "Король и Шут",
+      "mbid": "99a20a35-e503-4a6e-83ea-3484f6f7dd38",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/99a20a35-e503-4a6e-83ea-3484f6f7dd38",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10101",
+      "title": "Волшебный глаз старика Алонса",
+      "artists": "Король и Шут",
+      "mbid": "1d3508b1-ae74-4644-a0bc-99be41768f89",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/1d3508b1-ae74-4644-a0bc-99be41768f89",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10102",
+      "title": "Охотник",
+      "artists": "Король и Шут",
+      "mbid": "f47734e1-ab34-46ed-9a76-f3c5a427c1fa",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/f47734e1-ab34-46ed-9a76-f3c5a427c1fa",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10103",
+      "title": "Следи за собой",
+      "artists": "Король и Шут",
+      "mbid": "559f15bb-714e-40e1-a292-57a6a2304d26",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/559f15bb-714e-40e1-a292-57a6a2304d26",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10104",
+      "title": "Вячеслав",
+      "artists": "Король и Шут",
+      "mbid": "fd670a60-6591-4672-9baf-9e441d5937a4",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/fd670a60-6591-4672-9baf-9e441d5937a4",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10105",
+      "title": "Матёрый волк",
+      "artists": "Король и Шут",
+      "mbid": "842e7afb-b47d-400d-b796-4c8011bc05d2",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/842e7afb-b47d-400d-b796-4c8011bc05d2",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10106",
+      "title": "Маска",
+      "artists": "Король и Шут",
+      "mbid": "b2fcbfc1-7f30-42a1-851a-d5b688fb7036",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/b2fcbfc1-7f30-42a1-851a-d5b688fb7036",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10107",
+      "title": "Джокер",
+      "artists": "Король и Шут",
+      "mbid": "b4d6599f-495e-4373-a823-7f7d5579c30d",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/b4d6599f-495e-4373-a823-7f7d5579c30d",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10108",
+      "title": "Звонок",
+      "artists": "Король и Шут",
+      "mbid": "4e823c6a-4a29-433f-a76e-613f7c0a9954",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/4e823c6a-4a29-433f-a76e-613f7c0a9954",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10109",
+      "title": "Месть Гарри",
+      "artists": "Король и Шут",
+      "mbid": "cc5973a7-780c-4309-bcac-7e77913857fd",
+      "artist_mbids": [
+        "0944e98f-0b9f-4574-babc-7badf4cd0f74"
+      ],
+      "source": "https://musicbrainz.org/recording/cc5973a7-780c-4309-bcac-7e77913857fd",
+      "language": "ru",
+      "group": "Король и Шут",
+      "split": "holdout"
+    },
+    {
+      "id": "10110",
+      "title": "Немое кино",
+      "artists": "Пикник",
+      "mbid": "f3f2c91a-a7ad-4eed-988b-23de2edd54ea",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/f3f2c91a-a7ad-4eed-988b-23de2edd54ea",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10111",
+      "title": "Твое сердце должно быть моим",
+      "artists": "Пикник",
+      "mbid": "b01fe028-2d8b-4da8-939e-25243bd4e9b0",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/b01fe028-2d8b-4da8-939e-25243bd4e9b0",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10112",
+      "title": "Настоящие дни",
+      "artists": "Пикник",
+      "mbid": "676ccd70-18a4-4ae6-a468-d120e191af1e",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/676ccd70-18a4-4ae6-a468-d120e191af1e",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10113",
+      "title": "Инквизитор",
+      "artists": "Пикник",
+      "mbid": "ece4d16e-9916-4a16-b018-304178897d2c",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/ece4d16e-9916-4a16-b018-304178897d2c",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10114",
+      "title": "Деньги",
+      "artists": "Пикник",
+      "mbid": "32fa43ac-4d1c-49c6-8dd7-718e998af780",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/32fa43ac-4d1c-49c6-8dd7-718e998af780",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10115",
+      "title": "Осень",
+      "artists": "Пикник",
+      "mbid": "94409033-dd6c-4568-b0dd-5fb04f83e0f9",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/94409033-dd6c-4568-b0dd-5fb04f83e0f9",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10116",
+      "title": "Побежать бы за леса-горы",
+      "artists": "Пикник",
+      "mbid": "bc2d3720-8305-4957-b1fa-c86d684e53c4",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/bc2d3720-8305-4957-b1fa-c86d684e53c4",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10117",
+      "title": "Дикие игры",
+      "artists": "Пикник",
+      "mbid": "3ac55aaf-60b8-4184-abdb-a62a8a55b04b",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/3ac55aaf-60b8-4184-abdb-a62a8a55b04b",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10118",
+      "title": "Настрадался Нострадамус от людей",
+      "artists": "Пикник",
+      "mbid": "2b1b6e0c-86a9-4de2-a90f-68b468d8aa75",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/2b1b6e0c-86a9-4de2-a90f-68b468d8aa75",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10119",
+      "title": "Пол и потолок",
+      "artists": "Пикник",
+      "mbid": "da75925e-d869-42e9-a394-29fa80a77afa",
+      "artist_mbids": [
+        "eabd8df4-03cd-4644-8ad1-f50fb952c567"
+      ],
+      "source": "https://musicbrainz.org/recording/da75925e-d869-42e9-a394-29fa80a77afa",
+      "language": "ru",
+      "group": "Пикник",
+      "split": "holdout"
+    },
+    {
+      "id": "10120",
+      "title": "Старый корабль",
+      "artists": "Машина времени",
+      "mbid": "15dbb9b8-f5f3-468f-9916-412f1ad7a56f",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/15dbb9b8-f5f3-468f-9916-412f1ad7a56f",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10121",
+      "title": "Разговор в поезде",
+      "artists": "Машина времени",
+      "mbid": "a5e80d65-1e3b-4291-b18f-71c400d10e79",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/a5e80d65-1e3b-4291-b18f-71c400d10e79",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10122",
+      "title": "Он был старше её",
+      "artists": "Машина времени",
+      "mbid": "6f6e493e-53a9-40e3-84fd-5128c0d21cfa",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/6f6e493e-53a9-40e3-84fd-5128c0d21cfa",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10123",
+      "title": "Марионетки",
+      "artists": "Машина времени",
+      "mbid": "5eb30533-4434-497c-8d4a-42988bcba764",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/5eb30533-4434-497c-8d4a-42988bcba764",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10124",
+      "title": "На заднем дворе",
+      "artists": "Машина времени",
+      "mbid": "c98235d4-0b48-4b04-bdd6-a40918f6d51e",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/c98235d4-0b48-4b04-bdd6-a40918f6d51e",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10125",
+      "title": "Старая дорога",
+      "artists": "Машина времени",
+      "mbid": "22b77bb9-d975-4037-8b44-477dfe1ffb2c",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/22b77bb9-d975-4037-8b44-477dfe1ffb2c",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10126",
+      "title": "Путь",
+      "artists": "Машина времени",
+      "mbid": "0df70947-4d5b-488c-a28a-d306b2a53e1c",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/0df70947-4d5b-488c-a28a-d306b2a53e1c",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10127",
+      "title": "Музыка под снегом",
+      "artists": "Машина времени",
+      "mbid": "ef8af976-f975-4141-a595-a111b9423737",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/ef8af976-f975-4141-a595-a111b9423737",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10128",
+      "title": "Барьер",
+      "artists": "Машина времени",
+      "mbid": "9bb1ba09-c0f6-4ee1-92a0-d6184d5235f3",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/9bb1ba09-c0f6-4ee1-92a0-d6184d5235f3",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10129",
+      "title": "Бурьян породил бурьян",
+      "artists": "Машина времени",
+      "mbid": "f6de56f7-bf5e-4fb2-b134-2416c8828b8c",
+      "artist_mbids": [
+        "1b67ca7b-3da9-4607-a5aa-93ed56034924"
+      ],
+      "source": "https://musicbrainz.org/recording/f6de56f7-bf5e-4fb2-b134-2416c8828b8c",
+      "language": "ru",
+      "group": "Машина времени",
+      "split": "holdout"
+    },
+    {
+      "id": "10130",
+      "title": "Рапунцель",
+      "artists": "Мельница",
+      "mbid": "721fff15-bf6d-461e-ad06-4fd825973397",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/721fff15-bf6d-461e-ad06-4fd825973397",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10131",
+      "title": "Голем",
+      "artists": "Мельница",
+      "mbid": "363e7a58-35e7-4538-ad84-d237fc837aa0",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/363e7a58-35e7-4538-ad84-d237fc837aa0",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10132",
+      "title": "Ольга",
+      "artists": "Мельница",
+      "mbid": "0e83fad6-6e93-4ae2-9ef9-72daaefcf8af",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/0e83fad6-6e93-4ae2-9ef9-72daaefcf8af",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10133",
+      "title": "Оборотень",
+      "artists": "Мельница",
+      "mbid": "bad8e7fb-4836-4ac9-a18b-bfab2359a01e",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/bad8e7fb-4836-4ac9-a18b-bfab2359a01e",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10134",
+      "title": "Господин горных дорог",
+      "artists": "Мельница",
+      "mbid": "706ca673-e66c-4e91-b5e4-5f6f6f2397d3",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/706ca673-e66c-4e91-b5e4-5f6f6f2397d3",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10135",
+      "title": "Весна",
+      "artists": "Мельница",
+      "mbid": "a1b26a97-7a60-4776-8e5b-64b40d48c214",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/a1b26a97-7a60-4776-8e5b-64b40d48c214",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10136",
+      "title": "Горец",
+      "artists": "Мельница",
+      "mbid": "262d172e-3f61-4dcb-b01f-c9135b8bbec0",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/262d172e-3f61-4dcb-b01f-c9135b8bbec0",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10137",
+      "title": "Травушка",
+      "artists": "Мельница",
+      "mbid": "d2fe0d35-8bab-4ef8-94ae-ab8d0104b75c",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/d2fe0d35-8bab-4ef8-94ae-ab8d0104b75c",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10138",
+      "title": "Неукротимое племя",
+      "artists": "Мельница",
+      "mbid": "585ae3c2-8673-439c-9bf9-60bfbbf2805b",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/585ae3c2-8673-439c-9bf9-60bfbbf2805b",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10139",
+      "title": "Мора",
+      "artists": "Мельница",
+      "mbid": "3b2caee7-03a5-4e0f-9fad-07bf34674d94",
+      "artist_mbids": [
+        "4f93401e-f3dd-4961-8b4e-708be531c3ce"
+      ],
+      "source": "https://musicbrainz.org/recording/3b2caee7-03a5-4e0f-9fad-07bf34674d94",
+      "language": "ru",
+      "group": "Мельница",
+      "split": "holdout"
+    },
+    {
+      "id": "10140",
+      "title": "Самострел",
+      "artists": "Михаил Круг",
+      "mbid": "fb8934ae-e79b-4a6f-a35b-8c0fbb9ad361",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/fb8934ae-e79b-4a6f-a35b-8c0fbb9ad361",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10141",
+      "title": "На бывшей \"Новой\"",
+      "artists": "Михаил Круг",
+      "mbid": "3cd8c051-b611-4579-9c0a-87b181c828dc",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/3cd8c051-b611-4579-9c0a-87b181c828dc",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10142",
+      "title": "По-щенячьи и по-волчьи...",
+      "artists": "Михаил Круг",
+      "mbid": "9eaeba36-a077-4cc1-922f-0e0173f150a0",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/9eaeba36-a077-4cc1-922f-0e0173f150a0",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10143",
+      "title": "Красные карманы 2",
+      "artists": "Михаил Круг",
+      "mbid": "28725429-50d9-410c-91c4-4d4b6bd2ca97",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/28725429-50d9-410c-91c4-4d4b6bd2ca97",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10144",
+      "title": "Рубикон",
+      "artists": "Михаил Круг",
+      "mbid": "bbd109b7-5da3-4cfe-a05f-ba0eab3e03f7",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/bbd109b7-5da3-4cfe-a05f-ba0eab3e03f7",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10145",
+      "title": "Не спалила, любила",
+      "artists": "Михаил Круг",
+      "mbid": "6d65428c-488e-45e4-ab74-db72ffc6815b",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/6d65428c-488e-45e4-ab74-db72ffc6815b",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10146",
+      "title": "Пусти меня, Мама",
+      "artists": "Михаил Круг",
+      "mbid": "78a356f6-dcbe-488a-989f-eaafecfa48a0",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/78a356f6-dcbe-488a-989f-eaafecfa48a0",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10147",
+      "title": "Прокурору зеленому - слава!",
+      "artists": "Михаил Круг",
+      "mbid": "e78aeb84-6e90-4850-b0eb-1246374c410e",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/e78aeb84-6e90-4850-b0eb-1246374c410e",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10148",
+      "title": "Летний день",
+      "artists": "Михаил Круг",
+      "mbid": "67ed2c80-5295-4e04-b614-1538679a40d4",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/67ed2c80-5295-4e04-b614-1538679a40d4",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10149",
+      "title": "Эфремизм о прошлом",
+      "artists": "Михаил Круг",
+      "mbid": "85938e91-97c5-4ffb-8757-cb3e6e8c9bd8",
+      "artist_mbids": [
+        "8523fe01-b990-45af-a8ab-aaa4fb3db907"
+      ],
+      "source": "https://musicbrainz.org/recording/85938e91-97c5-4ffb-8757-cb3e6e8c9bd8",
+      "language": "ru",
+      "group": "Михаил Круг",
+      "split": "holdout"
+    },
+    {
+      "id": "10150",
+      "title": "Горячие трубы...",
+      "artists": "Каста",
+      "mbid": "b065f8d6-e9a8-48cb-b879-eac695ca4c5f",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/b065f8d6-e9a8-48cb-b879-eac695ca4c5f",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10151",
+      "title": "Город мертвецов",
+      "artists": "Каста",
+      "mbid": "af381175-9d53-4172-9df6-fbca348745ca",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/af381175-9d53-4172-9df6-fbca348745ca",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10152",
+      "title": "У подножия горы",
+      "artists": "Каста",
+      "mbid": "a87a6034-1e28-45a6-ab25-bd649dc4dc90",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/a87a6034-1e28-45a6-ab25-bd649dc4dc90",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10153",
+      "title": "Ростов-папа",
+      "artists": "Каста",
+      "mbid": "6e2f9ae1-10d3-48bd-b4db-7dfc50416091",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/6e2f9ae1-10d3-48bd-b4db-7dfc50416091",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10154",
+      "title": "Для великих открытий",
+      "artists": "Каста",
+      "mbid": "6f59770e-fdf8-4969-a5fe-23c30d3933bf",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/6f59770e-fdf8-4969-a5fe-23c30d3933bf",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10155",
+      "title": "Черви ненависти",
+      "artists": "Каста",
+      "mbid": "eb790b33-26b1-4831-95b9-058ba4151902",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/eb790b33-26b1-4831-95b9-058ba4151902",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10156",
+      "title": "Наяву или во сне (трилогия)",
+      "artists": "Каста",
+      "mbid": "77460e2e-3c0b-4256-997b-80863f130ace",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/77460e2e-3c0b-4256-997b-80863f130ace",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10157",
+      "title": "Пир",
+      "artists": "Каста",
+      "mbid": "c8b8a70e-df3c-46f4-89ee-566f8ec2fb3b",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/c8b8a70e-df3c-46f4-89ee-566f8ec2fb3b",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10158",
+      "title": "Дальше-больше (антракт)",
+      "artists": "Каста",
+      "mbid": "75d224c4-f127-4c6c-9d21-9f92294f3ec3",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/75d224c4-f127-4c6c-9d21-9f92294f3ec3",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10159",
+      "title": "Сестра",
+      "artists": "Каста",
+      "mbid": "7f4ae55b-8c94-4c70-b162-5b56ddbe8743",
+      "artist_mbids": [
+        "a3c5385a-9727-40c8-8152-fb3d98181fff"
+      ],
+      "source": "https://musicbrainz.org/recording/7f4ae55b-8c94-4c70-b162-5b56ddbe8743",
+      "language": "ru",
+      "group": "Каста",
+      "split": "holdout"
+    },
+    {
+      "id": "10160",
+      "title": "With You",
+      "artists": "Linkin Park",
+      "mbid": "6a04459e-e06e-4995-a827-25816a09f508",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/6a04459e-e06e-4995-a827-25816a09f508",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10161",
+      "title": "One Step Closer",
+      "artists": "Linkin Park",
+      "mbid": "506e0623-4569-4117-9866-98e2238528cb",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/506e0623-4569-4117-9866-98e2238528cb",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10162",
+      "title": "Numb",
+      "artists": "Linkin Park",
+      "mbid": "899ca34b-76fd-4084-9387-50746e861ef9",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/899ca34b-76fd-4084-9387-50746e861ef9",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10163",
+      "title": "Pushing Me Away",
+      "artists": "Linkin Park",
+      "mbid": "e416b1e3-61d4-4b4b-ba41-318256ee621f",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/e416b1e3-61d4-4b4b-ba41-318256ee621f",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10164",
+      "title": "Points of Authority",
+      "artists": "Linkin Park",
+      "mbid": "cd5c4ba8-4c68-4ead-aa53-8bbb375338fb",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/cd5c4ba8-4c68-4ead-aa53-8bbb375338fb",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10165",
+      "title": "Crawling",
+      "artists": "Linkin Park",
+      "mbid": "859baa3a-4b91-448b-808b-6fd375d007ef",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/859baa3a-4b91-448b-808b-6fd375d007ef",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10166",
+      "title": "Little Things Give You Away",
+      "artists": "Linkin Park",
+      "mbid": "6328cc91-7c53-4de0-a733-f7125f772049",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/6328cc91-7c53-4de0-a733-f7125f772049",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10167",
+      "title": "Reading My Eyes",
+      "artists": "Linkin Park",
+      "mbid": "246eb37a-afa9-42cf-bff4-95ee9874ed6e",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/246eb37a-afa9-42cf-bff4-95ee9874ed6e",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10168",
+      "title": "Somewhere I Belong",
+      "artists": "Linkin Park",
+      "mbid": "cec0946f-363b-432a-9469-e9fad72a28b4",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/cec0946f-363b-432a-9469-e9fad72a28b4",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10169",
+      "title": "Faint",
+      "artists": "Linkin Park",
+      "mbid": "74205d10-5462-4daf-893f-8b3d8f402038",
+      "artist_mbids": [
+        "f59c5520-5f46-4d2c-b2c4-822eabf53419"
+      ],
+      "source": "https://musicbrainz.org/recording/74205d10-5462-4daf-893f-8b3d8f402038",
+      "language": "foreign_mixed",
+      "group": "Linkin Park",
+      "split": "tune"
+    },
+    {
+      "id": "10170",
+      "title": "Жизнь без наркотиков (feat. Маша Макарова)",
+      "artists": "Noize MC",
+      "mbid": "bde4b527-2992-43ce-b6bd-e6fc9efe6e29",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/bde4b527-2992-43ce-b6bd-e6fc9efe6e29",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10171",
+      "title": "Из окна",
+      "artists": "Noize MC",
+      "mbid": "48305cba-a34b-4804-81e0-3ecf576fa996",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/48305cba-a34b-4804-81e0-3ecf576fa996",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10172",
+      "title": "Девочка-скинхед",
+      "artists": "Noize MC",
+      "mbid": "ea0b7f5e-1fa5-465e-964b-d28ed50534b9",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/ea0b7f5e-1fa5-465e-964b-d28ed50534b9",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10173",
+      "title": "Деньги",
+      "artists": "Noize MC",
+      "mbid": "54b9092d-91fd-4b9c-911c-c2e3d346feda",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/54b9092d-91fd-4b9c-911c-c2e3d346feda",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10174",
+      "title": "Давай приколемся (feat. Чупак, 228)",
+      "artists": "Noize MC",
+      "mbid": "3abd9424-91c1-4a83-800f-73eca72f4d2a",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/3abd9424-91c1-4a83-800f-73eca72f4d2a",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10175",
+      "title": "Моё море",
+      "artists": "Noize MC",
+      "mbid": "cc13a74d-d4ea-4c74-b77b-8d92d1865429",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/cc13a74d-d4ea-4c74-b77b-8d92d1865429",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10176",
+      "title": "Друг, перестань слэмиться (Фристайл)",
+      "artists": "Noize MC",
+      "mbid": "c9732a22-c1eb-4918-934a-cbd2d32f8626",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/c9732a22-c1eb-4918-934a-cbd2d32f8626",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10177",
+      "title": "Мерин",
+      "artists": "Noize MC",
+      "mbid": "839fc6aa-6b70-4ab2-965e-acd2c1cc9b0e",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/839fc6aa-6b70-4ab2-965e-acd2c1cc9b0e",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10178",
+      "title": "Самогон & Ганджубас",
+      "artists": "Noize MC",
+      "mbid": "cab769bf-38ee-4f14-a06a-def2d185f8d4",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/cab769bf-38ee-4f14-a06a-def2d185f8d4",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10179",
+      "title": "Не резиновая",
+      "artists": "Noize MC",
+      "mbid": "57e4b7c0-afbd-4024-9dad-e097aa94dfab",
+      "artist_mbids": [
+        "a0c5737e-da6d-468f-a78e-19146494f1db"
+      ],
+      "source": "https://musicbrainz.org/recording/57e4b7c0-afbd-4024-9dad-e097aa94dfab",
+      "language": "foreign_mixed",
+      "group": "Noize MC",
+      "split": "tune"
+    },
+    {
+      "id": "10180",
+      "title": "Bück dich",
+      "artists": "Rammstein",
+      "mbid": "0ddc2f41-b272-4abe-815d-9a0cf1e40625",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/0ddc2f41-b272-4abe-815d-9a0cf1e40625",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10181",
+      "title": "Du riechst so gut",
+      "artists": "Rammstein",
+      "mbid": "c5ffca5e-3e9c-48ea-a301-ac826eace4c9",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/c5ffca5e-3e9c-48ea-a301-ac826eace4c9",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10182",
+      "title": "Zwitter",
+      "artists": "Rammstein",
+      "mbid": "4b8b247f-839c-4950-bd7c-fd7f1954aea4",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/4b8b247f-839c-4950-bd7c-fd7f1954aea4",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10183",
+      "title": "Asche zu Asche",
+      "artists": "Rammstein",
+      "mbid": "b7bfcec2-65c1-47e0-bd5a-a6bf875f7a97",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/b7bfcec2-65c1-47e0-bd5a-a6bf875f7a97",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10184",
+      "title": "Für immer",
+      "artists": "Rammstein",
+      "mbid": "446c2f7f-8493-4d2d-a99b-9a508a186ab5",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/446c2f7f-8493-4d2d-a99b-9a508a186ab5",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10185",
+      "title": "Feuer frei!",
+      "artists": "Rammstein",
+      "mbid": "28b21208-8420-4d6b-83dc-a3930ba60057",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/28b21208-8420-4d6b-83dc-a3930ba60057",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10186",
+      "title": "Du hast",
+      "artists": "Rammstein",
+      "mbid": "e052c7fc-b873-485f-86c9-168ade8115bd",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/e052c7fc-b873-485f-86c9-168ade8115bd",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10187",
+      "title": "Seemann",
+      "artists": "Rammstein",
+      "mbid": "16bbf798-967f-476f-b763-e5790d562ba7",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/16bbf798-967f-476f-b763-e5790d562ba7",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10188",
+      "title": "Sehnsucht",
+      "artists": "Rammstein",
+      "mbid": "ecf88f9a-9f8c-427f-abca-c2dc45a39c60",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/ecf88f9a-9f8c-427f-abca-c2dc45a39c60",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10189",
+      "title": "Adios",
+      "artists": "Rammstein",
+      "mbid": "deb50509-c250-4a18-a891-cf00f710eaca",
+      "artist_mbids": [
+        "b2d122f9-eadb-4930-a196-8f221eeb0c66"
+      ],
+      "source": "https://musicbrainz.org/recording/deb50509-c250-4a18-a891-cf00f710eaca",
+      "language": "foreign_mixed",
+      "group": "Rammstein",
+      "split": "tune"
+    },
+    {
+      "id": "10190",
+      "title": "Younger",
+      "artists": "Imagine Dragons",
+      "mbid": "674fc858-45a4-4ef6-ac04-9d8b7ea6a510",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/674fc858-45a4-4ef6-ac04-9d8b7ea6a510",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10191",
+      "title": "Bones",
+      "artists": "Imagine Dragons",
+      "mbid": "900eb187-7f2f-427f-afc6-2259fe9de724",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/900eb187-7f2f-427f-afc6-2259fe9de724",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10192",
+      "title": "One Day (acoustic)",
+      "artists": "Imagine Dragons",
+      "mbid": "cb2acb65-b124-4a4c-93b9-0b165dcf7f25",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/cb2acb65-b124-4a4c-93b9-0b165dcf7f25",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10193",
+      "title": "Symphony (Inner City Youth Orchestra of Los Angeles version)",
+      "artists": "Imagine Dragons",
+      "mbid": "1c3d7d42-48a4-494f-a6f9-70453ec1b64e",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/1c3d7d42-48a4-494f-a6f9-70453ec1b64e",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10194",
+      "title": "Children of the Sky (a Starfield song)",
+      "artists": "Imagine Dragons",
+      "mbid": "1dd2676d-5cff-45ee-8307-ae3fe1d362ed",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/1dd2676d-5cff-45ee-8307-ae3fe1d362ed",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10195",
+      "title": "Intermission #5: Drum Solo",
+      "artists": "Imagine Dragons",
+      "mbid": "a80ddf5a-a7c5-488a-a7a4-9fd759972cac",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/a80ddf5a-a7c5-488a-a7a4-9fd759972cac",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10196",
+      "title": "Forever Young",
+      "artists": "Imagine Dragons",
+      "mbid": "e087edd9-4b13-4d26-962d-482e477e29d4",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/e087edd9-4b13-4d26-962d-482e477e29d4",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10197",
+      "title": "I Bet My Life (acoustic)",
+      "artists": "Imagine Dragons",
+      "mbid": "a1e24a97-113c-4e33-9cb5-9af2d6d2e071",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/a1e24a97-113c-4e33-9cb5-9af2d6d2e071",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10198",
+      "title": "On Top of the World",
+      "artists": "Imagine Dragons",
+      "mbid": "138668c8-e568-480f-ae08-5dcf52227b56",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/138668c8-e568-480f-ae08-5dcf52227b56",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10199",
+      "title": "It’s Time",
+      "artists": "Imagine Dragons",
+      "mbid": "3bdd4f33-47bc-40cc-a177-4aa5af35d1a1",
+      "artist_mbids": [
+        "012151a8-0f9a-44c9-997f-ebd68b5389f9"
+      ],
+      "source": "https://musicbrainz.org/recording/3bdd4f33-47bc-40cc-a177-4aa5af35d1a1",
+      "language": "foreign_mixed",
+      "group": "Imagine Dragons",
+      "split": "tune"
+    },
+    {
+      "id": "10200",
+      "title": "bad guy",
+      "artists": "Billie Eilish",
+      "mbid": "5fa39768-3e67-4e0d-a63a-29e022d2d00c",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/5fa39768-3e67-4e0d-a63a-29e022d2d00c",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10201",
+      "title": "Bad Guy (Sawtooth's Sympathetic mix)",
+      "artists": "Billie Eilish",
+      "mbid": "319106da-703e-4abd-bce1-71e24b4285e5",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/319106da-703e-4abd-bce1-71e24b4285e5",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10202",
+      "title": "All the Good Girls Go to Hell",
+      "artists": "Billie Eilish",
+      "mbid": "5abfb673-d2c0-4472-bae1-6f41c1a0c709",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/5abfb673-d2c0-4472-bae1-6f41c1a0c709",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10203",
+      "title": "8 (acoustic)",
+      "artists": "Billie Eilish",
+      "mbid": "47b39cc4-3d2e-4ceb-9edc-7a3d828e807f",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/47b39cc4-3d2e-4ceb-9edc-7a3d828e807f",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10204",
+      "title": "watch",
+      "artists": "Billie Eilish",
+      "mbid": "659fc1bb-0cda-43a5-b908-c29848aac16b",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/659fc1bb-0cda-43a5-b908-c29848aac16b",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10205",
+      "title": "ocean eyes",
+      "artists": "Billie Eilish",
+      "mbid": "7cf13f91-9f0a-44c3-a910-19ab28edaa69",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/7cf13f91-9f0a-44c3-a910-19ab28edaa69",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10206",
+      "title": "bellyache",
+      "artists": "Billie Eilish",
+      "mbid": "43e3e5fa-0198-4b0f-aa3a-d29114b619b5",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/43e3e5fa-0198-4b0f-aa3a-d29114b619b5",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10207",
+      "title": "my future (instrumental)",
+      "artists": "Billie Eilish",
+      "mbid": "1013b9a8-a2e8-41fb-8831-7d9154b7458d",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/1013b9a8-a2e8-41fb-8831-7d9154b7458d",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10208",
+      "title": "INTRO",
+      "artists": "Billie Eilish",
+      "mbid": "be6db162-661b-4e8e-8ba2-a1164a2e7caa",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/be6db162-661b-4e8e-8ba2-a1164a2e7caa",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10209",
+      "title": "OverHeated",
+      "artists": "Billie Eilish",
+      "mbid": "c4b333df-1f31-4435-b256-8c497ec09eff",
+      "artist_mbids": [
+        "f4abc0b5-3f7a-4eff-8f78-ac078dbce533"
+      ],
+      "source": "https://musicbrainz.org/recording/c4b333df-1f31-4435-b256-8c497ec09eff",
+      "language": "foreign_mixed",
+      "group": "Billie Eilish",
+      "split": "holdout"
+    },
+    {
+      "id": "10210",
+      "title": "We Will Rock You (Rick Rubin’s Big Beat a cappella mix)",
+      "artists": "Queen",
+      "mbid": "02a2b663-f9fe-4363-bbdf-11636b0739f1",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/02a2b663-f9fe-4363-bbdf-11636b0739f1",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10211",
+      "title": "Imagine (1980‐12‐14: Frankfurt, Germany)",
+      "artists": "Queen",
+      "mbid": "8ac0ed7b-d42d-40e9-8add-9db083ac3a78",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/8ac0ed7b-d42d-40e9-8add-9db083ac3a78",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10212",
+      "title": "Lazing on Sunday Afternoon",
+      "artists": "Queen",
+      "mbid": "837108f3-9fb0-4a5b-a1cd-fc3d4690e3d9",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/837108f3-9fb0-4a5b-a1cd-fc3d4690e3d9",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10213",
+      "title": "You’re My Best Friend",
+      "artists": "Queen",
+      "mbid": "6cf7e423-e1a9-4aa4-8f2e-6823fd740994",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/6cf7e423-e1a9-4aa4-8f2e-6823fd740994",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10214",
+      "title": "One Vision",
+      "artists": "Queen",
+      "mbid": "2b5f55cf-54d6-484c-98b1-c94f73396477",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/2b5f55cf-54d6-484c-98b1-c94f73396477",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10215",
+      "title": "Don’t Stop Me Now",
+      "artists": "Queen",
+      "mbid": "1438fbb1-95e1-4d14-8cfc-68f2eb7747dd",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/1438fbb1-95e1-4d14-8cfc-68f2eb7747dd",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10216",
+      "title": "Son and Daughter",
+      "artists": "Queen",
+      "mbid": "4f469aa3-d5d2-405b-88fd-4eaf51952967",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/4f469aa3-d5d2-405b-88fd-4eaf51952967",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10217",
+      "title": "I Want to Break Free",
+      "artists": "Queen",
+      "mbid": "ca4c2770-bc90-43ef-b8cd-8ba5e0f536d1",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/ca4c2770-bc90-43ef-b8cd-8ba5e0f536d1",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10218",
+      "title": "Now I’m Here",
+      "artists": "Queen",
+      "mbid": "963bba87-e2b8-4b0d-b7ad-28933ea1a150",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/963bba87-e2b8-4b0d-b7ad-28933ea1a150",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10219",
+      "title": "Somebody to Love",
+      "artists": "Queen",
+      "mbid": "2527ab3e-38ed-4453-962e-3fe77f62d8da",
+      "artist_mbids": [
+        "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+      ],
+      "source": "https://musicbrainz.org/recording/2527ab3e-38ed-4453-962e-3fe77f62d8da",
+      "language": "foreign_mixed",
+      "group": "Queen",
+      "split": "holdout"
+    },
+    {
+      "id": "10220",
+      "title": "Around the World",
+      "artists": "Daft Punk",
+      "mbid": "32ea69e8-daf2-4d6d-8ffb-bcf6472454cd",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/32ea69e8-daf2-4d6d-8ffb-bcf6472454cd",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10221",
+      "title": "Interlude",
+      "artists": "Daft Punk",
+      "mbid": "5cbd917c-f8ba-40f7-8679-7da7ab0de782",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/5cbd917c-f8ba-40f7-8679-7da7ab0de782",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10222",
+      "title": "Disc Wars (6m40 Recovering the Disc – album version)",
+      "artists": "Daft Punk",
+      "mbid": "8be5ed08-d153-4560-a778-bb415622bb93",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/8be5ed08-d153-4560-a778-bb415622bb93",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10223",
+      "title": "Give Life Back to Music (α Vir rmx)",
+      "artists": "anosa vs Daft Punk",
+      "mbid": "16d35bc2-d549-4df1-93d3-7107008852ea",
+      "artist_mbids": [
+        "077b884b-ac63-41ea-b183-b819ba6221e7",
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/16d35bc2-d549-4df1-93d3-7107008852ea",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10224",
+      "title": "Superheros / Human After All",
+      "artists": "Daft Punk",
+      "mbid": "50af53c8-f60a-43b7-8035-1db19e4ea6f8",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/50af53c8-f60a-43b7-8035-1db19e4ea6f8",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10225",
+      "title": "Burnin' / Too Long",
+      "artists": "Daft Punk",
+      "mbid": "d29e6449-24d0-4bff-a667-2b97e3d50e2b",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/d29e6449-24d0-4bff-a667-2b97e3d50e2b",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10226",
+      "title": "1 more dime (fvlcrvm rwrk)",
+      "artists": "dftpnk",
+      "mbid": "21ad70d5-f123-4546-9cf9-0a672500d185",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/21ad70d5-f123-4546-9cf9-0a672500d185",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10227",
+      "title": "Da Funk",
+      "artists": "Daft Punk",
+      "mbid": "b04aa04c-8d76-4871-88e7-6923776e4584",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/b04aa04c-8d76-4871-88e7-6923776e4584",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10228",
+      "title": "Sirens",
+      "artists": "Daft Punk",
+      "mbid": "5d9d67df-efab-4586-a35c-7794c6658a4f",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/5d9d67df-efab-4586-a35c-7794c6658a4f",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10229",
+      "title": "Musique",
+      "artists": "Daft Punk",
+      "mbid": "f8be5236-98d2-4720-aafe-113d5e807ad3",
+      "artist_mbids": [
+        "056e4f3e-d505-4dad-8ec1-d04f521cbb56"
+      ],
+      "source": "https://musicbrainz.org/recording/f8be5236-98d2-4720-aafe-113d5e807ad3",
+      "language": "foreign_mixed",
+      "group": "Daft Punk",
+      "split": "holdout"
+    },
+    {
+      "id": "10230",
+      "title": "Ode to Sleep (Instrumental)",
+      "artists": "twenty one pilots",
+      "mbid": "a1f0f1f3-10a2-434a-b40b-1748f3750f6a",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/a1f0f1f3-10a2-434a-b40b-1748f3750f6a",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10231",
+      "title": "Trees",
+      "artists": "twenty one pilots",
+      "mbid": "8d669e55-ef09-49c3-82d3-6aac1e71b74e",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/8d669e55-ef09-49c3-82d3-6aac1e71b74e",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10232",
+      "title": "House of Gold",
+      "artists": "twenty one pilots",
+      "mbid": "6a7036bf-768a-41cb-9189-84a8542fe12b",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/6a7036bf-768a-41cb-9189-84a8542fe12b",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10233",
+      "title": "Screen (instrumental)",
+      "artists": "twenty one pilots",
+      "mbid": "7e14922c-b62a-46c3-91fb-1e6774225207",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/7e14922c-b62a-46c3-91fb-1e6774225207",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10234",
+      "title": "Doubt",
+      "artists": "twenty one pilots",
+      "mbid": "f9f20713-364c-4ba6-ab4d-763efd8b95a7",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/f9f20713-364c-4ba6-ab4d-763efd8b95a7",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10235",
+      "title": "Two",
+      "artists": "twenty one pilots",
+      "mbid": "5ca5b812-cae4-4480-9806-fb9ec938420b",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/5ca5b812-cae4-4480-9806-fb9ec938420b",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10236",
+      "title": "Techno2",
+      "artists": "twenty one pilots",
+      "mbid": "f0fdf179-fc3d-4df2-8299-001e4a26309d",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/f0fdf179-fc3d-4df2-8299-001e4a26309d",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10237",
+      "title": "Ride (Standard Version)",
+      "artists": "twenty one pilots",
+      "mbid": "5acf87ae-81e8-49dc-8392-adaf3186ec26",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/5acf87ae-81e8-49dc-8392-adaf3186ec26",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10238",
+      "title": "Guns For Hands (Vessel 10th Anniversary)",
+      "artists": "twenty one pilots",
+      "mbid": "cb264ee1-657b-4a6b-8d0d-ad148cd5a161",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/cb264ee1-657b-4a6b-8d0d-ad148cd5a161",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10239",
+      "title": "Webseries003",
+      "artists": "twenty one pilots",
+      "mbid": "81d998a3-469b-4d82-9434-a7d212c96ae3",
+      "artist_mbids": [
+        "a6c6897a-7415-4f8d-b5a5-3a5e05f3be67"
+      ],
+      "source": "https://musicbrainz.org/recording/81d998a3-469b-4d82-9434-a7d212c96ae3",
+      "language": "foreign_mixed",
+      "group": "Twenty One Pilots",
+      "split": "holdout"
+    },
+    {
+      "id": "10240",
+      "title": "[bass solo]",
+      "artists": "Metallica",
+      "mbid": "068e8ac9-6248-4c31-bd73-e92aa608a495",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/068e8ac9-6248-4c31-bd73-e92aa608a495",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10241",
+      "title": "Battery",
+      "artists": "Metallica",
+      "mbid": "8c7b5c9c-c0e3-43aa-9f71-7b07f34fc577",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/8c7b5c9c-c0e3-43aa-9f71-7b07f34fc577",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10242",
+      "title": "Whiskey in the Jar",
+      "artists": "Metallica",
+      "mbid": "02fa1974-502d-4c8e-ab78-d770ef587590",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/02fa1974-502d-4c8e-ab78-d770ef587590",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10243",
+      "title": "Orion",
+      "artists": "Metallica",
+      "mbid": "56cd0c96-a60f-4a94-abda-1c98a32984d0",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/56cd0c96-a60f-4a94-abda-1c98a32984d0",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10244",
+      "title": "St. Anger",
+      "artists": "Metallica",
+      "mbid": "ca68f878-c7ea-4414-a28b-f6d00d0ee560",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/ca68f878-c7ea-4414-a28b-f6d00d0ee560",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10245",
+      "title": "No Leaf Clover",
+      "artists": "Metallica",
+      "mbid": "665a0d6b-0188-433c-a8c3-45983bbc4810",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/665a0d6b-0188-433c-a8c3-45983bbc4810",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10246",
+      "title": "Am I Evil?",
+      "artists": "Metallica",
+      "mbid": "361a0d93-884f-41da-9534-5afc5f4ee8b2",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/361a0d93-884f-41da-9534-5afc5f4ee8b2",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10247",
+      "title": "King Nothing",
+      "artists": "Metallica",
+      "mbid": "f5c07346-38c9-4c18-8a14-37818e8a4830",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/f5c07346-38c9-4c18-8a14-37818e8a4830",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10248",
+      "title": "Cure",
+      "artists": "Metallica",
+      "mbid": "5b154c76-99fa-4873-9ed8-2809a975e011",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/5b154c76-99fa-4873-9ed8-2809a975e011",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10249",
+      "title": "Ain’t My Bitch",
+      "artists": "Metallica",
+      "mbid": "90494d10-5a16-4735-b898-50132d216e93",
+      "artist_mbids": [
+        "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+      ],
+      "source": "https://musicbrainz.org/recording/90494d10-5a16-4735-b898-50132d216e93",
+      "language": "foreign_mixed",
+      "group": "Metallica",
+      "split": "holdout"
+    },
+    {
+      "id": "10250",
+      "title": "Last of the Wilds",
+      "artists": "Nightwish",
+      "mbid": "a070beee-eb72-4328-a40a-c39003d41d01",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/a070beee-eb72-4328-a40a-c39003d41d01",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10251",
+      "title": "The Escapist (instrumental audio version) (stereo/5.1)",
+      "artists": "Nightwish",
+      "mbid": "66eb50bf-bf2c-454c-a530-3d43a198bd0f",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/66eb50bf-bf2c-454c-a530-3d43a198bd0f",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10252",
+      "title": "Bye Bye Beautiful",
+      "artists": "Nightwish",
+      "mbid": "a2adad8c-912a-47e4-ad06-7a4bb76a3d58",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/a2adad8c-912a-47e4-ad06-7a4bb76a3d58",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10253",
+      "title": "Amaranth",
+      "artists": "Nightwish",
+      "mbid": "7e66c80c-187f-4b84-90f2-2e4514e60563",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/7e66c80c-187f-4b84-90f2-2e4514e60563",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10254",
+      "title": "Amaranth (orchestral version)",
+      "artists": "Nightwish",
+      "mbid": "6b758a85-aa9d-4de0-8ab9-15212ea8fb47",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/6b758a85-aa9d-4de0-8ab9-15212ea8fb47",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10255",
+      "title": "Taikatalvi",
+      "artists": "Nightwish",
+      "mbid": "21cd7966-971b-4807-8b99-9ee1cda8a1e5",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/21cd7966-971b-4807-8b99-9ee1cda8a1e5",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10256",
+      "title": "Last of the Wilds / Planet Hell",
+      "artists": "Nightwish",
+      "mbid": "00399386-4d26-467a-908e-75487404d14f",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/00399386-4d26-467a-908e-75487404d14f",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10257",
+      "title": "The Crow, the Owl and the Dove",
+      "artists": "Nightwish",
+      "mbid": "407f1339-65d1-4358-ba05-bb9b54e5cfe3",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/407f1339-65d1-4358-ba05-bb9b54e5cfe3",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10258",
+      "title": "Nemo",
+      "artists": "Nightwish",
+      "mbid": "4ae738ff-66ed-4cf8-b1cf-0ec34a1b13fd",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/4ae738ff-66ed-4cf8-b1cf-0ec34a1b13fd",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10259",
+      "title": "Ever Dream",
+      "artists": "Nightwish",
+      "mbid": "786309b9-71ad-41c7-a323-b773be232e44",
+      "artist_mbids": [
+        "00a9f935-ba93-4fc8-a33a-993abe9c936b"
+      ],
+      "source": "https://musicbrainz.org/recording/786309b9-71ad-41c7-a323-b773be232e44",
+      "language": "foreign_mixed",
+      "group": "Nightwish",
+      "split": "holdout"
+    },
+    {
+      "id": "10260",
+      "title": "The National Anthem",
+      "artists": "Radiohead",
+      "mbid": "6418b172-ecb3-446c-8233-2862df1494f8",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/6418b172-ecb3-446c-8233-2862df1494f8",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10261",
+      "title": "Weird Fishes/Arpeggi",
+      "artists": "Radiohead",
+      "mbid": "f74b48a6-5a60-4b5a-864d-3ecb7e983c31",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/f74b48a6-5a60-4b5a-864d-3ecb7e983c31",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10262",
+      "title": "Reckoner",
+      "artists": "Radiohead",
+      "mbid": "d9b46ecb-5472-4dcd-8fa4-dd6723189e27",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/d9b46ecb-5472-4dcd-8fa4-dd6723189e27",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10263",
+      "title": "15 Step",
+      "artists": "Radiohead",
+      "mbid": "faea2aa0-80a9-41be-9b1e-3b994f4f76ac",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/faea2aa0-80a9-41be-9b1e-3b994f4f76ac",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10264",
+      "title": "Kid A / Beat A",
+      "artists": "Radiohead & Funkstörung",
+      "mbid": "a0658abb-56b2-4acd-850d-5a817d450981",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        "f5e9718b-c3e4-4154-8f4a-be997f391fee"
+      ],
+      "source": "https://musicbrainz.org/recording/a0658abb-56b2-4acd-850d-5a817d450981",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10265",
+      "title": "I Might Be Wrong (video)",
+      "artists": "Radiohead",
+      "mbid": "58c1d915-21f9-4031-897c-de6de7f877a9",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/58c1d915-21f9-4031-897c-de6de7f877a9",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10266",
+      "title": "Crowd",
+      "artists": "Radiohead",
+      "mbid": "3e14324e-7b54-42a3-9702-20e4d40b00e7",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/3e14324e-7b54-42a3-9702-20e4d40b00e7",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10267",
+      "title": "Bloom",
+      "artists": "Radiohead",
+      "mbid": "b8a8c0eb-de7a-4d9b-b6af-b5405374cc3c",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/b8a8c0eb-de7a-4d9b-b6af-b5405374cc3c",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10268",
+      "title": "Everything In Its Right Place",
+      "artists": "Radiohead",
+      "mbid": "cf029d32-0876-4541-9bf2-382a3a2097b2",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/cf029d32-0876-4541-9bf2-382a3a2097b2",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10269",
+      "title": "Fake Plastic",
+      "artists": "Radiohead",
+      "mbid": "5f7305ec-cb8e-4229-a732-8ccda6297acd",
+      "artist_mbids": [
+        "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      ],
+      "source": "https://musicbrainz.org/recording/5f7305ec-cb8e-4229-a732-8ccda6297acd",
+      "language": "foreign_mixed",
+      "group": "Radiohead",
+      "split": "holdout"
+    },
+    {
+      "id": "10270",
+      "title": "Sappy",
+      "artists": "Nirvana",
+      "mbid": "9e3c9cdd-db34-422a-95e7-7fe1ff39bdde",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/9e3c9cdd-db34-422a-95e7-7fe1ff39bdde",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10271",
+      "title": "D-7",
+      "artists": "Nirvana",
+      "mbid": "61e9ad5e-56dd-490c-88f9-87d4c78b71f2",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/61e9ad5e-56dd-490c-88f9-87d4c78b71f2",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10272",
+      "title": "Been a Son",
+      "artists": "Nirvana",
+      "mbid": "9ded4344-912d-4cac-b75c-26d91caaecb9",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/9ded4344-912d-4cac-b75c-26d91caaecb9",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10273",
+      "title": "Pen Cap Chew",
+      "artists": "Nirvana",
+      "mbid": "b2483618-706a-472c-bd26-e56bbba1c2a7",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/b2483618-706a-472c-bd26-e56bbba1c2a7",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10274",
+      "title": "Sliver",
+      "artists": "Nirvana",
+      "mbid": "e1ce6ebe-beac-4a8f-a723-3ade911aecef",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/e1ce6ebe-beac-4a8f-a723-3ade911aecef",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10275",
+      "title": "Oh, the Guilt",
+      "artists": "Nirvana",
+      "mbid": "3f7fd1f1-0c53-4b76-9797-109630632792",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/3f7fd1f1-0c53-4b76-9797-109630632792",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10276",
+      "title": "About a Girl",
+      "artists": "Nirvana",
+      "mbid": "86f2e1a2-9762-46e3-b3de-45f31e49939b",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/86f2e1a2-9762-46e3-b3de-45f31e49939b",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10277",
+      "title": "Rape Me",
+      "artists": "Nirvana",
+      "mbid": "77ae509d-49eb-4c9c-adbf-014e6e2ec381",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/77ae509d-49eb-4c9c-adbf-014e6e2ec381",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10278",
+      "title": "Stay Away",
+      "artists": "Nirvana",
+      "mbid": "ab1e9f21-ab03-454a-8d6a-ad82cb7710ed",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/ab1e9f21-ab03-454a-8d6a-ad82cb7710ed",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10279",
+      "title": "Drain You",
+      "artists": "Nirvana",
+      "mbid": "f1843dcd-0b66-4f4e-ad53-a191eafa9251",
+      "artist_mbids": [
+        "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+      ],
+      "source": "https://musicbrainz.org/recording/f1843dcd-0b66-4f4e-ad53-a191eafa9251",
+      "language": "foreign_mixed",
+      "group": "Nirvana",
+      "split": "holdout"
+    },
+    {
+      "id": "10280",
+      "title": "Claimstaker",
+      "artists": "Björk",
+      "mbid": "3870b8a5-dd22-475c-b510-199646eecbae",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/3870b8a5-dd22-475c-b510-199646eecbae",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10281",
+      "title": "Sue Me",
+      "artists": "Björk",
+      "mbid": "c6cbbeb9-7628-47e8-a987-de55a4cbad83",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/c6cbbeb9-7628-47e8-a987-de55a4cbad83",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10282",
+      "title": "Paradisia",
+      "artists": "Björk",
+      "mbid": "e07544d5-41ff-4562-bb5a-adb87a4c21c4",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/e07544d5-41ff-4562-bb5a-adb87a4c21c4",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10283",
+      "title": "Body Memory",
+      "artists": "Björk",
+      "mbid": "1e2db8b7-98c4-492e-9453-b9e58f40c5d5",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/1e2db8b7-98c4-492e-9453-b9e58f40c5d5",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10284",
+      "title": "[announcement]",
+      "artists": "Björk",
+      "mbid": "fdfbb411-2524-48cc-b0a7-bbbc6a8e68fa",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/fdfbb411-2524-48cc-b0a7-bbbc6a8e68fa",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10285",
+      "title": "Unravel",
+      "artists": "Björk",
+      "mbid": "58cb67e4-eec9-4d3e-95cb-0c01201b68f4",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/58cb67e4-eec9-4d3e-95cb-0c01201b68f4",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10286",
+      "title": "Hidden Place",
+      "artists": "Björk",
+      "mbid": "e7d3e275-47f9-4c4c-a744-36d1a638ef41",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/e7d3e275-47f9-4c4c-a744-36d1a638ef41",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10287",
+      "title": "There’s More to Life Than This",
+      "artists": "Björk",
+      "mbid": "27e4a560-abc3-4353-be62-855c8945cc46",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/27e4a560-abc3-4353-be62-855c8945cc46",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10288",
+      "title": "All is Full of Love (vocal)",
+      "artists": "Björk",
+      "mbid": "547b6ea1-c71e-421c-8bbe-19b5e00bd219",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"
+      ],
+      "source": "https://musicbrainz.org/recording/547b6ea1-c71e-421c-8bbe-19b5e00bd219",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10289",
+      "title": "Crave (Odd Duck mix)",
+      "artists": "Björk feat. Matmos",
+      "mbid": "1e0eb496-ac32-49a7-ac33-e1eabc656f88",
+      "artist_mbids": [
+        "87c5dedd-371d-4a53-9f7f-80522fb7f3cb",
+        "46e8a8ee-d2cd-4165-9725-02f72d0027a9"
+      ],
+      "source": "https://musicbrainz.org/recording/1e0eb496-ac32-49a7-ac33-e1eabc656f88",
+      "language": "foreign_mixed",
+      "group": "Björk",
+      "split": "holdout"
+    },
+    {
+      "id": "10290",
+      "title": "Eurochild (session)",
+      "artists": "Massive Attack",
+      "mbid": "1926929d-c4c3-4d88-9040-a7844463d511",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/1926929d-c4c3-4d88-9040-a7844463d511",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10291",
+      "title": "Karmacoma",
+      "artists": "Massive Attack",
+      "mbid": "8e71e986-4c6f-4c0c-a938-3257d2a09a10",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/8e71e986-4c6f-4c0c-a938-3257d2a09a10",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10292",
+      "title": "Protection",
+      "artists": "Massive Attack",
+      "mbid": "37f4fac6-2122-4072-920f-8c2370119c96",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/37f4fac6-2122-4072-920f-8c2370119c96",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10293",
+      "title": "Blue Lines",
+      "artists": "Massive Attack",
+      "mbid": "a2383c02-2430-4294-9177-ef799a6eca31",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/a2383c02-2430-4294-9177-ef799a6eca31",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10294",
+      "title": "Hymn of the Big Wheel",
+      "artists": "Massive Attack",
+      "mbid": "e2d19f1e-1f51-4500-8e15-9c417f980812",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/e2d19f1e-1f51-4500-8e15-9c417f980812",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10295",
+      "title": "Teardrop",
+      "artists": "Massive Attack",
+      "mbid": "57d11f95-7bd7-4e5c-8031-024a12d249c7",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/57d11f95-7bd7-4e5c-8031-024a12d249c7",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10296",
+      "title": "Safe from Harm",
+      "artists": "Massive Attack",
+      "mbid": "8e148579-b545-47a3-a08b-83ecf78af8bc",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/8e148579-b545-47a3-a08b-83ecf78af8bc",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10297",
+      "title": "One Love",
+      "artists": "Massive Attack",
+      "mbid": "57396662-08db-40d7-a609-010444bf6f8a",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/57396662-08db-40d7-a609-010444bf6f8a",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10298",
+      "title": "Reflection",
+      "artists": "Massive Attack",
+      "mbid": "bcb87b70-56e3-43d6-94c9-ce576f22726c",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/bcb87b70-56e3-43d6-94c9-ce576f22726c",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10299",
+      "title": "Man Next Door",
+      "artists": "Massive Attack",
+      "mbid": "1273128b-f88d-4757-b14d-4bca065ae50f",
+      "artist_mbids": [
+        "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8"
+      ],
+      "source": "https://musicbrainz.org/recording/1273128b-f88d-4757-b14d-4bca065ae50f",
+      "language": "foreign_mixed",
+      "group": "Massive Attack",
+      "split": "holdout"
+    },
+    {
+      "id": "10300",
+      "title": "I Feel Loved (Butcher Bros. mix)",
+      "artists": "Depeche Mode",
+      "mbid": "299ac336-ae57-4405-a480-e6ce26241979",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/299ac336-ae57-4405-a480-e6ce26241979",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10301",
+      "title": "Here Is the House",
+      "artists": "Depeche Mode",
+      "mbid": "91e96c15-7644-4513-85ee-fe4e98eb4c30",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/91e96c15-7644-4513-85ee-fe4e98eb4c30",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10302",
+      "title": "John the Revelator",
+      "artists": "Depeche Mode",
+      "mbid": "ad8f7f50-15d8-43d8-9157-b1c2c0049781",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/ad8f7f50-15d8-43d8-9157-b1c2c0049781",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10303",
+      "title": "Behind the Wheel",
+      "artists": "Depeche Mode",
+      "mbid": "3613d476-fe65-4eb3-98c7-7fb064a50428",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/3613d476-fe65-4eb3-98c7-7fb064a50428",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10304",
+      "title": "Leave in Silence",
+      "artists": "Depeche Mode",
+      "mbid": "00658854-9834-4c51-95a1-ebcea0ee0bd9",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/00658854-9834-4c51-95a1-ebcea0ee0bd9",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10305",
+      "title": "Nothing’s Impossible",
+      "artists": "Depeche Mode",
+      "mbid": "9aa412bb-e62c-4f20-bb40-7e6d0b75a319",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/9aa412bb-e62c-4f20-bb40-7e6d0b75a319",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10306",
+      "title": "I Feel You",
+      "artists": "Depeche Mode",
+      "mbid": "537762d9-9c08-4e6e-91ac-d003b28c3d65",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/537762d9-9c08-4e6e-91ac-d003b28c3d65",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10307",
+      "title": "Wrong (Thin White Duke dub)",
+      "artists": "Depeche Mode",
+      "mbid": "b6b6ae0a-2434-4350-a926-9ffe6b6409f8",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/b6b6ae0a-2434-4350-a926-9ffe6b6409f8",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10308",
+      "title": "Strangelove (midi mix)",
+      "artists": "Depeche Mode",
+      "mbid": "1f6854d4-129a-4251-a8ff-3906659b4674",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/1f6854d4-129a-4251-a8ff-3906659b4674",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10309",
+      "title": "Condemnation",
+      "artists": "Depeche Mode",
+      "mbid": "948e93c8-6123-4598-8142-da6552f8801b",
+      "artist_mbids": [
+        "8538e728-ca0b-4321-b7e5-cff6565dd4c0"
+      ],
+      "source": "https://musicbrainz.org/recording/948e93c8-6123-4598-8142-da6552f8801b",
+      "language": "foreign_mixed",
+      "group": "Depeche Mode",
+      "split": "holdout"
+    },
+    {
+      "id": "10310",
+      "title": "If You Want Blood",
+      "artists": "AC/DC",
+      "mbid": "0741f3ab-3790-4ea1-a1bc-ac94cc54f7e9",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/0741f3ab-3790-4ea1-a1bc-ac94cc54f7e9",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10311",
+      "title": "Hell Ain't a Bad Place to Be",
+      "artists": "AC/DC",
+      "mbid": "13d0732a-f556-4644-b8e4-22e8ad49ef20",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/13d0732a-f556-4644-b8e4-22e8ad49ef20",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10312",
+      "title": "Whole Lotta Rosie",
+      "artists": "AC/DC",
+      "mbid": "0b3caa95-b0a9-41a0-8364-1a33e0dfbf7d",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/0b3caa95-b0a9-41a0-8364-1a33e0dfbf7d",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10313",
+      "title": "Bad Boy Boogie",
+      "artists": "AC/DC",
+      "mbid": "5d187193-87b9-450c-9615-05a3dd95fe9f",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/5d187193-87b9-450c-9615-05a3dd95fe9f",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10314",
+      "title": "Walk All Over You",
+      "artists": "AC/DC",
+      "mbid": "b450ff9c-8cf8-4ae1-96dc-e6a5f5ca2c91",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/b450ff9c-8cf8-4ae1-96dc-e6a5f5ca2c91",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10315",
+      "title": "The Jack",
+      "artists": "AC/DC",
+      "mbid": "d29c2d9e-dd60-4f21-9405-9d5e93881699",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/d29c2d9e-dd60-4f21-9405-9d5e93881699",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10316",
+      "title": "School Days",
+      "artists": "AC/DC",
+      "mbid": "cd80df1e-ac7f-4387-8ecf-4bfab938c880",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/cd80df1e-ac7f-4387-8ecf-4bfab938c880",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10317",
+      "title": "High Voltage",
+      "artists": "AC/DC",
+      "mbid": "59f07cfe-6aa3-4f3d-9098-85a147578888",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/59f07cfe-6aa3-4f3d-9098-85a147578888",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10318",
+      "title": "T.N.T.",
+      "artists": "AC/DC",
+      "mbid": "189772d5-6837-4f8c-a087-c72e25e8099e",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/189772d5-6837-4f8c-a087-c72e25e8099e",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    },
+    {
+      "id": "10319",
+      "title": "Sin City",
+      "artists": "AC/DC",
+      "mbid": "673779bf-1d69-46ea-8cb3-20fe3f3b3900",
+      "artist_mbids": [
+        "66c662b6-6e2f-4930-8610-912e24c63ed1"
+      ],
+      "source": "https://musicbrainz.org/recording/673779bf-1d69-46ea-8cb3-20fe3f3b3900",
+      "language": "foreign_mixed",
+      "group": "AC/DC",
+      "split": "holdout"
+    }
+  ]
+}

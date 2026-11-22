@@ -1,5 +1,7 @@
 import type { ConversationState, Phase } from "./voice/conversation";
 import { validateConnection, type Connection } from "./connection";
+import { SpeechCooldown, SpeechUnavailable, retryAfterMs } from "./voice/ttsErrors";
+const speechCooldown = new SpeechCooldown();
 
 export interface Settings {
   ui_theme: "aurora" | "ice" | "ember" | "nebula";
@@ -12,6 +14,7 @@ export interface Settings {
   chatgpt_connection: string;
   base_url: string;
   model: string;
+  fast_model: string;
   profile: "eco" | "balanced" | "quality";
   voice_idle_timeout: "profile" | "never" | "1m" | "5m" | "15m";
   context_tokens: number;
@@ -43,7 +46,12 @@ export interface Settings {
   allow_web_open: boolean;
   allow_audio_control: boolean;
   music_player: "auto" | "yandex";
+  media_source: string;
+  yandex_auto_connect: boolean;
+  yandex_auto_play: boolean;
   command_understanding: boolean;
+  semantic_commands: boolean;
+  intent_gate: boolean;
   task_understanding: boolean;
   plan_understanding: boolean;
   search_enabled: boolean;
@@ -73,6 +81,10 @@ export interface Settings {
   stt_environment: "normal" | "music";
   voice_diagnostics: boolean;
   conversation_listen_while_thinking: boolean;
+  conversation_queue_mode: "sequential" | "latest" | "queue";
+  conversation_endpoint_mode: "auto" | "commands" | "conversation" | "dictation";
+  conversation_vad: "auto" | "silero" | "rms";
+  conversation_smart_turn: boolean;
   conversation_barge_in: boolean;
   conversation_wake_required: boolean;
   conversation_wake_word: string;
@@ -479,6 +491,8 @@ export async function audioRequest(
 ): Promise<Blob> {
   const connection = readyConnection();
   signal.throwIfAborted();
+  const cooldownKey = JSON.stringify([connection.url, engine, cloud?.tts_base_url, cloud?.tts_model]);
+  speechCooldown.check(cooldownKey);
   const request_id = crypto.randomUUID();
   const cancel = () => {
     void request("/voice/stop", "POST", { request_id }).catch(() => {});
@@ -503,11 +517,19 @@ export async function audioRequest(
       }),
       signal,
     });
-    if (!response.ok) throw await errorFrom(response, "Ошибка синтеза речи");
+    if (!response.ok) {
+      const failure = await errorFrom(response, "Ошибка синтеза речи");
+      const wait = response.status === 429 ? retryAfterMs(response.headers.get("Retry-After")) : 0;
+      if (response.status === 429) speechCooldown.limit(cooldownKey, wait);
+      throw new SpeechUnavailable(failure.message, wait, response.status === 429);
+    }
     const actualDevice = response.headers.get("X-Wiley-TTS-Device");
     if (actualDevice === "cpu" || actualDevice === "cuda")
       onDevice?.(actualDevice);
     return await response.blob();
+  } catch (error) {
+    if (error instanceof TypeError && !signal.aborted) throw new SpeechUnavailable("Не удалось связаться с сервисом озвучки. Текстовый ответ сохранён; разговор можно продолжить.");
+    throw error;
   } finally {
     signal.removeEventListener("abort", cancel);
   }
@@ -525,6 +547,11 @@ export async function stream(
     text?: string;
     message?: Message;
     seconds?: number;
+    interpretation_ms?: number;
+    model_begin_ms?: number;
+    model_first_ms?: number;
+    model_tier?: "manual" | "fast" | "selected" | "fast_unavailable";
+    llm_ms?: number;
     changed?: string[];
     phase?: ReadingProgress["phase"];
     current?: number;
@@ -534,9 +561,10 @@ export async function stream(
   web_search = false,
   conversation_id?: string,
   full_document = false,
+  recognition_id?: string,
+  request_id: string = crypto.randomUUID(),
 ) {
   const connection = readyConnection();
-  const request_id = crypto.randomUUID();
   let stopping: Promise<unknown> | undefined;
   const cancel = () => {
     stopping = request("/chat/stop", "POST", { request_id }).catch(() => {});
@@ -557,6 +585,7 @@ export async function stream(
         request_id,
         conversation_id,
         full_document,
+        recognition_id,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
       signal,

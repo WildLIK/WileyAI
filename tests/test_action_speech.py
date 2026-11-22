@@ -9,6 +9,14 @@ from core.launch_verification import ExecutionText
 from core.storage import Store
 
 
+def test_current_yandex_track_speech_keeps_display_without_duration_in_speech():
+    from core.action_response import audio_result
+    display = "Полная информация: трек — исполнитель, длительность 12 минут."
+    result = audio_result({"action": "status", "result": {"confirmed": True, "state": {"title": "Трек", "artists": "Исполнитель"}}}, display, "feminine")
+    assert result.display == display
+    assert result.spoken == "Трек — Исполнитель."
+
+
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     exe = tmp_path / "Blender.exe"; exe.touch()
@@ -128,7 +136,7 @@ def test_explicit_read_previous_sends_full_answer_even_in_off_mode(ctx):
 
 def test_music_and_volume_use_evidence_without_reading_diagnostics(ctx, monkeypatch):
     client, app, exe, row = ctx
-    monkeypatch.setattr("core.device_audio.AudioTools.execute", lambda self, command, dry_run=False: {"text": "Windows internal ID 123", "volume": 50, "muted": False})
+    monkeypatch.setattr("core.device_audio.AudioTools.execute", lambda self, command, dry_run=False, **kwargs: {"text": "Windows internal ID 123", "volume": 50, "muted": False})
     events = send(client, "Громкость 50")
     result = next(e["action"] for e in events if e["type"] == "speech_result")
     assert result["spoken"] == "Громкость — 50 процентов." and "ID 123" in result["display"]

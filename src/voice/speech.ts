@@ -7,13 +7,24 @@ export type SpeechOptions = {
   noiseCalibrationMs?: number;
 };
 
+export type SpeechHandover = {
+  frames: Float32Array[];
+  speaking: boolean;
+  voicedMs: number;
+  silenceMs: number;
+};
+export type SpeechFinalization = {
+  sequence: number; accepted: boolean; durationMs: number; voicedMs: number;
+  reason: "pause" | "maximum" | "smart_complete" | "silence_limit";
+};
+
 export function rms(samples: Float32Array): number {
   let sum = 0;
   for (const sample of samples) sum += sample * sample;
   return Math.sqrt(sum / Math.max(samples.length, 1));
 }
 
-/** Bounded local energy gate. Whisper performs the subsequent neural VAD. */
+/** Legacy bounded RMS gate, retained as the explicit and failure fallback. */
 export class SpeechSegmenter {
   readonly sampleRate: number;
   readonly options: Required<SpeechOptions>;
@@ -28,6 +39,23 @@ export class SpeechSegmenter {
   /** Recent frame levels (about 3 s), kept while speaking too: a minimum statistic of noise. */
   private levels: number[] = [];
   isSpeaking = false;
+  lastEndPauseMs = 0;
+  finalization: SpeechFinalization | null = null;
+  get durationMs() { return this.duration; }
+  get pauseMs() { return this.silence; }
+
+  /** Continue an already verified phrase; do not re-detect its quiet beginning. */
+  resume(value: SpeechHandover) {
+    this.reset();
+    if (value.speaking) {
+      this.frames = [...value.frames];
+      this.duration = this.frames.reduce((sum, frame) => sum + frame.length, 0) / this.sampleRate * 1000;
+      this.speechDuration = value.voicedMs;
+      this.silence = value.silenceMs;
+      this.isSpeaking = true;
+      this.calibratedMs = this.options.noiseCalibrationMs;
+    } else this.preRoll = [...value.frames];
+  }
 
   get calibrating() {
     return this.calibratedMs < this.options.noiseCalibrationMs;
@@ -129,6 +157,8 @@ export class SpeechSegmenter {
       this.speechDuration >= this.options.minimumSpeechMs
         ? joinFrames(this.frames)
         : null;
+    this.finalization = { sequence: (this.finalization?.sequence ?? 0) + 1, accepted: !!result, durationMs: this.duration, voicedMs: this.speechDuration, reason: this.silence >= this.options.silenceMs ? "pause" : "maximum" };
+    this.lastEndPauseMs = this.silence;
     this.reset();
     return result;
   }

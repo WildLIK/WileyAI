@@ -52,26 +52,94 @@ def percentage(text):
 
 
 INFINITIVES = {"сделать": "сделай", "увеличить": "увеличь", "уменьшить": "уменьши", "прибавить": "прибавь", "убавить": "убавь", "установить": "установи", "включить": "включи", "выключить": "выключи", "продолжить": "продолжи", "возобновить": "возобнови", "остановить": "останови", "приостановить": "приостанови", "снять": "сними", "переключить": "переключи", "найти": "найди", "поставить": "поставь", "воспроизвести": "воспроизведи", "добавить": "добавь", "убрать": "убери"}
+ASR_FORMS = {"продолжим": "продолжи", "поставим": "поставь", "убавим": "убавь", "прибавим": "прибавь", "переключим": "переключи", "возобновим": "возобнови", "остановим": "останови", "включим": "включи", "запустим": "запусти", "откроем": "открой"}
 
 
-def request_form(text, name="Уайли"):
-    """Strip grammatical request wrappers only; never infer a misspelled verb."""
+def request_form(text, name="Уайли", *, normalize_asr=True, player_context=False, diagnostics=None):
+    """Strip request wrappers; repair only closed ASR forms with a supported target.
+
+    Never infer a misspelled verb or rewrite words inside the arguments.
+    ``normalize_asr=False`` lets C5 inspect the original action forms safely.
+    """
     value = text.strip().rstrip(".! ")
     value = re.sub(r"^" + re.escape(name) + r"[,!]?[ ]+", "", value, flags=re.I)
+    from .intent_interpreter import request_prefix
+    value = request_prefix(value, extra_verbs=ASR_FORMS)
     value = re.sub(r"^пожалуйста[, ]+|,? пожалуйста$", "", value, flags=re.I).strip()
+    invitation = bool(re.match(r"^давай[, ]+", value, re.I))
     value = re.sub(r"^давай[, ]+", "", value, flags=re.I)
     polite = re.fullmatch(r"(?:ты )?можешь[, ]+(?:пожалуйста[, ]+)?(\w+)[, ]+(.+?)\??", value, re.I)
     if polite and polite[1].casefold() in INFINITIVES:
         value = INFINITIVES[polite[1].casefold()] + " " + polite[2].rstrip("? ")
-    return value
+    if not normalize_asr: return value
+    # Whole volume phrases only: never reorder words inside a song/app title.
+    if not any(c in value for c in '"«»“”„?\n\r'):
+        volume = re.fullmatch(r"(?:(?:сделай|сделаем|включи)\s+)?(?:(музыку|звук)\s+)?(погромче|громче|потише|тише)(?:\s+(музыку|звук)|\s+сделай)?", value, re.I)
+        if volume and not (volume[1] and volume[3]):
+            obj = volume[1] or volume[3]
+            if obj and obj.casefold() == "звук": obj = None
+            value = "сделай " + ((obj.casefold() + " ") if obj else "") + ("громче" if "громче" in volume[2].casefold() else "тише")
+        elif re.fullmatch(r"подкрути\s+(?:звук|громкость)", value, re.I):
+            value = "прибавь звук"
+        else:
+            musical_volume = re.fullmatch(r"(прибавь|убавь|увеличь|уменьши)\s+(?:музыку|музычку|музыкашку)", value, re.I)
+            if musical_volume:
+                value = "сделай музыку " + ("громче" if musical_volume[1].casefold() in {"прибавь", "увеличь"} else "тише")
+    match = re.match(r"^(\w+)(?=$|[\s,.?!])", value)
+    verb = match[1].casefold() if match else ""
+    if verb not in ASR_FORMS:
+        if diagnostics is not None:
+            diagnostics.update(applied=False, reason="not_asr_form")
+            # Explain refusal without treating a title/report/question as a
+            # candidate command, and without retaining the surrounding text.
+            if re.match(r'^(?:["«“„]|не\b|если\b|почему\b|как\b|когда\b|я\s+(?:сказал|сказала)\b|песня\s+называется\b)', value, re.I):
+                reported = next((word.casefold() for word in re.findall(r"\w+", value) if word.casefold() in ASR_FORMS), None)
+                if reported: diagnostics.update(source_verb=reported, normalized_verb=ASR_FORMS[reported], command_candidate=False, reason="non_command_context")
+        return value
+    detail = {"applied": False, "source_verb": verb, "normalized_verb": ASR_FORMS[verb], "command_candidate": True, "existing_invitation": invitation and verb in {"откроем", "запустим", "включим"}}
+    def finish(reason, result=value):
+        detail["reason"] = reason
+        if diagnostics is not None: diagnostics.update(detail)
+        return result
+    if any(c in text for c in '"«»“”„\n\r'): return finish("quoted_or_multiline")
+    if "?" in value: return finish("question")
+    if re.search(r"\b(?:не|никогда|если|сказал|сказала|например|почему|когда)\b", value, re.I): return finish("non_action")
+    from .music_intents import compound_request, resolve as music_resolve
+    if compound_request(text, name): return finish("compound")
+    remainder = value[match.end():]
+    tail = re.sub(r"^(?:[,.]\s*|\s+)", "", remainder, count=1).strip()
+    had_tail = bool(tail)
+    if not tail:
+        if verb not in {"продолжим", "возобновим"}: return finish("missing_target")
+        if not player_context: return finish("missing_player_context")
+        tail = "музыку"
+    candidate = ASR_FORMS[verb] + " " + tail
+    try:
+        supported = resolve(candidate, name, normalize_asr=False)
+    except ValueError:
+        return finish("invalid_arguments")
+    kind = "audio" if supported else ""
+    if supported is None:
+        music = music_resolve(candidate, preferred=True, name=name, allow_free=player_context)
+        if music: kind = "music"
+    if not kind and verb in {"откроем", "запустим"}:
+        from .app_catalog import canonical_name
+        from .commands import opening_target
+        target = opening_target(candidate)
+        if target: target = re.sub(r"\s+на (?:компьютере|пк|телефоне|смартфоне)$", "", target, flags=re.I)
+        if target and (canonical_name(re.sub(r"^(?:приложение|программу)\s+", "", target, flags=re.I)) or target.casefold() in {"браузер", "браузер по умолчанию"}):
+            kind = "application"
+    if not kind: return finish("unsupported_target")
+    detail.update(applied=True, context="selected_player" if not had_tail else kind)
+    return finish("supported_command", candidate)
 
 
-def request_text(text, name="Уайли"):
+def request_text(text, name="Уайли", *, normalize_asr=True):
     # Only the user's whole utterance is a command. Quotes, negation, compound
     # instructions and text from documents never become executable actions.
     if len(text) > 200 or any(ord(char) < 32 for char in text) or any(char in text for char in '"«»“”'):
         return None
-    value = normalize(request_form(text, name))
+    value = normalize(request_form(text, name, normalize_asr=normalize_asr))
     # Device qualifiers at the end do not change the intent; only the same
     # bounded whole-utterance grammar below can become a command.
     value = re.sub(r"\s+на (?:компьютере|пк)$", "", value)
@@ -83,8 +151,8 @@ def request_text(text, name="Уайли"):
     return value
 
 
-def resolve(text, name="Уайли"):
-    value = request_text(text, name)
+def resolve(text, name="Уайли", *, normalize_asr=True):
+    value = request_text(text, name, normalize_asr=normalize_asr)
     if value is None:
         return None
     fixed = {
@@ -101,9 +169,9 @@ def resolve(text, name="Уайли"):
     }
     if value in fixed:
         return AudioAction(action=fixed[value])
-    if value in {"сделай громче", "громче", "увеличь громкость", "прибавь громкость", "прибавь громкости", "добавь громкости", "добавь громкость", "прибавь звук"}:
+    if value in {"сделай громче", "громче", "сделай музыку громче", "увеличь громкость", "прибавь громкость", "прибавь громкости", "добавь громкости", "добавь громкость", "прибавь звук", "прибавь громче"}:
         return AudioAction(action="change_volume", value=10)
-    if value in {"сделай тише", "тише", "сделай потише", "потише", "уменьши громкость", "убавь громкость", "убавь громкости", "убавь звук"}:
+    if value in {"сделай тише", "тише", "сделай потише", "сделай музыку тише", "сделай музыку потише", "потише", "уменьши громкость", "убавь громкость", "убавь громкости", "убавь звук"}:
         return AudioAction(action="change_volume", value=-10)
     match = re.fullmatch(r"(?:установи |выстави |поставь |сделай )?громкость(?: на)? ([\w %]+)", value)
     if match:
@@ -137,12 +205,15 @@ class AudioTools:
         except (ValueError, OSError) as error:
             return {"available": False, "enabled": self.store.settings().allow_audio_control, "error": str(error)}
 
-    def execute(self, command: AudioAction, dry_run=False):
+    def execute(self, command: AudioAction, dry_run=False, request_id=None):
         target = command.action + (f":{command.value}" if command.value is not None else "")
         try:
             with self.lock:
                 if not self.store.settings().allow_audio_control:
                     raise ValueError("Управление звуком отключено. Включите доступ в разделе «Команды».")
+                if request_id:
+                    self.store.audit("command.permission", target, "allowed", {"request_id": request_id, "tool": "audio"})
+                    self.store.audit("command.tool", target, "called", {"request_id": request_id, "tool": "audio"})
                 if dry_run:
                     text = f"Проверено: {LABELS[command.action]}" + (f" ({command.value})" if command.value is not None else "") + ". Действие не выполнялось."
                     result = {"text": text}
@@ -151,7 +222,7 @@ class AudioTools:
                     if command.action != "media_status": media["action"] = command.action
                     result = {"text": windows_media.describe(media), "media": media}
                 elif command.action in windows_audio.MEDIA_KEYS:
-                    # One player call: it reports "unavailable" without sending anything, then the media key is used.
+                    # One player call; an unavailable session never triggers a global media key.
                     try:
                         media = windows_media.perform(command.action)
                     except (windows_media.Unavailable, OSError):
@@ -160,29 +231,49 @@ class AudioTools:
                         media["action"] = command.action
                         result = {"text": windows_media.describe(media), "media": media}
                     else:
-                        windows_audio.send_media(command.action)
-                        result = {"text": f"Windows получила медиаклавишу «{LABELS[command.action]}». Результат зависит от активного проигрывателя; состояние не подтверждено."}
+                        result = {"text": "Доступная медиасессия не найдена. Команда не отправлена.", "media": {"available": False, "confirmed": False}}
                 else:
                     with windows_audio.endpoint() as device:
+                        before = device.read()
+                        def verified_endpoint(state):
+                            return not state.get("endpoint") or state.get("default_endpoint", state["endpoint"]) == state["endpoint"]
+                        if not verified_endpoint(before): raise ValueError("Устройство вывода Windows изменилось до команды. Повторите команду для нового устройства.")
+                        expected = None
                         if command.action == "set_volume":
+                            expected = command.value
                             device.set_volume(command.value)
                         elif command.action == "change_volume":
-                            device.set_volume(max(0, min(100, device.read()["volume"] + command.value)))
+                            expected = max(0, min(100, before["volume"] + command.value))
+                            device.set_volume(expected)
                         elif command.action in {"mute", "unmute"}:
                             device.set_mute(command.action == "mute")
                         state = device.read()
-                    suffix = " Звук выключен." if state["muted"] else " Звук включён."
-                    result = {"text": f"Громкость Windows: {state['volume']}%." + suffix, **state}
+                        diagnostics = {"scope":"windows_master", "endpoint":before.get("endpoint"), "before":before, "after":state, "expected_volume":expected}
+                        def failed(reason, message):
+                            self.store.audit("device.audio.readback", target, "unconfirmed", {**diagnostics, "reason":reason, **({"request_id":request_id} if request_id else {})})
+                            raise ValueError(message)
+                        if not verified_endpoint(state) or before.get("endpoint") != state.get("endpoint"):
+                            failed("endpoint_changed", "Устройство вывода Windows изменилось во время команды. Результат для нового устройства не подтверждён; повтор не отправлялся.")
+                        if expected is not None and abs(state["volume"] - expected) > 1:
+                            failed("volume_mismatch", f"Windows не подтвердила изменение громкости. Прочитано: {state['volume']}%.")
+                        if expected is not None and ((expected > before["volume"] and state["volume"] <= before["volume"]) or (expected < before["volume"] and state["volume"] >= before["volume"])):
+                            failed("volume_unchanged", f"Громкость Windows не изменилась: {state['volume']}%. Команда повторно не отправлялась.")
+                        if command.action in {"mute", "unmute"} and state["muted"] != (command.action == "mute"):
+                            failed("mute_mismatch", "Windows не подтвердила изменение состояния звука.")
+                    suffix = " Уровень 0%: звук не слышен." if state["volume"] == 0 else " Звук выключен (mute)." if state["muted"] else " Mute выключен."
+                    if state["volume"] == 0 and state["muted"]: suffix += " Mute включён."
+                    result = {"text": f"Громкость Windows: {state['volume']}%." + suffix, **state, "before":before, "confirmed":True,
+                              "scope":"windows_master", "diagnostics":{**diagnostics, "reason":"readback_confirmed"}}
         except Exception as error:
-            self.store.audit("device.audio", target, "error", {"text": str(error)})
+            self.store.audit("device.audio", target, "error", {"text": str(error), **({"request_id": request_id} if request_id else {})})
             raise
-        self.store.audit("device.audio", target, "preview" if dry_run else "confirmed" if result.get("media", {}).get("confirmed") else "unconfirmed" if command.action in {"play", "pause"} else "ok", result)
+        self.store.audit("device.audio", target, "preview" if dry_run else "confirmed" if result.get("media", {}).get("confirmed") else "unconfirmed" if command.action in {"play", "pause"} else "ok", {**result, **({"request_id": request_id} if request_id else {})})
         return result
 
 
-async def run_action(tools, command, progress, outcomes=None):
+async def run_action(tools, command, progress, outcomes=None, request_id=None):
     """A dispatched Windows operation finishes before another chat is admitted."""
-    operation = asyncio.create_task(asyncio.to_thread(tools.execute, command))
+    operation = asyncio.create_task(asyncio.to_thread(tools.execute, command, **({"request_id": request_id} if request_id else {})))
     try:
         result = await asyncio.shield(operation)
     except asyncio.CancelledError:

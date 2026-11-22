@@ -64,6 +64,7 @@ export function ConversationControl({
         (state.active &&
           [
             "transcribing",
+            "executing",
             "thinking",
             "thinking_listening",
             "queued",

@@ -1,0 +1,24 @@
+{
+  "frozen_at": "2026-11-09T16:37:40.412615+00:00",
+  "code_sha256": "6464ede3d48447716088e222d201cd0a9bab3982598364be0fd558eaed6e9399",
+  "files": {
+    "core/music_entity.py": "6464ede3d48447716088e222d201cd0a9bab3982598364be0fd558eaed6e9399",
+    "core/yandex_music.py": "9df0714df516a7f620bbccbe8417d17215d40f3d476b2e2e527c9b632d502aa2",
+    "core/music_intents.py": "488a191b1980ddeadbb9869bf21c13c204c5535f4f67640bb1f37acbea039fe6",
+    "core/media_manager.py": "30751581ef165ec468cac3287eddda5240d8a22c0bf777e9b89174f921e57086",
+    "scripts/benchmark-music-entity.py": "9cbc9acc3bc881f08860de931bc246776c717feffcef6571abf4d662a3456643"
+  },
+  "split_policy": "No performer MBID or recording MBID overlap; no threshold changes after holdout evaluation",
+  "thresholds": {
+    "score": 0.72,
+    "margin": 0.05,
+    "lexical_field": 0.85,
+    "plausible": 0.5,
+    "field_plausible": 0.55,
+    "inferred_artist_with_exact_title": 0.35
+  },
+  "limitations": [
+    "mechanically generated transcripts, not real microphone recordings",
+    "catalogue ranking pools, not Yandex retrieval samples"
+  ]
+}

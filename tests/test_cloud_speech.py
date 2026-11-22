@@ -210,9 +210,24 @@ def test_provider_errors_never_echo_keys_or_spoken_text_or_fall_back(api, monkey
         return httpx.Response(code, json={"error": "private-secret private-spoken-text"})
     transport(monkeypatch, handler)
     response = api.post("/voice/synthesize", json={"text": "private-spoken-text", "engine": "cloud"})
-    assert response.status_code == 400 and str(code) in response.text
+    # F: 429 retains its status and bounded Retry-After for the speech cooldown.
+    assert response.status_code == (429 if code == 429 else 400) and str(code) in response.text
     assert "private-secret" not in response.text and "private-spoken-text" not in response.text
     assert len(sent) == 1
+
+
+@pytest.mark.parametrize("header,seconds", [("17", 17), ("invalid", 30), (None, 30)])
+def test_rate_limit_preserves_retry_after_without_retry_or_provider_switch(api, monkeypatch, header, seconds):
+    api, keys = api; keys[cloud_speech.SERVICES["openrouter"]] = "fixture-key"
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": header} if header else {}, json={"error": "private-provider-body"})
+    transport(monkeypatch, handler)
+    response = api.post("/voice/synthesize", json={"text": "Текст ответа", "engine": "cloud"}, headers={"Origin": "app://wileyai"})
+    assert response.status_code == 429 and response.headers["Retry-After"] == str(seconds)
+    assert "Retry-After" in response.headers["access-control-expose-headers"]
+    assert len(calls) == 1 and "private-provider-body" not in response.text
 
 
 def test_cloud_stop_cancels_pending_http_and_does_not_cancel_a_new_request(tmp_path, monkeypatch):

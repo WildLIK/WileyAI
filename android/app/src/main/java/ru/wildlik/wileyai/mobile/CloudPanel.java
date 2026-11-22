@@ -17,7 +17,7 @@ final class CloudPanel {
         ui.card(parent,"Как подключить API","Создайте ключ в официальном кабинете сервиса, укажите его HTTPS-адрес и выберите модель. Бесплатная квота может требовать ключ. Логин от сайта нейросети сюда не вводится. Для входа аккаунтом ChatGPT откройте «Настройки → Мозг».");
         parent.addView(ui.button("Gemini · API с бесплатной квотой",()->configure("https://generativelanguage.googleapis.com/v1beta/openai/")));
         parent.addView(ui.button("Настроить подключение",this::configure));
-        enabled=new Switch(activity);enabled.setText("Облачный чат и голосовой разговор");enabled.setTextColor(ui.theme.text);enabled.setMinHeight(ui.dp(56));enabled.setChecked(CloudChat.enabled(activity));parent.addView(enabled);
+        enabled=new Switch(activity);enabled.setText("Облачный чат и голосовой разговор");enabled.setTextColor(ui.theme.text);enabled.setMinHeight(ui.dp(56));enabled.setChecked(CloudChat.enabled(activity));ui.styleControl(enabled); parent.addView(enabled);
         renderListener();
         ui.card(parent,"Источник ответов","После включения текстовый чат телефона и режим «давай поговорим» используют выбранный сервис. Выключите переключатель, чтобы вернуться к установленной локальной модели. Другой сервис автоматически не подставляется.");
         LinearLayout options=ui.disclosure(parent,"Сервисы и бесплатные ограничения");

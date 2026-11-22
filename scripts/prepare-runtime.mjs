@@ -69,6 +69,7 @@ await mkdir(join(staging, "requirements"), { recursive: true });
 for (const [id, extra] of [
   ["whisper", "voice"],
   ["gigaam", "gigaam"],
+  ["endpoint", "endpoint"],
   ["piper", "piper"],
   ["silero", "tts"],
 ]) {
@@ -109,15 +110,15 @@ for (const license of ["LICENSE-MIT", "LICENSE-APACHE"]) {
   );
 }
 await mkdir(join(staging, "licenses"), { recursive: true });
-for (const name of ["react", "react-dom", "three", "@pixiv/three-vrm"]) {
+for (const name of ["react", "react-dom", "three", "@pixiv/three-vrm", "onnxruntime-web", "onnxruntime-common"]) {
   const directory = join(root, "node_modules", name);
   const files = await readdir(directory);
   const license = files.find((file) =>
     /^licen[sc]e(?:\.txt|\.md)?$/i.test(file),
   );
-  if (!license) throw new Error("Missing dependency license: " + name);
+  if (!license && !name.startsWith("onnxruntime-")) throw new Error("Missing dependency license: " + name);
   await cp(
-    join(directory, license),
+    license ? join(directory, license) : join(root, "assets/voice/ONNX-Runtime-LICENSE.txt"),
     join(staging, "licenses", name.replaceAll("/", "_") + "-LICENSE.txt"),
   );
 }

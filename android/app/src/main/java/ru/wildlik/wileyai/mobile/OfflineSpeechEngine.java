@@ -21,7 +21,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** One bounded 15-second local microphone session, shared by chat and system assistant. */
 final class OfflineSpeechEngine {
     interface Listener {
+        default void level(float value) {}
+        default boolean wantsSpectrum() { return false; }
+        default void spectrum(float[] bands) {}
         default void ready(Runnable startMicrophone) { startMicrophone.run(); }
+        default void speechEnded(long elapsedRealtime) {}
+        default void gigaStage(GigaAmSpeechEngine.Stage stage,long value) {}
         void state(String message);
         void partial(String text);
         void result(String text);
@@ -47,6 +52,7 @@ final class OfflineSpeechEngine {
         worker.execute(() -> {
             StringBuilder text = new StringBuilder();
             String[] recognized = {null};
+            VoiceTelemetry.Capture capture = null;
             try {
                 if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) throw new SecurityException();
                 ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo(); ((ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
@@ -71,13 +77,16 @@ final class OfflineSpeechEngine {
                     if (audio.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("Микрофон недоступен");
                     audio.startRecording();
                     if (audio.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) throw new IllegalStateException("Микрофон занят");
-                    post(ticket, () -> listener.state("Слушаю на телефоне · нажмите ■ для завершения"));
-                    short[] buffer = new short[2048]; long began = SystemClock.elapsedRealtime(), lastPartial = 0;
+                    capture=VoiceTelemetry.captureOpened(VoiceTelemetry.VOSK);DiagnosticLog.event(DiagnosticJournal.Event.AUDIO_RECORD_COUNT,VoiceTelemetry.snapshot().captureCount());
+                    post(ticket, () -> listener.state("Говорите сейчас"));
+                    VoiceSpectrum spectrum = listener.wantsSpectrum() ? new VoiceSpectrum() : null; NeonWaveMath.LevelNormalizer visualLevel = new NeonWaveMath.LevelNormalizer();
+                    short[] buffer = new short[2048]; long began = SystemClock.elapsedRealtime(), lastPartial = 0, lastLevel=0;
                     while (!cancelled && !finishing && SystemClock.elapsedRealtime() - began < Math.max(2000,Math.min(60000,timeoutMillis))) {
                         int n;
                         try { n = audio.read(buffer, 0, buffer.length); }
                         catch (IllegalStateException error) { if (finishing || cancelled) break; throw error; }
                         if (n <= 0) { if (finishing || cancelled) break; throw new IllegalStateException("Не удалось получить звук микрофона"); }
+                        long now=SystemClock.elapsedRealtime();if(now-lastLevel>=150){lastLevel=now;double sum=0;for(int i=0;i<n;i++)sum+=(double)buffer[i]*buffer[i];float level=visualLevel.observe(Math.sqrt(sum/n));float[] bands=spectrum==null?null:spectrum.analyze(buffer,n);post(ticket,()->{listener.level(level);if(bands!=null)listener.spectrum(bands);});}
                         if (recognizer.acceptWaveForm(buffer, n)) {
                             String value = new JSONObject(recognizer.getResult()).optString("text").trim();
                             if (!value.isEmpty()) { text.append(value); break; }
@@ -86,7 +95,11 @@ final class OfflineSpeechEngine {
                             if (!partial.isEmpty()) post(ticket, () -> listener.partial(partial));
                         }
                     }
-                    if (text.length() == 0 && !cancelled) text.append(new JSONObject(recognizer.getFinalResult()).optString("text"));
+                    if (!cancelled) {
+                        long endpoint=SystemClock.elapsedRealtime();
+                        post(ticket,()->listener.speechEnded(endpoint));
+                        if(text.length()==0)text.append(new JSONObject(recognizer.getFinalResult()).optString("text"));
+                    }
                 }
                 if (!cancelled) recognized[0] = text.toString().trim();
             } catch (SecurityException error) { post(ticket, () -> listener.error("Разрешите микрофон для локального распознавания")); }
@@ -96,6 +109,7 @@ final class OfflineSpeechEngine {
             finally {
                 AudioRecord recorder = audio; audio = null;
                 if (recorder != null) { try { recorder.stop(); } catch (IllegalStateException ignored) {} recorder.release(); }
+                if(capture!=null){capture.close();DiagnosticLog.event(DiagnosticJournal.Event.AUDIO_RECORD_COUNT,VoiceTelemetry.snapshot().captureCount());}
                 busy.set(false);
                 if (recognized[0] != null) { String result = recognized[0]; post(ticket, () -> listener.result(result)); }
                 main.post(() -> { if (!closed && ticket == session) listener.finished(); });

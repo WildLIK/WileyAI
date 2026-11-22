@@ -51,6 +51,9 @@ def opening_target(text: str) -> str | None:
     if len(text) > 1000 or any(ord(char) < 32 for char in text) or any(mark in text for mark in '"«»“”'):
         return None
     value = re.sub(r"^пожалуйста[, ]+", "", text.strip(), flags=re.I)
+    from .intent_interpreter import repair_open_punctuation, request_prefix
+    value = request_prefix(value)
+    value = repair_open_punctuation(value)
     value = re.sub(r",? пожалуйста[.! ]*$", "", value, flags=re.I)
     if re.search(r"[.!?;]\s*(?:открой|открывай|запусти|запускай|включи|выключи|удали|отправь)\b", value, re.I):
         return None
@@ -117,9 +120,29 @@ def known_application(text):
 
 def application_query(text):
     value = text.strip()
-    match = re.fullmatch(r"(?:проверь,?\s+установлен[ао]?\s+ли\s+(?:приложение\s+|программу\s+)?|проверь\s+(?:наличие\s+)?(?:приложения|программы|приложение|программу)\s+|найди(?: в системе)?\s+(?:приложение|программу)\s+|есть ли(?: у меня)?\s+(?:приложение|программа)\s+)([^?!\n]+?)[?!. ]*", value, re.I)
+    # Descriptive adjectives belong to the app slot, not to a music query.
+    # This only requests inspection; it cannot authorize opening the result.
+    value = re.sub(r"^(найди(?: в системе)?\s+)(?:[а-яё-]+(?:ую|ое)\s+){1,2}(?=(?:программу|приложение)\s)", r"\1", value, flags=re.I)
+    match = re.fullmatch(r"(?:проверь,?\s+установлен[ао]?\s+ли\s+(?:приложение\s+|программу\s+)?|проверь\s+(?:наличие\s+)?(?:приложения|программы|приложение|программу)\s+|найди(?: в системе)?\s+(?:приложение|программу)\s+|найди(?: в системе)?\s+(?:что-нибудь|что-то)\s+|есть ли(?: у меня)?\s+(?:что-нибудь\s+|что-то\s+)?(?:приложение\s+|программа\s+)?|у меня (?:есть|имеется)\s+(?:что-нибудь\s+|что-то\s+)?(?:приложение\s+|программа\s+)?)([^?!\n]+?)[?!. ]*", value, re.I)
     if match:
         return canonical_name(match[1]) or match[1].strip()
+    # Purpose questions ("чем открыть PDF", "какая программа подойдёт для …") request
+    # an informational lookup only. The slot keeps «для …» where present, so an unknown
+    # purpose stays an honest clarification and never becomes a launch. Full-match
+    # anchoring keeps negations ("не подскажешь, чем …") and music queries out.
+    for pattern in (
+        r"какой ([а-яё]+) (?:у меня )?установлен[?.! ]*",
+        r"какие ([а-яё]+) установлены[?.! ]*",
+        r"чем (?:мне\s+|можно\s+|мне можно\s+)*(?:открыть|посмотреть|просмотреть|послушать|проиграть)\s+([^?!\n]+?)[?!. ]*",
+        r"какая программа (?:подойдёт|подойдет|нужна|подходит|понадобится|используется)\s*(?:мне\s*)?(?:для\s+)?([^?!\n]+?)[?!. ]*",
+        r"какую программу (?:выбрать|использовать|открыть|установить)\s*(?:мне\s*)?(?:для\s+)?([^?!\n]+?)[?!. ]*",
+        r"покажи установленны[ее]\s+(?:(?:программы|приложения)\s+)?([^?!\n]+?)[?!. ]*",
+        r"покажи (?:программы|приложения)\s+([^?!\n]+?)[?!. ]*",
+    ):
+        match = re.fullmatch(pattern, value, re.I)
+        if match:
+            slot = match[1].strip()
+            return slot or None
     match = re.fullmatch(r"(?:проверь(?: наличие)?|найди(?: в системе)?|есть ли(?: у меня)?)\s+([^?!\n]+?)[?!. ]*", value, re.I)
     return canonical_name(match[1]) if match else None
 

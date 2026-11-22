@@ -140,6 +140,10 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
       .focus();
     await page.keyboard.press("ArrowDown");
     await expect(
+      navigation.getByRole("tab", { name: "Телефон", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(
       navigation.getByRole("tab", { name: "Поиск", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("End");
@@ -224,6 +228,7 @@ test("settings: focused categories, preserved drafts, keyboard navigation and co
     await expect(environment).toHaveValue("normal");
     await expect(continuous).toBeChecked();
     await environment.selectOption("music");
+    await page.getByLabel("Обработка новых фраз во время выполнения", { exact: true }).selectOption("queue");
     await continuous.uncheck();
     await page.getByRole("button", { name: "Сохранить", exact: true }).click();
     await page.reload();

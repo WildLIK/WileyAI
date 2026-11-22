@@ -110,7 +110,7 @@ def test_order_fail_fast_audit_and_no_llm(api, tmp_path, monkeypatch):
     assert result["type"] == "done"
     assert launched == [step["target"] for step in steps()[:2]]
     assert "Приложение недоступно" in result["message"]["content"] and "Остальные" in result["message"]["content"]
-    assert {item["status"] for item in api.get("/actions").json()} == {"launched", "error"}
+    assert {item["status"] for item in api.get("/actions").json()} == {"dispatched", "error"}
     assert "Сценарий не найден" in events(api.post("/chat", json={"text": "Запусти сценарий Нет"}))[-1]["message"]["content"]
 
 

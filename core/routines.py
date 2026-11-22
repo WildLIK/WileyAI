@@ -104,10 +104,10 @@ class Routines:
         return {"text": f"Проверено шагов: {len(item['steps'])}. Запуск не выполнялся."}
 
 
-async def run_step(tools, value, progress, outcomes=None, on_dispatch=None):
+async def run_step(tools, value, progress, outcomes=None, on_dispatch=None, request_id=None):
     """Wait for an in-flight Windows dispatch before releasing the chat lock."""
     step = Step.model_validate(value)
-    operation = asyncio.create_task(asyncio.to_thread(tools.execute, step.command(), **({"on_dispatch": on_dispatch} if on_dispatch else {})))
+    operation = asyncio.create_task(asyncio.to_thread(tools.execute, step.command(), **({"on_dispatch": on_dispatch} if on_dispatch else {}), **({"request_id": request_id} if request_id else {})))
     def finish(result=None, error=None):
         progress.append(f"{len(progress) + 1}. {result}" if error is None else f"{len(progress) + 1}. Не выполнено «{step.label}»: {error}")
         if outcomes is not None:

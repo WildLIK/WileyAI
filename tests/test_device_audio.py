@@ -18,6 +18,12 @@ from core.device_audio import AudioAction, AudioTools, resolve, run_action
 from core.storage import Store
 
 
+def audio_events(store):
+    # Command traces record decisions too; only device.audio entries describe
+    # calls to the audio adapter. Safety assertions below retain this boundary.
+    return [row for row in store.list("actions") if row["kind"] == "device.audio"]
+
+
 @pytest.mark.parametrize("text, action, value", [
     ("Прибавь громкости.", "change_volume", 10),
     ("Прибавь мне громкости на десять", "change_volume", 10),
@@ -160,7 +166,7 @@ def test_api_and_chat_use_same_adapter_without_model(audio):
     assert api.post("/device/audio", json={"action": "mute"}).json()["muted"] is True
     assert api.post("/commands", json={"text": "включи звук", "dry_run": False}).json()["muted"] is False
     assert device.calls == [("volume", 65), ("volume", 55), ("mute", True), ("mute", False)]
-    assert all(item["kind"] == "device.audio" for item in store.list("actions"))
+    assert all(item["kind"] == "device.audio" for item in audio_events(store))
 
 
 def audio_chat(api, text, **fields):
@@ -174,7 +180,7 @@ def audio_chat(api, text, **fields):
 def test_garbled_volume_requires_confirmation_and_can_be_cancelled(audio):
     api, store, device = audio
     assert "Выполнить?" in audio_chat(api, "Припав кромкость на 10", mode="conversation")
-    assert device.calls == [] and store.list("actions") == []
+    assert device.calls == [] and audio_events(store) == []
     assert "50%" in audio_chat(api, "да")
     assert device.calls == [("volume", 50)]
     audio_chat(api, "Убавь кромкость")
@@ -201,6 +207,9 @@ def test_unclear_music_is_proposed_and_requires_confirmation(audio, monkeypatch,
     api, store, device = audio
     calls = []
     monkeypatch.setattr("core.windows_media.perform", lambda command="read": calls.append(command) or {"available": False})
+    # D2 needs a paused starting state to test an actual Play dispatch.
+    monkeypatch.setattr("core.windows_media.sessions", lambda: [{"id": "smtc:Player", "app_id": "Player", "player": "Player", "state": "Paused", "commands": ["play", "pause"]}])
+    monkeypatch.setattr("core.windows_media.perform_selected", lambda identity, command: calls.append(command) or {"available": True, "player": "Player", "state": "Playing" if command == "play" else "Paused", "confirmed": True, "accepted": True})
     answer = audio_chat(api, phrase, mode="conversation")
     assert "Выполнить?" in answer and "Команда ещё не выполнялась" in answer
     assert not calls
@@ -274,23 +283,25 @@ def test_preview_does_not_touch_hardware(audio):
     result = api.post("/commands", json={"text": "громкость 95 процентов"})
     assert result.status_code == 200 and "не выполнялось" in result.json()["text"]
     assert device.volume == 40 and not device.calls
-    assert store.list("actions")[0]["status"] == "preview"
+    assert audio_events(store)[0]["status"] == "preview"
 
 
 @pytest.mark.parametrize("text", ["Включи мне музыку.", "Включи музыку", "Можешь включить мне музыку?", "Уайли, поставь какую-нибудь музыку"])
 def test_starting_unspecified_music_never_fabricates_playback(audio, text):
     api, store, device = audio
     answer = audio_chat(api, text)
-    assert "нужен источник" in answer and "не отправлялась" in answer
-    assert device.calls == [] and store.list("actions") == []
+    assert "Доступная медиасессия не найдена" in answer
+    assert device.calls == [] and audio_events(store) == []
 
 
-def test_media_acknowledges_delivery_without_claiming_playback(audio):
+def test_media_endpoint_does_not_dispatch_without_a_session(audio):
     api, store, device = audio
     result = api.post("/device/audio", json={"action": "next"})
-    assert "медиаклавишу" in result.json()["text"] and "проигрывателя" in result.json()["text"]
-    assert device.calls == [("media", "next")]
-    assert store.list("actions")[0]["target"] == "next"
+    assert result.json()["status"] == "unavailable"
+    assert "Доступная медиасессия не найдена" in result.json()["text"]
+    assert device.calls == []
+    records = [row for row in store.list("actions") if row["kind"] == "media.session"]
+    assert len(records) == 1 and json.loads(records[0]["details"])["action"]["action"] == "next"
 
 
 def test_permission_checked_every_time_and_restored_durably(audio):
@@ -335,7 +346,7 @@ def test_missing_device_has_readable_error_and_failed_audit(audio, monkeypatch):
     result = api.get("/device/audio").json()
     assert result["available"] is False and "не найдено" in result["error"]
     assert api.post("/device/audio", json={"action": "set_volume", "value": 50}).status_code == 400
-    assert store.list("actions")[0]["status"] == "error" and not device.calls
+    assert audio_events(store)[0]["status"] == "error" and not device.calls
 
 
 def test_old_settings_and_backups_cannot_enable_disabled_audio(audio, tmp_path):
@@ -393,6 +404,7 @@ def test_native_com_lifetime_on_own_or_existing_apartment(monkeypatch, initializ
         CoInitializeEx = NativeFunction(lambda *args: initialized)
         CoUninitialize = NativeFunction(lambda: closed.append(True))
         CoCreateInstance = NativeFunction(lambda *args: setattr(args[-1]._obj, "value", 1) or 0)
+        CoTaskMemFree = NativeFunction(lambda *args: None)
     def invoke(pointer, slot, types, *args):
         if slot == fail_slot:
             raise ValueError("Device unavailable")
@@ -400,6 +412,7 @@ def test_native_com_lifetime_on_own_or_existing_apartment(monkeypatch, initializ
     monkeypatch.setattr(windows_audio.c, "WinDLL", lambda *args, **kwargs: Ole(), raising=False)
     monkeypatch.setattr(windows_audio.os, "name", "nt")
     monkeypatch.setattr(windows_audio, "invoke", invoke)
+    monkeypatch.setattr(windows_audio, "device_id", lambda *args: "fixture-endpoint")
     monkeypatch.setattr(windows_audio, "release", lambda pointer: released.append(pointer.value))
     if fail_slot:
         with pytest.raises(ValueError):
@@ -471,8 +484,8 @@ def test_media_key_uses_one_player_call_and_timeouts_are_not_server_errors(tmp_p
         calls.append(action)
         raise windows_media.Unavailable("нет плеера")
     monkeypatch.setattr(windows_media, "perform", unavailable)
-    assert "медиаклавишу" in tools.execute(AudioAction(action="next"))["text"]
-    assert calls == ["next"] and keys == ["next"]
+    assert "Команда не отправлена" in tools.execute(AudioAction(action="next"))["text"]
+    assert calls == ["next"] and not keys
     calls.clear(); keys.clear()
     monkeypatch.setattr(windows_media, "perform", lambda action="read": calls.append(action) or {"available": True, "player": "P", "state": "Воспроизведение", "backend": "smtc", "accepted": True, "confirmed": False})
     assert tools.execute(AudioAction(action="next"))["media"]["action"] == "next"

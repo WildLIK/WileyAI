@@ -38,8 +38,7 @@ final class LlmModels {
                 action.run();
                 Path old = active;
                 active = GgufInstaller.install(base, part, BYTES, SHA256, cancel, candidate -> {
-                    LocalLlm.requireMemory(context);
-                    long handle = LocalLlmNative.load(candidate.toString()); LocalLlmNative.close(handle);
+                    LocalLlmRuntime.get(context).probe(candidate,cancel);
                 }, phase -> { status = phase; progress = -1; notifyChanged(); });
                 if (old != null && !old.equals(active)) { try { Files.deleteIfExists(old); } catch (IOException ignored) { /* Active model remains usable; old file is retained. */ } }
                 status = "Qwen3 0.6B установлена и проверена движком. Можно открыть чат телефона.";
@@ -67,6 +66,6 @@ final class LlmModels {
     }
     void importFile(android.net.Uri uri) { start(() -> { Path imported = base.resolve("import.part"); try { try (InputStream input = context.getContentResolver().openInputStream(uri); OutputStream output = Files.newOutputStream(imported)) { if (input == null) throw new IOException("Файл недоступен"); long count = 0; byte[] buffer = new byte[65536]; int n; while ((n = input.read(buffer)) != -1) { check(); count += n; if (count > BYTES) throw new IOException("Поддерживается точный Qwen3-0.6B-Q4_K_M.gguf из каталога"); output.write(buffer, 0, n); } } Files.move(imported, part, StandardCopyOption.REPLACE_EXISTING); } finally { Files.deleteIfExists(imported); } }); }
     void discard() { if (busy) return; busy = true; worker.execute(() -> { try { Files.deleteIfExists(part); status = "Незавершённая загрузка удалена"; } catch (IOException error) { status = "Не удалось удалить незавершённую загрузку"; } finally { busy = false; notifyChanged(); } }); }
-    void remove() { if (busy) return; busy = true; worker.execute(() -> { try { Files.deleteIfExists(base.resolve("active")); Path old = active; active = null; if (old != null) Files.deleteIfExists(old); status = "Модель удалена. Чаты сохранены."; } catch (IOException error) { status = "Не удалось удалить модель"; } finally { busy = false; notifyChanged(); } }); }
+    void remove() { if (busy) return; busy = true; worker.execute(() -> { try { LocalLlmRuntime.get(context).session.maintenance("model_removed",()->{try{Files.deleteIfExists(base.resolve("active"));Path old=active;active=null;if(old!=null)Files.deleteIfExists(old);}catch(IOException error){throw new CompletionException(error);}}).get(); status = "Модель удалена. Чаты сохранены."; } catch (Exception error) { status = "Не удалось удалить модель"; } finally { busy = false; notifyChanged(); } }); }
     void close() { closed = true; pause(); worker.shutdown(); }
 }

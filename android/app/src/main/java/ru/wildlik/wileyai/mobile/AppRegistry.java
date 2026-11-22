@@ -29,7 +29,11 @@ public final class AppRegistry {
         for (App app : apps) {
             List<String> labels = new ArrayList<>(app.aliases()); labels.add(app.label()); labels.addAll(SpokenNames.alternatives(app.label()));
             int score = 100;
-            for (String label : labels) score = Math.min(score, distance(wanted, SpokenNames.compact(key(label))));
+            for (String label : labels) {
+                score = Math.min(score, distance(wanted, SpokenNames.compact(key(label))));
+                String left=SpokenNames.phonetic(name),right=SpokenNames.phonetic(label);
+                if(left.length()>=4&&right.length()>=4&&distance(left,right)<=1)score=Math.min(score,1);
+            }
             if (score > best) continue;
             if (score < best) { result.clear(); best = score; }
             if (result.size() < 5) result.add(app);

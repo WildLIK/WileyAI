@@ -103,24 +103,21 @@ def test_natural_site_command_still_checks_access(context):
     assert opened == [] and captured == []
 
 
-def test_known_music_app_runs_with_one_choice_and_asks_with_multiple(context):
+def test_explicit_music_app_launch_and_unspecified_playback_are_separate(context):
     api, store, opened, captured = context
     aimp = store.root / "AIMP.exe"
     yandex = store.root / "YandexMusic.exe"
     aimp.touch(); yandex.touch()
     store.add_alias("AIMP", "app", str(aimp))
-    answer = send(api, "Включи мне музыку.")
+    answer = send(api, "Открой AIMP")
     assert opened[-1].target == str(aimp)
-    assert "не проверялось" in answer["content"]
     store.add_alias("Яндекс Музыка", "app", str(yandex))
     question = send(api, "Включи музыку")
-    assert "Выберите музыкальное приложение" in question["content"]
+    assert "Доступная медиасессия не найдена" in question["content"]
     assert len(opened) == 1 and captured == []
     assert store.settings().command_understanding is False
-    assert store.dialogue()["pending_open"]["model_assisted"] is False
-    send(api, "да")  # More than one local source still needs a choice.
-    assert store.dialogue()["pending_open"]["model_assisted"] is False
-    send(api, "второй")
+    assert "pending_open" not in store.dialogue()
+    send(api, "Открой Яндекс Музыку")
     assert len(opened) == 2 and captured == []
     assert opened[-1].target in {str(aimp), str(yandex)}
 
@@ -131,10 +128,10 @@ def test_music_choice_rechecks_permissions_before_launch(context):
         target = store.root / (name + ".exe")
         target.touch()
         store.add_alias(name, "app", str(target))
-    send(api, "Включи мне музыку")
+    assert "Доступная медиасессия не найдена" in send(api, "Включи мне музыку")["content"]
     store.save_settings(store.settings().model_copy(update={"allow_app_open": False}))
-    answer = send(api, "первый")
-    assert "доступ изменились" in answer["content"] and opened == []
+    answer = send(api, "Открой AIMP")
+    assert "отключено" in answer["content"] and opened == [] and captured == []
 
 
 def test_model_only_proposes_id_then_voice_yes_executes_once(context):

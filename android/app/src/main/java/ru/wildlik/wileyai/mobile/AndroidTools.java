@@ -23,6 +23,8 @@ public final class AndroidTools {
         add("find_app","Найти приложение по названию",Risk.PERSONAL,fields("app_name",str(true,100)));
         add("open_app","Открыть установленное приложение",Risk.DEVICE_ACTION,fields("app_name",str(true,100)));
         add("get_foreground_app","Последнее активное приложение за 10 минут; история за вчера недоступна; нужен доступ к статистике",Risk.PERSONAL,fields());
+        add("screen_observe","Описать доступную безопасную часть текущего экрана",Risk.PERSONAL,fields());
+        add("screen_find","Найти элемент в доступной безопасной части текущего экрана",Risk.PERSONAL,fields("query",str(true,100)));
         Map<String,String> mediaLabels=Map.of("play","продолжить","pause","пауза","next","следующий трек","previous","предыдущий трек");
         for(String verb:List.of("play","pause","next","previous"))add("media_"+verb,"Команда выбранному плееру: "+mediaLabels.get(verb),Risk.DEVICE_ACTION,fields("target",choice(false,"music","youtube","active")));
         add("media_get_state","Проверить состояние выбранного плеера",Risk.PERSONAL,fields("target",choice(false,"music","youtube","active")));

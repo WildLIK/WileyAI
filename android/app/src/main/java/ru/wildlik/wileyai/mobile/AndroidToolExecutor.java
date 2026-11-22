@@ -15,16 +15,18 @@ import java.util.function.*;
 
 /** Typed, bounded Android calls. A generated URL, component, shell command or code is never accepted. */
 final class AndroidToolExecutor {
-    interface Host {boolean active();void launch(Intent intent);}
+    interface Host {boolean active();void launch(Intent intent);default boolean screenAuthorized(){return false;}default boolean voiceOverlay(){return false;}}
     private final Context context;private final AppCatalog apps;
     AndroidToolExecutor(Context context,AppCatalog apps){this.context=context;this.apps=apps;}
     private static AndroidTools.Result result(AndroidTools.Call call,String status,String summary,Map<String,Object> data){return new AndroidTools.Result(call.tool(),status,summary,data);}
     void execute(AndroidTools.Call supplied,Host host,Consumer<AndroidTools.Result> done){
         AndroidTools.Call call;try{call=AndroidTools.validate(supplied.tool(),supplied.arguments());}catch(Exception bad){done.accept(result(supplied,"invalid","Некорректный инструмент или аргументы.",Map.of()));return;}
         if(!host.active()){done.accept(result(call,"cancelled","Действие отменено.",Map.of()));return;}
+        if(call.tool().startsWith("screen_")&&!host.screenAuthorized()){done.accept(result(call,"permission_required","Нужен явный запрос пользователя на наблюдение экрана.",Map.of()));return;}
         String denied=ToolPermissionManager.denied(context,call);if(!denied.isEmpty()){done.accept(result(call,"permission_required",denied,Map.of()));return;}
         try{
             String name=call.tool();Map<String,Object> args=call.arguments();
+            if(name.equals("screen_observe")||name.equals("screen_find")){done.accept(ScreenObservationService.observe(context,call,host));return;}
             if(name.equals("get_volume")||name.equals("adjust_volume")){AudioManager audio=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);int max=audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),current=audio.getStreamVolume(AudioManager.STREAM_MUSIC),expected=current;if(name.equals("adjust_volume")){if(audio.isVolumeFixed())throw new IllegalStateException();int delta=Math.max(1,Math.round(max*(Integer)args.getOrDefault("percent",10)/100f));expected=Math.max(0,Math.min(max,current+(args.get("direction").equals("up")?delta:-delta)));audio.setStreamVolume(AudioManager.STREAM_MUSIC,expected,AudioManager.FLAG_SHOW_UI);}int actual=audio.getStreamVolume(AudioManager.STREAM_MUSIC);done.accept(result(call,actual==expected?"verified":"failed",PhoneActionCore.volumeDescription(actual,max),Map.of("step",actual,"max",max)));return;}
             if(name.equals("list_installed_apps")){List<Map<String,Object>> list=new ArrayList<>();for(AppRegistry.App app:apps.entries()){if(list.size()>=60)break;list.add(Map.of("name",app.label()));}done.accept(result(call,"verified","Найдено приложений: "+apps.entries().size()+". В результат включены первые "+list.size()+".",Map.of("apps",list,"total",apps.entries().size())));return;}
             if(name.equals("find_app")||name.equals("open_app")||name.equals("open_app_settings")){

@@ -1,26 +1,30 @@
-from contextlib import asynccontextmanager, aclosing
+from contextlib import asynccontextmanager, aclosing, contextmanager
 from pathlib import Path
 from typing import Literal
 import asyncio
 import hmac
+import hashlib
 import json
 import os
 import re
 import time
+import threading
 import sqlite3
 import subprocess
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psutil
+import httpx
 from anyio import CancelScope
 
 from . import commands, documents, providers, websearch, intents, persona, document_summary, information, intent_interpreter, action_response, pronunciations
+from .model_routing import answer_model
 from .config import CATALOG, DATA_DIR, Settings, SettingsUpdate, VoiceSettings, CloudSettings, CloudSpeechProfile, SavedSpeechVoice, AppearanceSettings, Pronunciation
 from . import cloud_speech
 from .chatgpt import ChatGPT
@@ -28,6 +32,7 @@ from .history import History
 from .models import ModelJobs
 from .storage import Store
 from .voice import Voice
+from .smart_turn import SmartTurn
 from .mobile import MobileGateway
 from .capabilities import catalog as capabilities_catalog
 from .scheduler import run_scheduler
@@ -52,12 +57,15 @@ from .document_library import Library
 from .backups import Backups, MAX_BYTES as BACKUP_MAX_BYTES
 from .chatspaces import Spaces
 from .tools import OpenTools, ACCESS_FIELDS
-from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio, music_help
+from .device_audio import AudioAction, AudioTools, resolve as resolve_audio, run_action as run_audio, music_help, request_form as audio_request_form
 from . import audio_intents, task_intents, action_plans
 from . import windows_media
+from . import media_manager
+from . import semantic_commands, intent_gate
 from .app_discovery import ApplicationScanner
-from .music_intents import MusicAction, resolve as resolve_music, followup as music_followup
-from .yandex_music import YandexMusic, run_action as run_music
+from . import app_discovery
+from .music_intents import MusicAction, resolve as resolve_music, followup as music_followup, compound_request as compound_music_request, clarification as music_clarification, request as music_request_form
+from .yandex_music import YandexMusic, run_action as run_music, failure as music_failure
 from .app_catalog import CATALOG as APP_CATALOG, canonical_name as app_name
 from .routines import Routines, RoutineBody, requested_name, run_step
 from .monitor import Monitor
@@ -103,6 +111,7 @@ class ChatBody(TextBody):
     web_search: bool = False
     request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     conversation_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    recognition_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     timezone: str | None = Field(default=None, max_length=100)
 
     @field_validator("timezone")
@@ -142,6 +151,12 @@ class MusicConnectionBody(BaseModel):
     restart: bool = Field(default=False, strict=True)
 
 
+class MediaPreferences(BaseModel):
+    source: str = Field(default="auto", min_length=1, max_length=512)
+    auto_connect: bool | None = None
+    auto_play: bool | None = None
+
+
 class WebSourceBody(BaseModel):
     message_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     index: int = Field(ge=0, le=4)
@@ -149,6 +164,10 @@ class WebSourceBody(BaseModel):
 
 class ChatStopBody(BaseModel):
     request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class ConversationSessionBody(BaseModel):
+    conversation_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class SpeechBody(TextBody):
@@ -248,6 +267,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     secret = token or os.environ.get("WILEYAI_TOKEN")
     if not secret or len(secret) < 24:
         raise RuntimeError("WILEYAI_TOKEN must contain at least 24 characters")
+    runtime = {"revision": "voice365", "pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat(),
+               "source_snapshot_at_start": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                   for name in ("api.py", "music_intents.py", "media_manager.py", "yandex_music.py", "yandex_music_page.js")}}
     fresh_install = not (root / "wileyai.db").exists()
     store = Store(root)
     setup = Setup(root, fresh_install)
@@ -269,10 +291,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     home = HomeAssistant(store)
     mail = Mail(store)
     applications = ApplicationScanner(root)
+    recognitions = {}  # Short-lived transcript tickets only; never audio files.
     open_tools = OpenTools(store, applications)
     audio_tools = AudioTools(store)
+    smart_turn = SmartTurn(root)
+    transcription_job = None
     chat_lock = asyncio.Lock()
     active_chat = None
+    accepted_requests = {}
     stopped_requests = {}
 
     @asynccontextmanager
@@ -290,6 +316,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await smart_turn.close()
             await mobile.shutdown()
             await chatgpt.close()
             await asyncio.to_thread(app.state.music_meter.close)
@@ -321,12 +348,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     app.state.home_assistant = home
     app.state.mail = mail
     app.state.monitor = monitor
+    app.state.smart_turn = smart_turn
     app.state.applications = applications
     music_player = YandexMusic(root, store, app.state.applications)
+    media = media_manager.MediaManager(store, applications, music_player, open_tools)
+    app.state.media = media
     app.state.music = music_player
     app.state.music_meter = MusicMeter(lambda: store.settings().avatar_music)
     app.state.chatgpt = chatgpt
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device"])
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "app://wileyai"], allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Wiley-TTS-Device", "Retry-After"])
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
@@ -382,7 +412,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
     @app.get("/health")
     def health():
         memory = psutil.virtual_memory()
-        return {"status": "ok", "version": VERSION, "data_dir": str(root.resolve()), "ram_total": memory.total, "ram_available": memory.available, "stt_available": voice.available()}
+        return {"status": "ok", "version": VERSION, "data_dir": str(root.resolve()), "ram_total": memory.total, "ram_available": memory.available, "stt_available": voice.available(), "runtime": runtime}
 
     @app.get("/mobile/status")
     def mobile_status():
@@ -513,6 +543,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             except Exception as error:
                 raise ValueError("Не удалось сохранить ключ поиска в системном хранилище Windows") from error
         store.save_settings(selected)
+        if not selected.intent_gate: intent_gate.retire_request(store)
         return settings()
 
     @app.get("/chatgpt/status")
@@ -947,10 +978,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         store.update_settings(lambda current: Settings.model_validate(current.model_dump() | {"pronunciations": [entry for entry in current.pronunciations if entry.id != rule_id]}))
         return {"ok": True}
 
+    @app.post("/commands/replay")
     @app.post("/voice/pronunciations/preview")
     def preview_pronunciation(body: TextBody):
         started = time.monotonic()
         current = store.settings()
+        control = intent_interpreter.control_intent(body.text, current.name)
+        if control:
+            return {"text": body.text, "intent": control.action, "match": control.intent, "status": control.intent, "candidates": [], "dispatched": False, "elapsed_ms": round((time.monotonic() - started) * 1000)}
         intent = intent_interpreter.interpret(body.text, current.name)
         if not intent or intent.device != "computer":
             return {"text": body.text, "intent": None, "match": "нет команды открытия", "candidates": [], "elapsed_ms": round((time.monotonic() - started) * 1000)}
@@ -960,7 +995,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         proposed = [] if learned or exact else app.state.applications.suggest_matches(target)
         matches = learned or exact or proposed
         kind = "неоднозначно" if len(matches) > 1 else "подтверждённое произношение" if learned else "точное совпадение" if exact else "фонетический кандидат" if proposed else "не найдено"
-        return {"text": body.text, "intent": intent.action, "target": target, "match": kind, "candidates": [item["name"] for item in matches[:3]], "requires_confirmation": bool(proposed or len(matches) > 1 or intent.requires_confirmation), "elapsed_ms": round((time.monotonic() - started) * 1000)}
+        return {"text": body.text, "intent": intent.action, "target": target, "match": kind, "candidates": [item["name"] for item in matches[:3]], "requires_confirmation": bool(proposed or len(matches) > 1 or intent.requires_confirmation), "permission": current.allow_app_open, "dispatched": False, "elapsed_ms": round((time.monotonic() - started) * 1000)}
 
     @app.delete("/aliases/{item_id}")
     def delete_alias(item_id: str):
@@ -968,8 +1003,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.get("/actions")
-    def actions():
-        return [{**item, "details": json.loads(item["details"])} for item in store.list("actions", 100)]
+    def actions(diagnostics: bool = False):
+        # Keep the existing action-history API about tool outcomes. Decision
+        # traces include non-actions and are requested explicitly.
+        return [{**item, "details": json.loads(item["details"])} for item in store.list("actions", 500) if diagnostics or not item["kind"].startswith("command.")][:100]
+
+    @app.get("/commands/traces")
+    def command_traces():
+        return [json.loads(item["details"]) for item in store.list("actions", 500) if item["kind"] == "command.trace"][:100]
 
     @app.get("/plans/history")
     def plan_history(conversation_id: str | None = None):
@@ -1010,19 +1051,35 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
     @app.post("/device/audio")
     def audio_action(body: AudioAction):
+        if body.action in {"play", "pause", "play_pause", "next", "previous", "stop", "media_status"}:
+            return media.execute(media_manager.MediaRequest("read" if body.action == "media_status" else body.action))
         return audio_tools.execute(body)
 
     @app.get("/device/media")
     def media_status():
         try:
-            media = windows_media.perform()
-            return {**media, "text": windows_media.describe(media)}
+            result = media.execute(media_manager.MediaRequest("read"))
+            return {**result.get("media", {"available": False}), "text": result["text"]}
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             return {"available": False, "text": str(error)}
 
     @app.get("/music/yandex")
     def yandex_status():
         return music_player.status()
+
+    @app.get("/media")
+    def media_inventory():
+        return {**media.inventory(), "special": music_player.status(), "auto_connect": store.settings().yandex_auto_connect, "auto_play": store.settings().yandex_auto_play}
+
+    @app.put("/media/preferences")
+    def media_preferences(body: MediaPreferences):
+        if body.source != "auto" and sum(row["id"] == body.source for row in media.inventory()["sessions"]) != 1:
+            raise ValueError("Выберите доступную однозначную медиасессию")
+        values = {"media_source": body.source}
+        if body.auto_connect is not None: values["yandex_auto_connect"] = body.auto_connect
+        if body.auto_play is not None: values["yandex_auto_play"] = body.auto_play
+        store.patch_settings(values)
+        return {"source": body.source, "auto_connect": store.settings().yandex_auto_connect, "auto_play": store.settings().yandex_auto_play}
 
     @app.post("/music/yandex/connect")
     def yandex_connect(body: MusicConnectionBody):
@@ -1077,19 +1134,50 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise HTTPException(404, "Источник не найден или его адрес недопустим")
         return {"text": await asyncio.to_thread(run_command, commands.Command("url", url, source["title"]))}
 
+    def music_application_names():
+        # Read the existing cache and user mappings; never launch a discovery
+        # scan just to decide whether a free musical query is ambiguous.
+        items = [*app.state.applications.saved().get("items", []), *store.list("aliases", 1000)]
+        return [name for item in items for name in (item["name"], *item.get("aliases", []))]
+
     @app.post("/commands")
     def command_preview(body: CommandBody):
         current = store.settings()
-        music = resolve_music(body.text, preferred=current.music_player == "yandex", name=current.name)
+        if compound_music_request(body.text, current.name):
+            return {"confirmed": False, "status": "needs_clarification", "kind": "clarification", "target": None,
+                    "text": "Уточните одну команду: в этой просьбе несколько действий. Ничего не выполнялось."}
+        normalization = {}
+        form = audio_request_form(body.text, current.name, player_context=current.music_player == "yandex" or current.media_source != "auto", diagnostics=normalization)
+        command_text = form if normalization.get("applied") else body.text
+        context = current.music_player == "yandex" or current.media_source != "auto"
+        application_names = music_application_names()
+        clarification = music_clarification(command_text, current.name, music_context=context, application_names=application_names)
+        if clarification:
+            return {"confirmed": False, "status": "needs_clarification", "kind": "clarification", "target": None, "text": clarification}
+        if normalization.get("source_verb") and normalization.get("command_candidate", True) and not normalization.get("applied") and not normalization.get("existing_invitation"):
+            return {"confirmed": False, "status": "needs_clarification", "kind": "clarification", "target": None,
+                    "text": "Уточните действие и его цель. Ничего не выполнялось.", "diagnostics": normalization}
+        media_command = media_manager.parse(command_text, current.name, music_context=context, application_names=application_names, prefer_yandex=current.music_player == "yandex" and current.media_source == "auto")
+        if media_command and media_command.scope != "system":
+            if not current.allow_audio_control and not (media_command.scope == "connection" and media_command.action in {"check", "clarify"}): raise ValueError("Управление звуком отключено")
+            result = {"text": "Проверена медиакоманда; выполнение не запрашивалось."} if body.dry_run else media.execute(media_command)
+            # This endpoint has no conversation/Pending. Never invite a yes or
+            # numbered reply that it cannot bind to a confirmed chat action.
+            if result.get("restart_required") or result.get("candidates"):
+                message = ("Для подключения нужен перезапуск Яндекс Музыки; воспроизведение прервётся. Отправьте команду в чате WileyAI, чтобы подтвердить перезапуск."
+                           if result.get("restart_required") else "Кандидаты найдены. Повторите запрос в чате WileyAI для выбора из актуальных результатов.")
+                result = {**result, "text": message, "spoken": message, "pending": "not_created"}
+            return {**result, "kind": "media.session", "target": media_command.__dict__}
+        music = resolve_music(command_text, preferred=current.music_player == "yandex", name=current.name, application_names=application_names)
         if music:
             result = {"text": "Яндекс Музыка: " + music.action} if body.dry_run else music_player.execute(music)
             return {**result, "kind": "music.yandex", "target": music.model_dump()}
-        audio = resolve_audio(body.text, store.settings().name)
+        audio = resolve_audio(command_text, store.settings().name)
         if audio:
             return {**audio_tools.execute(audio, dry_run=body.dry_run), "kind": "audio", "target": audio.model_dump()}
-        command = commands.resolve(body.text, store.list("aliases", 1000))
+        command = commands.resolve(command_text, store.list("aliases", 1000))
         if not command:
-            opening = intents.opening_request(body.text, current.name)
+            opening = intents.opening_request(command_text, current.name)
             target = commands.opening_target(opening) if opening else None
             if target:
                 target = re.sub(r"^(?:приложение|программу)\s+", "", target, flags=re.I)
@@ -1261,7 +1349,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.post("/voice/transcribe")
-    async def transcribe(file: UploadFile = File(...)):
+    async def transcribe(file: UploadFile = File(...), trace: bool = Form(False)):
+        nonlocal transcription_job
         data = await file.read(10 * 1024 * 1024 + 1)
         await file.close()
         if len(data) > 10 * 1024 * 1024:
@@ -1270,14 +1359,69 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         vocabulary = pronunciations.prompt_names(app.state.applications, config.pronunciations) if config.stt_model != "gigaam-v3" else []
         started = time.monotonic()
         args = (data, config.stt_model, config.name, config.stt_quality, config.stt_environment)
-        text = await asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, *args, *([vocabulary] if vocabulary else []))
-        result = {"text": text}
+        if transcription_job is not None and not transcription_job.done():
+            raise HTTPException(409, "Предыдущий фрагмент ещё распознаётся. Дождитесь завершения; повторная запись не поставлена в очередь.")
+        transcription_job = asyncio.create_task(asyncio.to_thread(monitor.call, "stt:" + config.stt_model, voice.transcribe, *args, *([vocabulary] if vocabulary else [])))
+        # Cancelling an HTTP request cannot kill an in-process inference thread.
+        # Retain its ownership until it actually returns; never pile up retries.
+        transcription_job.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+        try:
+            text = await asyncio.wait_for(asyncio.shield(transcription_job), 90)
+        except asyncio.TimeoutError:
+            raise HTTPException(408, "Распознавание не завершилось вовремя. Новый фрагмент не запускается, пока прежний движок занят.") from None
+        for ticket, sample in list(recognitions.items()):
+            if time.monotonic() - sample["created"] > 300:
+                recognitions.pop(ticket, None)
+        if len(recognitions) >= 128:
+            recognitions.pop(next(iter(recognitions)))
+        result = {"text": str(text)}
+        if getattr(text, "reason", ""):
+            result["rejected_reason"] = text.reason
+            result["rejected_characters"] = text.characters
+        if trace and text:
+            recognition_id = uuid.uuid4().hex
+            recognitions[recognition_id] = {"text": text, "engine": config.stt_model, "stt_ms": round((time.monotonic() - started) * 1000), "created": time.monotonic()}
+            result["recognition_id"] = recognition_id
         if config.voice_diagnostics:
             result["diagnostics"] = {"engine": config.stt_model, "stt_ms": round((time.monotonic() - started) * 1000)}
         return result
 
+    @app.get("/voice/endpoint/status")
+    def endpoint_status():
+        return {**smart_turn.status(), "enabled": store.settings().conversation_smart_turn}
+
+    @app.post("/voice/endpoint/install")
+    async def install_endpoint():
+        try:
+            return await smart_turn.download()
+        except httpx.HTTPError as error:
+            raise ValueError("Не удалось загрузить Smart Turn. Проверьте интернет и повторите явную загрузку.") from error
+
+    @app.post("/voice/endpoint/check")
+    async def check_endpoint(file: UploadFile = File(...)):
+        data = await file.read(260000)
+        await file.close()
+        if len(data) >= 260000: raise ValueError("Слишком длинный фрагмент для Smart Turn")
+        if not store.settings().conversation_smart_turn: return {"available": False, "reason": "disabled"}
+        return await smart_turn.evaluate(data)
+
+    @app.post("/voice/endpoint/release")
+    async def release_endpoint():
+        await smart_turn.close()
+        return {"ok": True}
+
+    @app.post("/voice/conversation/end")
+    def end_voice_conversation(body: ConversationSessionBody | None = None):
+        scoped = store.for_chat(body.conversation_id if body else None)
+        media_manager.end_session(scoped)
+        intent_gate.clear_context(scoped)
+        if active_chat and active_chat.get("conversation_id") == scoped.conversation_id and active_chat.get("mode") == "conversation": active_chat["cancel"].set()
+        return {"ok": True}
+
     @app.post("/voice/prepare")
-    async def prepare_conversation():
+    async def prepare_conversation(body: ConversationSessionBody | None = None):
+        await offload(media_manager.end_session, store.for_chat(body.conversation_id if body else None))
+        await offload(intent_gate.clear_context, store.for_chat(body.conversation_id if body else None))
         config = store.settings()
         if config.tts_engine == "cloud":
             voice.cloud.validate(config)
@@ -1301,6 +1445,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise
         except Exception as error:
             raise HTTPException(400, providers.describe_error(error)) from error
+        if config.conversation_smart_turn:
+            async with smart_turn.lock:
+                await smart_turn.warm()
         return {"ok": True}
 
     @app.post("/voice/speak")
@@ -1342,7 +1489,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 if await request.is_disconnected():
                     raise HTTPException(499, "Озвучка отменена")
                 await asyncio.wait({task}, timeout=0.1)
-            audio = await task
+            try:
+                audio = await task
+            except ValueError as error:
+                from .speech_errors import SpeechUnavailable
+                if isinstance(error, SpeechUnavailable):
+                    raise HTTPException(429, str(error), headers={"Retry-After": str(error.retry_after)}) from error
+                raise
             device = getattr(audio, "device", "")
             headers = {"X-Wiley-TTS-Device": device} if device in {"cpu", "cuda"} else {}
             return Response(audio, media_type=getattr(audio, "media_type", "audio/wav"), headers=headers)
@@ -1386,11 +1539,33 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 await asyncio.wait_for(current["done"].wait(), timeout=5)
             except TimeoutError:
                 raise HTTPException(409, "Остановка ещё выполняется. Дождитесь завершения запроса")
+        await offload(semantic_commands.retire_request, store, body.request_id)
+        await offload(intent_gate.retire_request, store, body.request_id)
         return {"ok": True}
+
+    def inspect_running_application(target, config, trace):
+        from .launch_verification import process_ids
+        scanner = app.state.applications
+        learned = pronunciations.candidates(scanner, config.pronunciations, target)
+        exact = scanner.find_matches(target)
+        matches = list({item["target"].casefold(): item for item in [*learned, *exact]}.values())
+        trace["steps"].append({"phase": "candidates", "targets": [item["target"] for item in matches], "source": "learned" if learned else "exact"})
+        if len(matches) != 1:
+            similar = matches or scanner.suggest_matches(target)
+            names = ", ".join(action_response.target_name(item["name"]) for item in similar[:3])
+            return (("Уточните название: " + names + ". Повторите «проверь, работает ли …»." if names else "Уточните название приложения для проверки состояния. Ничего не запускалось."), "needs_clarification")
+        item = matches[0]
+        if item["target"].startswith("aumid:"):
+            return "Найдено приложение Microsoft Store. Проверка его процесса по идентификатору пакета пока недоступна.", "unverified"
+        pids = process_ids(item["target"])
+        trace["steps"].append({"phase": "process_query", "target": item["target"], "pids": sorted(pids)})
+        name = action_response.target_name(item["name"])
+        return (f"Процесс {name} работает. Состояние окна не проверено." if pids else f"Доступный процесс {name} не найден. Установка приложения найдена; состояние окна не проверено.", "process_found" if pids else "process_not_found")
 
     @app.post("/chat")
     async def send_message(body: ChatBody, request: Request):
         nonlocal active_chat
+        interpretation_started = time.perf_counter()
         if body.request_id and time.monotonic() - stopped_requests.get(body.request_id, float("-inf")) <= 30:
             raise HTTPException(409, "Этот запрос уже остановлен")
         if chat_lock.locked():
@@ -1399,9 +1574,37 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             raise HTTPException(400, "Сообщение пустое")
         current = store.settings()
         chat_store = store.for_chat(body.conversation_id)
+        recognition = recognitions.pop(body.recognition_id, None) if body.recognition_id else None
+        if recognition and time.monotonic() - recognition["created"] > 300:
+            recognition = None
         Library(chat_store).selected(body.document_ids, content=False)
-        text = body.text.strip()
+        original_text = body.text.strip()
+        gate_prior = intent_gate.context(chat_store, stopped_requests) if current.intent_gate else None
+        connection_context = media_manager.yandex_context(chat_store, stopped_requests)
+        previous_messages = chat_store.list("messages", 1)
+        previous_action_offer = False
+        if previous_messages and previous_messages[-1]["role"] == "assistant" and persona.action_offer(previous_messages[-1]["content"]):
+            try: previous_action_offer = 0 <= time.time()-datetime.fromisoformat(previous_messages[-1]["created"]).timestamp() < 300
+            except (ValueError, TypeError, KeyError): pass
+        asr_normalization = {}
+        choice = chat_store.dialogue().get("media_choice", {})
+        if not isinstance(choice, dict): choice = {}
+        gate_choice = dict(choice)
+        choice_created = choice.get("created", 0)
+        player_context = current.music_player == "yandex" or current.media_source != "auto" or bool(
+            type(choice_created) in {int, float} and 0 <= time.time() - choice_created < 300 and choice.get("request_id") not in stopped_requests and (choice.get("id") or choice.get("target")))
+        form = audio_request_form(original_text, current.name, player_context=player_context, diagnostics=asr_normalization) if not body.full_document and not body.document_ids and not body.web_search else original_text
+        text = form if asr_normalization.get("applied") else original_text
+        scoped_opening, semantic_scope = semantic_commands.text_scope(text, current.name) if current.semantic_commands else ("", "")
         natural_intent = intent_interpreter.interpret(text, current.name)
+        compound_music = bool(not body.full_document and not body.document_ids and not body.web_search and compound_music_request(text, current.name))
+        if current.intent_gate and not body.full_document and not body.document_ids and not body.web_search and re.search(r"музык|песн|трек|композиц|плеер|проигрыв|звук|громк|аудио|динамик|браузер|редактор|приложен",text,re.I) and intent_gate.guard(text)[0] == "compound":
+            compound_music = True
+        application_names = music_application_names()
+        media_clarification = music_clarification(text, current.name, music_context=player_context, application_names=application_names) if not compound_music and not body.full_document and not body.document_ids and not body.web_search else None
+        media_request = media_manager.parse(text, current.name, music_context=player_context, application_names=application_names, prefer_yandex=current.music_player == "yandex" and current.media_source == "auto" and not choice, connection_context=connection_context) if not compound_music and not media_clarification and not body.full_document and not body.document_ids and not body.web_search else None
+        control = intent_interpreter.control_intent(text, current.name) if not body.full_document and not body.document_ids and not body.web_search else None
+        if media_request and media_request.scope == "connection": control = None
         phone_intent = bool(natural_intent and natural_intent.device == "phone" and not body.full_document and not body.document_ids and not body.web_search)
         read_previous = bool(re.fullmatch(r"(?:уайли[,! ]+)?(?:прочитай|озвучь)(?:\s+(?:мне|полностью))*\s+(?:предыдущий|последний|полный)(?:\s+ответ)?[.! ]*", text, re.I)) and not body.full_document and not body.document_ids and not body.web_search
         previous_answer = next((item["content"] for item in reversed(chat_store.list("messages", 100)) if item["role"] == "assistant" and item["content"].strip()), "") if read_previous else ""
@@ -1409,26 +1612,38 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         mail_request = mail_chat.request(text, chat_store.list("messages", 6), current.name) if not phone_intent and not body.full_document and not body.web_search and not body.document_ids else None
         if body.full_document and (not body.document_ids or body.web_search):
             raise HTTPException(400, "Для полного пересказа прикрепите файлы и выключите веб-поиск")
-        music_request = None if phone_intent or body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name)
-        if music_request is None and not phone_intent and not body.full_document and not body.web_search:
-            music_request = music_followup(text, chat_store.list("messages", 2), preferred=current.music_player == "yandex", name=current.name)
+        music_request = None if compound_music or media_clarification or phone_intent or body.full_document or body.web_search else resolve_music(text, preferred=current.music_player == "yandex", name=current.name, application_names=application_names)
+        if music_request is None and not compound_music and not phone_intent and not body.full_document and not body.web_search:
+            music_request = music_followup(text, chat_store.list("messages", 2), preferred=current.music_player == "yandex", name=current.name, application_names=application_names)
         search_query = None if body.full_document or music_request else websearch.requested_query(text, body.web_search)
         info_request = information.request(text, current.name) if not body.full_document and not body.web_search and not music_request else None
         full_document = body.full_document
         home_request = home_assistant_chat.request(text, current.name) if not phone_intent and not full_document and not body.web_search and not body.document_ids else None
-        plan_allowed = not phone_intent and not recent_application and not full_document and not body.web_search and not body.document_ids and home_request is None and mail_request is None
-        plan_requested = plan_allowed and action_plans.eligible(text, current.name, bool(chat_store.dialogue().get("last_plan_target")))
+        plan_allowed = not phone_intent and not recent_application and not full_document and not body.web_search and not body.document_ids and home_request is None and mail_request is None and music_request is None and media_request is None
+        plan_requested = plan_allowed and semantic_scope != "restricted_open" and action_plans.eligible(text, current.name, bool(chat_store.dialogue().get("last_plan_target")))
         routine_name = requested_name(text) if search_query is None and info_request is None else None
-        opening_text = ("открой " + natural_intent.target) if natural_intent and natural_intent.requires_confirmation and not phone_intent else intents.opening_request(text, current.name)
-        command = None if phone_intent else commands.resolve(opening_text or text, store.list("aliases", 1000))
+        opening_text = None if control else ("открой " + natural_intent.target) if natural_intent and natural_intent.requires_confirmation and not phone_intent else intents.opening_request(text, current.name)
+        if semantic_scope == "restricted_open": opening_text = scoped_opening
+        command = None if phone_intent or control else commands.resolve(opening_text or text, store.list("aliases", 1000))
+        generic_target = commands.opening_target(opening_text or "")
+        if semantic_scope != "restricted_open" and generic_target and app_discovery.purpose_key(generic_target) and not any(commands.normalize(item["name"]) == commands.normalize(generic_target) for item in store.list("aliases", 1000)):
+            command = None
         inspect_application = commands.application_query(text)
+        interpretation_ms = (time.perf_counter() - interpretation_started) * 1000
+        if body.request_id:
+            now_request = time.monotonic()
+            for old_id, created in list(accepted_requests.items()):
+                if now_request - created > 300: accepted_requests.pop(old_id, None)
+            if body.request_id in accepted_requests: raise HTTPException(409, "Этот запрос уже принят. Повторное выполнение запрещено.")
+            if len(accepted_requests) >= 512: accepted_requests.pop(next(iter(accepted_requests)))
+            accepted_requests[body.request_id] = now_request
         await chat_lock.acquire()
         try:
-            user = chat_store.add_message("user", text)
+            user = chat_store.add_message("user", original_text)
         except Exception:
             chat_lock.release()
             raise
-        state = {"id": body.request_id or user["id"], "cancel": asyncio.Event(), "done": asyncio.Event()}
+        state = {"id": body.request_id or user["id"], "cancel": asyncio.Event(), "done": asyncio.Event(), "conversation_id":chat_store.conversation_id, "mode":body.mode}
         active_chat = state
 
         def finish():
@@ -1443,6 +1658,17 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
 
         async def generate():
             began = time.perf_counter()
+            llm_ms = 0.0
+            answer_timing = {}
+            @contextmanager
+            def timed_brain(model=None):
+                nonlocal llm_ms
+                started = time.perf_counter()
+                try:
+                    with monitor.activity("brain:" + (model or current.model)):
+                        yield
+                finally:
+                    llm_ms += (time.perf_counter() - started) * 1000
             answer = ""
             changed = []
             memory_context = []
@@ -1454,7 +1680,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             audio_progress = []
             pending_choices = []
             pending_model_assisted = True
+            pending_semantic = False
+            pending_intent_gate = False
+            pending_request_id = ""
             pending_spoken = ""
+            pending_created = None
+            pending_restart = False
             learning_offer = None
             pending_audio = None
             pending_task_plan = None
@@ -1467,20 +1698,136 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
             action_turn = False
             action_status = ""
             match_category = "не определено"
+            trace = {"request_id": state["id"], "source_message_id": user["id"], "conversation_id": chat_store.conversation_id,
+                     "intent": (control or natural_intent).__dict__ if control or natural_intent else None, "steps": [], "status": "not_a_command"}
+            trace["route"] = {"runtime_revision": runtime["revision"], "intent": media_request.action if media_request else music_request.action if music_request else (control or natural_intent).intent if control or natural_intent else "conversation",
+                              "tool": "media.connection" if media_request and media_request.scope == "connection" else "media.manager" if media_request else "music.yandex" if music_request else "application" if control or natural_intent else "conversation",
+                              "fallback_reason": "" if media_request or music_request or control or natural_intent else "no_bounded_intent", "pending": "not_consumed"}
+            trace["intent_gate"] = {"enabled":current.intent_gate, "called":False, "fast_path":True, "reason":"fast_path_handled" if current.intent_gate else "disabled"}
+            if asr_normalization.get("source_verb"):
+                # Verb-only decision metadata; raw/normalized utterances remain
+                # transient diagnostics and the existing user message is intact.
+                trace["asr_normalization"] = asr_normalization
+            if recognition:
+                trace["stt"] = {"recognition_id": body.recognition_id, "engine": recognition["engine"], "stt_ms": recognition["stt_ms"]}
+                # Raw ASR remains transient (and visible in the client); avoid
+                # duplicating potential dictated secrets in the action journal.
+                trace["stt"]["source"] = "transcription_ticket"
+
+            async def local_response(response, pending_request=None, media_candidates=None, semantic=False, restart=False, gate=False):
+                trace["status"] = response.status
+                trace["route"]["result"] = response.status
+                trace["route"]["diagnostics"] = {k:response.details.get("diagnostics", {}).get(k) for k in ("reason", "phase", "dispatch_attempted", "dispatched") if k in response.details.get("diagnostics", {})}
+                yield event("speech_mode", mode="action", preference=current.action_speech)
+                yield event("delta", text=response.display)
+                assistant = await offload(chat_store.add_message, "assistant", response.display)
+                if media_candidates or restart:
+                    if not state["cancel"].is_set(): media_manager.remember(chat_store, assistant["id"], request=pending_request, candidates=media_candidates, restart=restart, semantic=semantic, request_id=state["id"], intent_gate=gate)
+                    trace["route"]["pending"] = "waiting_restart" if restart else "waiting_selection"
+                if current.intent_gate and response.status == "confirmed" and pending_request and not state["cancel"].is_set():
+                    target = response.details.get("state", {}).get("executable") or pending_request.target
+                    intent_gate.remember_context(chat_store, assistant["id"], state["id"], source="music", action=pending_request.action, value=pending_request.value, target=target)
+                yield event("speech_result", action=response.event())
+                if current.voice_diagnostics:
+                    yield event("voice_timing", request_id=state["id"], interpretation_ms=round(interpretation_ms, 2),
+                                **({"llm_ms": round(llm_ms, 2)} if llm_ms else {}))
+                yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=[])
+
+            async def connect_music(restart):
+                cancel = threading.Event()
+                connector = getattr(music_player, "connect_with_cancel", None)
+                operation = asyncio.create_task(asyncio.to_thread(connector, restart, cancel) if connector else asyncio.to_thread(music_player.connect, restart))
+                try:
+                    return await asyncio.shield(operation)
+                except asyncio.CancelledError:
+                    cancel.set()
+                    with CancelScope(shield=True):
+                        await asyncio.gather(operation, return_exceptions=True)
+                    raise
+
+            async def semantic_check(gate=False):
+                if state["cancel"].is_set() or active_chat is not state or await request.is_disconnected():
+                    raise asyncio.CancelledError
+                if not (store.settings().intent_gate if gate else store.settings().semantic_commands):
+                    raise ValueError("Интеллектуальное понимание команд отключено")
+                if gate:
+                    latest = store.settings()
+                    if any(getattr(latest,key) != getattr(current,key) for key in ("provider", "model", "base_url", "media_source", "music_player")):
+                        raise ValueError("Модель или источник изменились во время разбора. Повторите просьбу.")
+
+            async def semantic_status(source, gate=False):
+                await semantic_check(gate)
+                if not store.settings().allow_audio_control: raise ValueError("Управление звуком отключено")
+                value = await asyncio.to_thread(audio_tools.status if source == "system" else media.inventory)
+                await semantic_check(gate)
+                if source == "system":
+                    return f"Громкость системы: {value['volume']}%. " + ("Уровень нулевой: звук не слышен." if value['volume'] == 0 else "Mute включён." if value.get('muted') else "Mute выключен.") if value.get("available") else "Не удалось прочитать состояние системного звука. Ничего не изменено."
+                rows = value.get("sessions", [])
+                return "Проигрыватели: " + "; ".join(f"{row.get('player', 'Без названия')}: {row.get('state', 'состояние неизвестно')}" for row in rows[:5]) + ". Ничего не изменено." if rows else "Доступные медиасессии не найдены. Ничего не изменено."
+
+            async def after_music_open(value):
+                if value["kind"] != "app" or app_name(action_response.target_name(value["label"])) != "Яндекс Музыка" or state["cancel"].is_set(): return
+                if not open_outcomes or open_outcomes[-1]["status"] in {"error", "denied"}: return
+                dialogue = chat_store.dialogue()
+                dialogue["media_choice"] = {"target": "Яндекс Музыка", "created": time.time(), "request_id": state["id"]}
+                dialogue["music_context"] = {"target": "Яндекс Музыка", "created": time.time(), "request_id": state["id"]}
+                chat_store.save_dialogue(dialogue)
+                if pending_restart: return
+                if store.settings().yandex_auto_play and store.settings().allow_audio_control:
+                    try:
+                        result = await media_manager.run_action(media, media_manager.MediaRequest("wave", "song", target="Яндекс Музыка"), request_id=state["id"], allow_launch=False)
+                    except (ValueError, OSError) as error:
+                        result = music_failure(error)
+                        result["text"] = "Открытие запрошено, но воспроизведение не подтверждено. " + result["text"]
+                    open_progress.append(result["text"])
+                    open_outcomes[-1]["details"]["autoplay"] = result
 
             async def open_action(value):
+                nonlocal pending_restart
+                if state["cancel"].is_set() or await request.is_disconnected(): raise asyncio.CancelledError
+                trace["steps"].append({"phase": "selection", "kind": value["kind"], "target": value["target"]})
+                trace["status"] = "dispatching"
+                if store.settings().allow_audio_control and value["kind"] == "app" and app_name(action_response.target_name(value["label"])) == "Яндекс Музыка":
+                    try:
+                        auto_target = await asyncio.to_thread(music_player.executable)
+                    except ValueError:
+                        auto_target = ""
+                    connection = await asyncio.to_thread(music_player.status) if auto_target and media_manager.same_path(value["target"], auto_target) else {}
+                    if auto_target and media_manager.same_path(value["target"], auto_target) and (connection.get("connected") or current.music_player == "yandex" or current.yandex_auto_connect or current.yandex_auto_play):
+                        await asyncio.to_thread(open_tools.validate, commands.Command(value["kind"], value["target"], value["label"]))
+                        # A failed connection may already have started the process.
+                        # Never retry it with a second ordinary application launch.
+                        try:
+                            linked = {**connection, "reused": True, "text": "Использую существующее CDP-подключение Яндекс Музыки."} if connection.get("connected") else await connect_music(False)
+                            pending_restart = bool(linked.get("restart_required"))
+                            text_result = linked.get("text") or ("Специальное подключение Яндекс Музыки проверено." if linked.get("connected") else "Специальное подключение не подтверждено.")
+                            if pending_restart: text_result += " Разрешить перезапуск? Воспроизведение прервётся. Ответьте «да» или «нет»."
+                            outcome = "already_running" if pending_restart or linked.get("reused") else "dispatched"
+                        except Exception as error:
+                            detail = music_failure(error)
+                            text_result = "Не удалось подтвердить специальное подключение Яндекс Музыки. " + detail["text"]
+                            linked, outcome = {**detail, "connected": False}, "dispatched"
+                        open_progress.append("1. " + text_result)
+                        open_outcomes.append({"action": "app", "target": value["label"], "status": outcome, "details": {"auto_connection": linked}})
+                        store.audit("music.auto_connect", str(auto_target), outcome, {"request_id": state["id"], "result": linked})
+                        if linked.get("connected") or pending_restart:
+                            await after_music_open(value)
+                        return
                 if value["kind"] != "app":
-                    await run_step(open_tools, value, open_progress, open_outcomes)
+                    await run_step(open_tools, value, open_progress, open_outcomes, request_id=state["id"])
                     return
                 loop = asyncio.get_running_loop()
                 started = asyncio.Event()
-                operation = asyncio.create_task(run_step(open_tools, value, open_progress, open_outcomes, on_dispatch=lambda: loop.call_soon_threadsafe(started.set)))
+                launch_began = time.perf_counter()
+                operation = asyncio.create_task(run_step(open_tools, value, open_progress, open_outcomes, on_dispatch=lambda: loop.call_soon_threadsafe(started.set), request_id=state["id"]))
                 notification = asyncio.create_task(started.wait())
                 try:
                     await asyncio.wait({operation, notification}, return_when=asyncio.FIRST_COMPLETED)
                     if started.is_set() and not state["cancel"].is_set() and not await request.is_disconnected():
                         yield event("speech_start", text=f"Запускаю {action_response.target_name(value['label'])}.")
                     await operation
+                    if open_outcomes: open_outcomes[-1]["details"]["launch_ms"] = round((time.perf_counter()-launch_began)*1000, 2)
+                    await after_music_open(value)
                 finally:
                     notification.cancel()
                     if not operation.done():
@@ -1488,6 +1835,121 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     await asyncio.gather(operation, notification, return_exceptions=True)
             try:
                 yield event("user", message=user)
+                if current.voice_diagnostics:
+                    normalized_route = music_request_form(text, current.name, player_context=player_context)[0] if media_request or music_request else text
+                    yield event("command_route", original=original_text, normalized=normalized_route, route=trace["route"])
+                    yield event("voice_diagnostic", text="Маршрут voice365: " + trace["route"]["tool"] + "; намерение: " + trace["route"]["intent"] + ".")
+                if current.voice_diagnostics and asr_normalization.get("source_verb"):
+                    normalized_intent = media_request.__dict__ if media_request else music_request.model_dump() if music_request else (control or natural_intent).__dict__ if control or natural_intent else None
+                    yield event("asr_normalization", original=original_text, normalized=text, decision=asr_normalization, intent=normalized_intent)
+                    verb_change = asr_normalization["source_verb"] + (" → " + asr_normalization["normalized_verb"] if asr_normalization.get("applied") else " — без замены")
+                    yield event("voice_diagnostic", text="ASR-форма: " + verb_change + "; намерение: " + str((normalized_intent or {}).get("action", "не определено")) + "; причина: " + asr_normalization["reason"] + ". Исходная реплика сохранена в сообщении пользователя.")
+                if compound_music:
+                    # A bare "да" must not confirm an older executable proposal
+                    # after a new ambiguous multi-action request.
+                    dialogue = chat_store.dialogue()
+                    for key in ("pending_open", "pending_audio", "pending_media", "media_choice", "pending_task_plan", "pending_action_plan"):
+                        dialogue.pop(key, None)
+                    chat_store.save_dialogue(dialogue)
+                    reply = "Уточните одну команду: в этой просьбе несколько действий. Поиск и воспроизведение не запускались. Отправьте действия отдельно."
+                    if re.match(r"не\b", audio_request_form(text, current.name), re.I):
+                        reply = "Музыку не включаю. " + reply
+                    async for update in local_response(action_response.ActionResponse("media", "needs_clarification", "", reply, reply)):
+                        yield update
+                    return
+                if asr_normalization.get("source_verb") and asr_normalization.get("command_candidate", True) and not asr_normalization.get("applied") and not asr_normalization.get("existing_invitation"):
+                    reply = "Уточните действие и его цель. Команда не выполнялась."
+                    if asr_normalization.get("reason") == "missing_player_context": reply = "Что продолжить? Укажите плеер или скажите «продолжи музыку». Команда не выполнялась."
+                    async for update in local_response(action_response.ActionResponse("nlu", "needs_clarification", "", reply, reply, {"asr_normalization": asr_normalization})):
+                        yield update
+                    return
+                if media_clarification and not phone_intent:
+                    dialogue = chat_store.dialogue()
+                    for key in ("pending_open", "pending_audio", "pending_media", "pending_task_plan", "pending_action_plan"):
+                        dialogue.pop(key, None)
+                    chat_store.save_dialogue(dialogue)
+                    async for update in local_response(action_response.ActionResponse("media", "needs_clarification", "", media_clarification, media_clarification)):
+                        yield update
+                    return
+                if control:
+                    if current.semantic_commands:
+                        dialogue = chat_store.dialogue()
+                        for key in ("pending_audio", "pending_open"):
+                            if dialogue.get(key, {}).get("semantic"): dialogue.pop(key)
+                        chat_store.save_dialogue(dialogue)
+                    control_status = control.intent
+                    if control.intent in {"prohibited", "cancelled"}:
+                        dialogue = chat_store.dialogue()
+                        had_pending = bool(dialogue.pop("pending_open", None))
+                        dialogue.pop("pending_pronunciation", None)
+                        dialogue.pop("media_choice", None)
+                        dialogue.pop("pending_media", None)
+                        chat_store.save_dialogue(dialogue)
+                        target = action_response.target_name(control.target)
+                        reply = f"Хорошо, не буду открывать {target}." if control.intent == "prohibited" else ("Выбор запуска отменён." if had_pending else "Ожидающего запуска нет. Уже переданную Windows команду отменить не могу.")
+                    elif control.intent == "inspect_running":
+                        reply, control_status = await asyncio.to_thread(inspect_running_application, control.target, current, trace)
+                    elif control.intent == "needs_clarification":
+                        reply = "Уточните одну команду и название приложения. Действие не выполнялось."
+                    else:
+                        reply = "Закрытие приложений пока не поддерживается. Команда не выполнялась."
+                    async for update in local_response(action_response.ActionResponse(control.action, control_status, control.target, reply, reply)):
+                        yield update
+                    return
+                media_followup = await offload(media_manager.consume, chat_store, text, current.name, stopped_requests)
+                trace["route"]["pending"] = "consumed" if media_followup else "none"
+                if media_followup or (media_request and media_request.scope != "system"):
+                    selected_request = media_followup.get("request") if media_followup else media_request
+                    choice = chat_store.dialogue().get("media_choice", {})
+                    if not isinstance(choice, dict): choice = {}
+                    trace["route"].update(tool="media.connection" if selected_request and selected_request.scope == "connection" else "media.manager", intent=selected_request.action if selected_request else "pending_reply", fallback_reason="")
+                    if media_followup and media_followup.get("restart"):
+                        try:
+                            linked = await connect_music(True)
+                            result = {"text": linked.get("text", "Специальное подключение проверено."), "spoken": "Подключение Яндекс Музыки подтверждено." if linked.get("connected") else "Подключение Яндекс Музыки не подтверждено.", "status": "connected" if linked.get("connected") else "unconfirmed", "diagnostics":linked.get("diagnostics", {"reason":"connected" if linked.get("connected") else "no_connection", "phase":"connection"})}
+                            if linked.get("connected") and not state["cancel"].is_set():
+                                resumed = (None if selected_request and selected_request.scope == "connection" else selected_request) or (media_manager.MediaRequest("wave", "song", "Яндекс Музыка") if selected_request is None and store.settings().yandex_auto_play else None)
+                                if resumed:
+                                    result = await media_manager.run_action(media, resumed, request_id=state["id"], allow_launch=False)
+                        except (ValueError, OSError) as error:
+                            result = music_failure(error)
+                    elif media_followup and media_followup.get("reply"):
+                        result = {"text": media_followup["reply"], "status": "cancelled"}
+                    else:
+                        choice = chat_store.dialogue().get("media_choice", {})
+                        if time.time() - choice.get("created", 0) >= 300 or choice.get("request_id") in stopped_requests: choice = {}
+                        if selected_request.scope == "song" and selected_request.query and not selected_request.target and current.music_player == "yandex" and current.media_source == "auto" and not choice:
+                            selected_request = media_manager.MediaRequest(selected_request.action, selected_request.scope, "Яндекс Музыка", selected_request.value, selected_request.query)
+                        if not selected_request.target and current.media_source == "auto" and choice.get("target"):
+                            selected_request = media_manager.MediaRequest(selected_request.action, selected_request.scope, choice["target"], selected_request.value, selected_request.query)
+                        if not selected_request.target and not choice and selected_request.action in {"play", "pause", "stop", "next", "previous", "play_pause", "read"} and current.music_player == "yandex" and current.media_source == "auto":
+                            selected_request = media_manager.MediaRequest(selected_request.action, selected_request.scope, "Яндекс Музыка", selected_request.value, selected_request.query)
+                        confirmed = choice.get("id", "") if time.time() - choice.get("created", 0) < 300 else ""
+                        try:
+                            result = await media_manager.run_action(media, selected_request, confirmed, state["id"])
+                            if result.get("media", {}).get("id"):
+                                dialogue = chat_store.dialogue()
+                                dialogue["media_choice"] = {"id": result["media"]["id"], "created": time.time(), "request_id": state["id"]}
+                                chat_store.save_dialogue(dialogue)
+                        except (ValueError, OSError) as error:
+                            is_yandex = selected_request.target == "Яндекс Музыка" or (selected_request.scope == "song" and current.music_player == "yandex")
+                            result = music_failure(error) if is_yandex else {"text": "Не удалось управлять этим плеером. Повторная команда автоматически не отправлялась.", "status": "failed"}
+                            if not store.settings().allow_audio_control: result.update(text="Управление звуком отключено.", status="denied")
+                    if selected_request and (selected_request.target == "Яндекс Музыка" or (selected_request.scope == "song" and current.music_player == "yandex" and current.media_source == "auto" and not choice)):
+                        dialogue = chat_store.dialogue()
+                        dialogue["music_context"] = {"target":"Яндекс Музыка", "created":time.time(), "request_id":state["id"]}
+                        chat_store.save_dialogue(dialogue)
+                    spoken = result.get("spoken") or (action_response.audio_result({"action": selected_request.action, "result": result}, result["text"], current.grammatical_gender).spoken if result.get("media") else result["text"])
+                    evidence = {key:result[key] for key in ("selected", "verification", "playback_progress", "query", "search_id", "state") if key in result}
+                    if media_followup and media_followup.get("selection_index"): evidence["selection_index"] = media_followup["selection_index"]
+                    async for update in local_response(action_response.ActionResponse("media", result["status"], selected_request.target if selected_request else "", result["text"], spoken, {"readiness_ms": result.get("readiness_ms"), "media": result.get("media", {}), "diagnostics": result.get("diagnostics", {}), "connection":result.get("connection", {}), **evidence}), selected_request, result.get("candidates"), semantic=bool(media_followup and media_followup.get("semantic")), restart=bool(result.get("restart_required")), gate=bool(media_followup and media_followup.get("intent_gate"))):
+                        yield update
+                    return
+                # A new topic retires transient targeting, never a saved preference.
+                dialogue = chat_store.dialogue()
+                retired = dialogue.pop("media_choice", None)
+                if not re.fullmatch(r"да[.! ]*", text, re.I) and not (connection_context and re.search(r"музык|песн|трек|плейлист|плеер", text, re.I)): retired = dialogue.pop("music_context", None) or retired
+                if retired: chat_store.save_dialogue(dialogue)
                 if read_previous:
                     spoken = previous_answer or "Предыдущего ответа пока нет."
                     answer = "Читаю предыдущий ответ." if previous_answer else spoken
@@ -1510,9 +1972,9 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     home.chat_pending.pop(chat_store.conversation_id, None)
                 await offload(CalendarWorkflows(chat_store).expire_unanswered)
                 await offload(Workflows(chat_store).expire_unanswered)
-                audio_followup = await offload(audio_intents.consume, chat_store, text, current.name)
+                audio_followup = await offload(audio_intents.consume, chat_store, text, current.name, stopped_requests)
                 learning_reply = None if full_document else await offload(pronunciations.consume_learning, chat_store, app.state.applications, text, current.name)
-                followup = None if full_document or learning_reply else await offload(intents.consume, chat_store, text, open_tools, current.name)
+                followup = None if full_document or learning_reply else await offload(intents.consume, chat_store, text, open_tools, current.name, stopped_requests)
                 task_reply = await task_intents.consume(chat_store, current, text, body.timezone,
                     allow=not phone_intent and plan_reply is None and not plan_requested and home_request is None and mail_request is None and not full_document and search_query is None and info_request is None and not body.document_ids and music_request is None and command is None and routine_name is None and inspect_application is None)
                 if task_reply and task_reply.changed:
@@ -1542,7 +2004,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 elif plan_requested:
                     if current.plan_understanding:
                         yield event("stage", text="Составляю план и проверяю записи…")
-                        with monitor.activity("brain:" + current.model):
+                        with timed_brain():
                             proposal = await action_plans.propose(chat_store, current, text, body.timezone)
                         answer = proposal.text
                         pending_action_plan = proposal if proposal.plan else None
@@ -1600,17 +2062,23 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                 elif (audio := resolve_audio(text, current.name)) is not None:
                     # A pending opening choice must never swallow an explicit audio
                     # command. No model inference or document text is used here.
-                    answer = await run_audio(audio_tools, audio, audio_progress, audio_outcomes)
+                    answer = await run_audio(audio_tools, audio, audio_progress, audio_outcomes, request_id=state["id"])
                     yield event("delta", text=answer)
                 elif audio_followup is not None:
-                    if audio_followup.action and audio_followup.target == "yandex":
-                        yield event("stage", text="Передаю подтверждённую команду Яндекс Музыке и проверяю результат…")
-                        confirmed_music = MusicAction(action=audio_followup.action.action, value=audio_followup.action.value)
-                        music_result = await run_music(music_player, confirmed_music, audio_progress)
-                        audio_outcomes.append({"action": confirmed_music.action, "result": music_result})
-                        answer = music_result["text"]
+                    if audio_followup.semantic: await semantic_check(audio_followup.intent_gate)
+                    if audio_followup.action and (audio_followup.target == "yandex" or audio_followup.action.action in {"play", "pause"} or (audio_followup.semantic and audio_followup.source == "music")):
+                        corrected = media_manager.MediaRequest(audio_followup.action.action, target=audio_followup.media_target if audio_followup.intent_gate else "Яндекс Музыка" if audio_followup.target == "yandex" else "", value=audio_followup.action.value)
+                        try:
+                            if state["cancel"].is_set() or await request.is_disconnected(): raise asyncio.CancelledError
+                            result = await media_manager.run_action(media, corrected, request_id=state["id"])
+                        except (ValueError, OSError):
+                            result = {"text": "Не удалось управлять этим плеером. Повторная команда не отправлялась.", "status": "failed"}
+                        spoken = result.get("spoken", result["text"])
+                        async for update in local_response(action_response.ActionResponse("media", result["status"], corrected.target, result["text"], spoken, {"state":result.get("state", {})}), corrected, result.get("candidates"), semantic=audio_followup.semantic, gate=audio_followup.intent_gate):
+                            yield update
+                        return
                     else:
-                        answer = await run_audio(audio_tools, audio_followup.action, audio_progress, audio_outcomes) if audio_followup.action else audio_followup.text
+                        answer = await run_audio(audio_tools, audio_followup.action, audio_progress, audio_outcomes, request_id=state["id"]) if audio_followup.action else audio_followup.text
                     yield event("delta", text=answer)
                 elif (suggestion := audio_intents.suggest(text, current.name, player=current.music_player)) is not None:
                     pending_audio = suggestion if suggestion.action else None
@@ -1627,7 +2095,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     choices = [item for item in open_tools.choices() if item["kind"] == "app" and item["target"] in targets]
                     if playing.get("available"):
                         yield event("stage", text="Передаю команду плееру и проверяю состояние…")
-                        answer = await run_audio(audio_tools, AudioAction(action="play"), audio_progress, audio_outcomes)
+                        answer = await run_audio(audio_tools, AudioAction(action="play"), audio_progress, audio_outcomes, request_id=state["id"])
                     elif not current.allow_app_open:
                         answer = "Запуск музыкальных приложений отключён в разделе «Команды». Команда не выполнялась."
                     elif len(choices) == 1:
@@ -1655,7 +2123,11 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     else:
                         pending_choices = followup.choices
                         pending_model_assisted = followup.model_assisted
+                        pending_semantic = followup.semantic
+                        pending_intent_gate = followup.intent_gate
+                        pending_request_id = followup.request_id
                         pending_spoken = followup.spoken
+                        pending_created = followup.created
                         answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else followup.text
                     answer = persona.local_result(answer, current.grammatical_gender)
                     yield event("delta", text=answer)
@@ -1710,7 +2182,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         yield event("speech_mode", mode="action", preference=current.action_speech)
                     if current.task_understanding:
                         yield event("stage", text="Разбираю задачу и срок…")
-                        with monitor.activity("brain:" + current.model):
+                        with timed_brain():
                             proposal = await task_intents.propose(chat_store, current, text, body.timezone)
                         answer, pending_task_plan = proposal.text, proposal if proposal.plan else None
                     else:
@@ -1728,7 +2200,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         action_turn = True
                         yield event("speech_mode", mode="action", preference=current.action_speech)
                     yield event("stage", text="Подбираю действие и запись задачи…")
-                    with monitor.activity("brain:" + current.model):
+                    with timed_brain():
                         proposal = await task_intents.propose(chat_store, current, text, body.timezone)
                     answer, pending_task_plan = proposal.text, proposal if proposal.plan else None
                     yield event("delta", text=answer)
@@ -1744,13 +2216,24 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     yield event("delta", text=answer)
                 elif inspect_application:
                     yield event("stage", text="Проверяю приложение на компьютере…")
-                    matches = await asyncio.to_thread(app.state.applications.find_matches, inspect_application)
+                    purpose_matches = await asyncio.to_thread(app.state.applications.purpose_matches, inspect_application)
+                    matches = await asyncio.to_thread(app.state.applications.find_matches, inspect_application) if purpose_matches is None else purpose_matches
                     inspection_matches = matches
                     if state["cancel"].is_set() or await request.is_disconnected():
                         raise asyncio.CancelledError
-                    answer = ("Найдено: " + "; ".join(f"{item['name']} · {item['source']} · {item['target']}" for item in matches[:5]) + ". Запуск не выполнялся.") if matches else f"{inspect_application}: в проверенных источниках не найдено. Запуск не выполнялся."
+                    if not matches and purpose_matches is None and re.match(r"для\s", inspect_application, re.I):
+                        # Unknown purpose is a miss, not evidence that no such app exists.
+                        inspection_matches = None
+                        answer = "" if current.intent_gate else "Уточните название приложения или его назначение. По этому описанию не удалось надёжно подобрать установленную программу. Ничего не запущено."
+                        if answer: action_status, action_turn = "needs_clarification", True
+                    else:
+                        answer = ("Найдено: " + "; ".join(f"{item['name']} · {item['source']} · {item['target']}" for item in matches[:5]) + ". Запуск не выполнялся.") if matches else f"{inspect_application}: в проверенных источниках не найдено. Запуск не выполнялся."
+                    trace["route"].update(tool="applications.search", intent="inspect_app", pending="none")
                     store.audit("app.inspect", inspect_application, "found" if matches else "not_found")
-                    yield event("delta", text=answer)
+                    if answer:
+                        action_turn = True
+                        if action_status != "needs_clarification": action_status = "read"
+                        yield event("delta", text=answer)
                 elif command:
                     if natural_intent and natural_intent.requires_confirmation:
                         pending_choices = intents.validate_choices(open_tools, [item for item in open_tools.choices() if item["kind"] == command.kind and item["target"] == command.target][:1])
@@ -1776,11 +2259,13 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             yield event("stage", text=f"Ищу {known_app or target_name} на компьютере…")
                             learned_matches = await asyncio.to_thread(pronunciations.candidates, app.state.applications, current.pronunciations, target_name)
                             exact_matches = await asyncio.to_thread(app.state.applications.find_matches, known_app or target_name)
-                            matches = list({item["target"].casefold(): item for item in [*learned_matches, *exact_matches]}.values())
+                            purpose_matches = await asyncio.to_thread(app.state.applications.purpose_matches, target_name)
+                            matches = list({item["target"].casefold(): item for item in ([*learned_matches, *exact_matches] if learned_matches or exact_matches or purpose_matches is None else purpose_matches)}.values())
+                            trace["steps"].append({"phase": "candidates", "targets": [item["target"] for item in matches], "source": "learned" if learned_matches else "exact"})
                             match_category = "неоднозначно" if len(matches) > 1 else "подтверждённое произношение" if learned_matches else "точное совпадение" if exact_matches else "не найдено"
                             if state["cancel"].is_set() or await request.is_disconnected():
                                 raise asyncio.CancelledError
-                            if len(matches) == 1 and not (natural_intent and natural_intent.requires_confirmation):
+                            if len(matches) == 1 and purpose_matches is None and not (natural_intent and natural_intent.requires_confirmation):
                                 item = matches[0]
                                 yield event("stage", text="Передаю команду Windows и проверяю запуск…")
                                 async for update in open_action({"kind": "app", "target": item["target"], "label": item["name"]}):
@@ -1793,6 +2278,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                 if len(matches) > 3:
                                     answer += " Другие варианты доступны в списке приложений."
                             elif (similar := await asyncio.to_thread(app.state.applications.suggest_matches, target_name)):
+                                trace["steps"].append({"phase": "candidates", "targets": [item["target"] for item in similar], "source": "phonetic"})
                                 match_category = "фонетический кандидат — требуется подтверждение"
                                 if state["cancel"].is_set() or await request.is_disconnected():
                                     raise asyncio.CancelledError
@@ -1800,13 +2286,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                 pending_model_assisted = False
                                 pending_spoken = target_name[:100]
                                 answer = intents.question(pending_choices, voice=body.mode == "conversation")
-                            elif known_app:
+                            elif known_app or purpose_matches is not None:
                                 action_status = "not_found"
-                                answer = f"{known_app}: приложение не найдено в проверенных источниках. Ничего не запущено."
+                                answer = f"{known_app}: приложение не найдено в проверенных источниках. Ничего не запущено." if known_app else "По проверенным метаданным не найдено подходящего приложения. Назовите конкретную программу. Ничего не запущено."
+                            elif current.intent_gate or current.semantic_commands:
+                                answer = ""  # Unresolved text continues into the bounded semantic router.
                             elif current.command_understanding:
                                 yield event("stage", text="Подбираю команду из каталога…")
                                 try:
-                                    with monitor.activity("brain:" + current.model):
+                                    with timed_brain():
                                         proposed = await intents.propose(current, opening_text, open_tools)
                                     pending_choices = await asyncio.to_thread(intents.validate_choices, open_tools, proposed)
                                     answer = intents.question(pending_choices, voice=body.mode == "conversation") if pending_choices else "Не нашёл подходящую доступную команду. Ничего не открыто."
@@ -1819,10 +2307,12 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     elif not commands.opening_target(opening_text):
                         action_status = "clarification"
                         answer = "Что открыть? Назовите сайт, папку, файл или приложение. Пока ничего не открыто."
+                    elif current.intent_gate or current.semantic_commands:
+                        answer = ""
                     elif current.command_understanding:
                         yield event("stage", text="Подбираю команду из каталога…")
                         try:
-                            with monitor.activity("brain:" + current.model):
+                            with timed_brain():
                                 proposed = await intents.propose(current, opening_text, open_tools)
                             pending_choices = await asyncio.to_thread(intents.validate_choices, open_tools, proposed)
                             if pending_choices:
@@ -1834,7 +2324,74 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             answer = "Не удалось подобрать команду. " + providers.describe_error(error) + " Ничего не открывал."
                             store.audit("command.resolve", current.model, "error")
                     answer = persona.local_result(answer, current.grammatical_gender)
-                    yield event("delta", text=answer)
+                    if answer: yield event("delta", text=answer)
+                if not answer and not full_document and not body.document_ids and not body.web_search and ((connection_context or previous_action_offer) and re.fullmatch(r"да[.! ]*", text, re.I) or player_context and media_manager.song_choice(audio_request_form(text, current.name))):
+                    reply = "Актуального подтверждаемого действия нет. Ничего не выполнялось. Назовите команду заново."
+                    trace["route"].update(tool="none", pending="missing", fallback_reason="no_pending")
+                    async for update in local_response(action_response.ActionResponse("media", "no_pending", "", reply, reply)):
+                        yield update
+                    return
+                generation, tier = current, "manual"
+                if not answer:
+                    generation, tier = await answer_model(current, text, has_sources=bool(
+                        phone_intent or body.document_ids or full_document or web_result or body.web_search
+                        or scoped_opening or intent_interpreter.action_request(text, current.name)))
+                if not answer and current.intent_gate and tier != "fast" and not phone_intent and not body.document_ids and not full_document and not web_result and not body.web_search:
+                    yield event("stage", text="Уточняю смысл просьбы локальной моделью…")
+                    try:
+                        with timed_brain():
+                            gated = await intent_gate.route(current, text, open_tools, lambda:semantic_check(True), read_status=lambda source:semantic_status(source, True), prior=gate_prior, choice=gate_choice)
+                        await semantic_check(True)
+                    except asyncio.CancelledError:
+                        trace["intent_gate"].update(called=True, fast_path=False, reason="cancelled")
+                        raise
+                    except ValueError:
+                        trace["intent_gate"].update(called=True, fast_path=False, reason="invalidated")
+                        reply = "Разбор остановлен: настройка или источник изменились. Ничего не выполнялось. Повторите просьбу."
+                        async for update in local_response(action_response.ActionResponse("intent", "no_action", "", reply, reply)): yield update
+                        return
+                    trace["intent_gate"] = {"enabled":True, **gated.diagnostic()}
+                    if current.voice_diagnostics: yield event("voice_diagnostic",text=f"Intent Gate: {gated.kind}; инструмент: {gated.tool or 'нет'}; причина: {gated.reason}; классификация: {gated.milliseconds:.0f} мс.")
+                    trace["route"].update(tool=gated.tool or "conversation", intent=gated.kind, fallback_reason=gated.reason)
+                    if gated.media:
+                        try: result = await media_manager.run_action(media, gated.media, request_id=state["id"], allow_launch=False)
+                        except (ValueError, OSError) as error: result = music_failure(error)
+                        async for update in local_response(action_response.ActionResponse("media", result.get("status", "unconfirmed"), gated.media.target, result["text"], result.get("spoken", result["text"]), {k:result[k] for k in ("state", "selected", "verification", "query", "diagnostics") if k in result}), gated.media, result.get("candidates"), semantic=True, restart=bool(result.get("restart_required")), gate=True):
+                            yield update
+                        return
+                    if gated.prepared:
+                        prepared = gated.prepared
+                        action_turn = True
+                        answer, action_status = prepared.text, prepared.status
+                        pending_choices, pending_semantic, pending_intent_gate = prepared.choices, bool(prepared.choices), bool(prepared.choices)
+                        pending_request_id = state["id"]
+                        if prepared.audio:
+                            pending_audio = audio_intents.Reply(answer, prepared.audio, selected_player=current.music_player, semantic=True, source=prepared.source, request_id=state["id"], intent_gate=True, media_target=gated.media_target)
+                        trace["route"]["pending"] = "waiting_confirmation" if pending_choices or pending_audio else "none"
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
+                        yield event("delta", text=answer)
+                if not answer and not current.intent_gate and current.semantic_commands and not body.document_ids and not full_document and not web_result and not body.web_search and scoped_opening:
+                    yield event("stage", text="Подбираю безопасное действие по смыслу…")
+                    with timed_brain():
+                        previous_request = next((row["content"][:200] for row in reversed(chat_store.list("messages", 8)) if row["role"] == "user" and row["id"] != user["id"] and not re.fullmatch(r"да|нет|отмена|подтверждаю|(?:открой )?(?:первую|вторую|третью|\d)", commands.normalize(row["content"]))), "")
+                        prepared = await semantic_commands.route(current, text, open_tools, semantic_check, index=semantic, read_status=semantic_status, context={"previous_request": previous_request})
+                    await semantic_check()
+                    if prepared:
+                        action_turn = True
+                        yield event("speech_mode", mode="action", preference=current.action_speech)
+                        answer, action_status = prepared.text, prepared.status
+                        pending_choices, pending_semantic = prepared.choices, bool(prepared.choices)
+                        pending_request_id = state["id"]
+                        if prepared.audio:
+                            pending_audio = audio_intents.Reply(answer, prepared.audio, selected_player=current.music_player, semantic=True, source=prepared.source, request_id=state["id"])
+                        trace["steps"].append({"phase": "semantic_routing", **prepared.timings, "status": prepared.status})
+                        store.audit("semantic.route", current.model, prepared.status, {"request_id": state["id"], **prepared.timings})
+                        yield event("delta", text=answer)
+                if not answer and not body.document_ids and not full_document and not web_result and intent_interpreter.action_request(text, current.name):
+                    reply = "Уточните команду и название приложения. Действие не выполнялось."
+                    async for update in local_response(action_response.ActionResponse("action", "needs_clarification", "", reply, reply)):
+                        yield update
+                    return
                 if not answer:
                     selected = Library(chat_store).selected(body.document_ids)
                     question = text
@@ -1897,11 +2454,15 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         used += len(content)
                     if not full_document:
                         payload = [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]
-                    guard_actions = not selected and not full_document and web_result is None and persona.action_context(text, history)
+                    guard_actions = not selected and not full_document and web_result is None and (persona.action_context(text, history) or trace["intent_gate"].get("called",False))
                     cue_reader = AvatarCue(bool(current.avatar_path and current.avatar_expressions and not full_document))
+                    if tier != "manual":
+                        trace["route"]["answer_model_tier"] = tier
+                    answer_timing["model_tier"] = tier
+                    answer_timing["model_begin_ms"] = round((time.perf_counter() - began) * 1000, 2)
                     try:
-                        with monitor.activity("brain:" + current.model):
-                            async with aclosing(document_summary.respond(current, payload, selected, text, body.mode, full=full_document, allow_read=web_result is None, sources=document_context)) as output:
+                        with timed_brain(generation.model):
+                            async with aclosing(document_summary.respond(generation, payload, selected, text, body.mode, full=full_document, allow_read=web_result is None, sources=document_context)) as output:
                                 async for update in output:
                                     if await request.is_disconnected():
                                         return
@@ -1910,6 +2471,8 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                     elif update["type"] == "summary_sources":
                                         document_context = update["sources"]
                                     elif update["type"] == "delta":
+                                        if update["text"] and "model_first_ms" not in answer_timing:
+                                            answer_timing["model_first_ms"] = round((time.perf_counter() - began) * 1000, 2)
                                         rendered, cue = cue_reader.feed(update["text"])
                                         if cue:
                                             yield event("avatar", **cue)
@@ -1947,17 +2510,29 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             answer += fallback
                             yield event("delta", text=fallback)
                     if guard_actions and answer:
-                        answer = persona.without_unexecuted_claims(answer)
+                        checked_answer = persona.without_unexecuted_claims(answer, context="music" if connection_context else "")
+                        if checked_answer != answer:
+                            trace["route"].update(guarded=True, fallback_reason="unexecuted_claim_suppressed")
+                            trace["status"] = "no_tool"
+                        answer = checked_answer
                         yield event("delta", text=answer)
                 if answer:
                     def save_answer():
                         assistant = chat_store.add_message("assistant", answer, memory_context, web_result, document_context)
+                        if state["cancel"].is_set(): return assistant
+                        if current.intent_gate and audio_outcomes:
+                            outcome = audio_outcomes[-1]; data = outcome.get("result", {})
+                            if data.get("confirmed"):
+                                source = "system" if data.get("scope") == "windows_master" else "music"
+                                intent_gate.remember_context(chat_store, assistant["id"], state["id"], source=source, action=outcome["action"], value=data.get("diagnostics", {}).get("expected_volume", 0)-(data.get("before", {}).get("volume", 0)) if outcome["action"] == "change_volume" and source == "system" else None, target=intent_gate.music_target(current) if source == "music" else "")
                         if pending_choices:
-                            intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted, spoken=pending_spoken)
+                            intents.remember(chat_store, assistant["id"], pending_choices, model_assisted=pending_model_assisted, spoken=pending_spoken, created=pending_created, semantic=pending_semantic, request_id=pending_request_id, intent_gate=pending_intent_gate)
                         if learning_offer:
                             dialogue = chat_store.dialogue()
                             dialogue["pending_pronunciation"] = {**learning_offer, "assistant_id": assistant["id"], "created": time.time()}
                             chat_store.save_dialogue(dialogue)
+                        if pending_restart:
+                            media_manager.remember(chat_store, assistant["id"], restart=True)
                         if pending_audio:
                             audio_intents.remember(chat_store, assistant["id"], pending_audio)
                         if pending_task_plan:
@@ -1976,11 +2551,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                                 spoken = f"{direction.capitalize()} громкость на {abs(action.value)} процентов? Ответьте да или отмена."
                             else:
                                 spoken = "Выполнить команду проигрывателю? Ответьте да или отмена."
+                            if pending_audio.semantic: spoken = pending_audio.text
                             speech_result = action_response.ActionResponse("audio", "clarification", "", answer, spoken)
                         elif learning_offer:
                             speech_result = action_response.ActionResponse("open", "learning_offer", learning_offer["application_name"], answer, f"Запомнить произношение {learning_offer['spoken']} для {learning_offer['application_name']}?")
                         elif learning_reply is not None:
                             speech_result = action_response.ActionResponse("pronunciation", "saved", "", answer, learning_reply)
+                        elif pending_restart:
+                            speech_result = action_response.ActionResponse("media", "restart_required", "Яндекс Музыка", answer, "Разрешить перезапуск Яндекс Музыки? Воспроизведение прервётся.")
                         elif open_outcomes:
                             speech_result = action_response.open_result(open_outcomes[-1], answer, current.grammatical_gender)
                         elif audio_outcomes:
@@ -1998,20 +2576,31 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                             speech_result = action_response.ActionResponse("open", "clarification", "", answer, "Что открыть?")
                         elif action_status == "phone_unavailable":
                             speech_result = action_response.ActionResponse("open", "phone_unavailable", "", answer, "Эту команду нужно выполнить на телефоне.")
+                        elif action_status == "read":
+                            speech_result = action_response.ActionResponse("read", "read", "", answer, answer)
+                        elif action_status == "needs_clarification" or current.intent_gate and action_status == "no_action":
+                            speech_result = action_response.ActionResponse("intent", action_status, "", answer, answer)
                         elif followup and followup.status == "cancelled":
                             word = {"feminine": "Отменила.", "masculine": "Отменил.", "neutral": "Отменено."}[current.grammatical_gender]
                             speech_result = action_response.ActionResponse("open", "cancelled", "", answer, word)
                         else:
-                            speech_result = action_response.ActionResponse("action", "completed", "", answer, "Результат в чате.")
+                            speech_result = action_response.ActionResponse("action", "responded", "", answer, "Результат в чате.")
                         yield event("speech_result", action=speech_result.event())
+                        trace["status"] = speech_result.status
                         if current.voice_diagnostics and body.mode == "conversation":
                             target = natural_intent.target if natural_intent else ""
                             diagnostic = f"Команда: {natural_intent.action if natural_intent else 'не определена'}; цель: {target or 'нет'}; сопоставление: {match_category}; результат: {speech_result.status}; обработка: {round((time.perf_counter() - began) * 1000)} мс."
                             yield event("voice_diagnostic", text=diagnostic)
+                    if current.voice_diagnostics: yield event("voice_timing", request_id=state["id"], interpretation_ms=round(interpretation_ms, 2), **({"llm_ms": round(llm_ms, 2)} if llm_ms else {}), **answer_timing)
                     yield event("done", message=assistant, seconds=round(time.perf_counter() - began, 2), changed=changed)
                 else:
                     yield event("error", text="Модель вернула пустой ответ")
             except asyncio.CancelledError:
+                trace["status"] = "cancelled"
+                if current.semantic_commands or current.intent_gate:
+                    with CancelScope(shield=True):
+                        await offload(semantic_commands.retire_request, store, state["id"])
+                        await offload(intent_gate.retire_request, store, state["id"])
                 if plan_progress:
                     with CancelScope(shield=True):
                         chat_store.add_message("assistant", plan_progress[-1] + "\nОтвет остановлен. Результат плана сохранён в журнале действий.")
@@ -2032,6 +2621,7 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                         chat_store.add_message("assistant", routine_header + "\n".join(routine_progress) + "\nСценарий остановлен. Уже переданные Windows команды не отменяются.")
                 raise
             except Exception as error:
+                trace["status"] = "failed"
                 if web_result is not None:
                     fallback = "\nНе удалось подготовить ответ по источникам. Результаты поиска доступны в карточке ниже."
                     answer += fallback
@@ -2042,6 +2632,14 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
                     if action_turn:
                         yield event("speech_result", action=action_response.ActionResponse("action", "error", "", "", "Не удалось выполнить команду.").event())
                     yield event("error", text=providers.describe_error(error))
+            finally:
+                if current.voice_diagnostics and answer_timing:
+                    trace["answer_timing"] = answer_timing
+                if trace["intent"] or action_turn or trace["status"] != "not_a_command" or current.intent_gate:
+                    trace["outcomes"] = [*open_outcomes, *audio_outcomes]
+                    trace["steps"].extend({"phase": item["kind"], "status": item["status"], "details": json.loads(item["details"])} for item in store.list("actions", 100) if json.loads(item["details"]).get("request_id") == state["id"] and item["kind"] != "command.trace")
+                    trace["elapsed_ms"] = round((time.perf_counter() - began) * 1000)
+                    store.audit("command.trace", user["id"], trace["status"], trace)
 
         async def cancellable_stream():
             generator = generate()
