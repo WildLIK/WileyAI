@@ -17,7 +17,13 @@ public final class LocalVoiceProbe {
         Prefs p=new Prefs(); List<String> errors=new ArrayList<>(); AtomicInteger done=new AtomicInteger();
         p.values.put("offline_engine","disabled");
         LocalVoice v=new LocalVoice(new Context(),p,errors::add);v.speakCompleted("test",done::incrementAndGet);Looper.drain();
-        check(errors.size()==1 && errors.get(0).contains("системный движок"));check(done.get()==1);check(p.getString("offline_engine","").equals("disabled"));
+        check(errors.size()==1 && errors.get(0).contains("«Системный»"));check(done.get()==1);check(p.getString("offline_engine","").equals("disabled"));
+        errors.clear();
+        AtomicInteger refreshed=new AtomicInteger();
+        v.inspect(refreshed::incrementAndGet);Looper.drain();
+        check(refreshed.get()==1 && v.voices().isEmpty() && errors.isEmpty());
+        v.reload(refreshed::incrementAndGet);Looper.drain();
+        check(refreshed.get()==2 && v.voices().isEmpty() && errors.isEmpty());
         errors.clear();v.selectEngine("",()->{});Looper.drain();check(TextToSpeech.last.engine==null && p.getString("offline_engine","missing").equals(""));
         v.speakCompleted("first",done::incrementAndGet);String old=TextToSpeech.last.id;v.stop();
         List<LocalVoice.Stage> stages=new ArrayList<>();
