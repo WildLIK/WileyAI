@@ -42,6 +42,13 @@ def test_production_bundle_rejects_local_experimental_models(tmp_path):
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows DPAPI vault")
 def test_encrypted_vault_backup_and_restore_preserve_both_signers(tmp_path, monkeypatch):
     vault = load("release-vault")
+    # The npm test runner creates tmp_path inside the checkout. Model the
+    # repository and its external storage within this disposable test tree.
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    monkeypatch.setattr(vault, "ROOT", repository)
+    with pytest.raises(ValueError, match="outside the repository"):
+        vault.locations(repository / "blocked.keystore")
     first, first_vault = vault.locations(tmp_path / "first.keystore")
     second, second_vault = vault.locations(tmp_path / "second.keystore")
     monkeypatch.setattr(vault.getpass, "getpass", lambda _: "synthetic-recovery-passphrase")
