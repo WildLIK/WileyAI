@@ -120,9 +120,14 @@ Qwen3 0.6B model weights (Apache-2.0, https://huggingface.co/Qwen/Qwen3-0.6B)
 are downloaded separately from the pinned unsloth GGUF revision recorded in
 docs/research/android-llm-catalog.json.
 
-The only ONNX model shipped with the public Android and Windows builds is the
-verified Silero VAD v5 artifact above. Local wake-word, speaker comparison
-and other research models and recordings are excluded.
+The public builds ship the verified Silero VAD v5 artifact above. Android
+also includes the Apache-2.0 3D-Speaker CAM++ voice profile model
+(`iic/speech_campplus_sv_zh_en_16k-common_advanced`, ModelScope) as an ONNX
+export distributed by sherpa-onnx. The exact size and SHA-256 are pinned in
+`scripts/prepare-android-camplus.py`. See https://github.com/modelscope/3D-Speaker
+and https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models.
+The Android APK includes the Apache-2.0 license. Locally trained wake-word
+models and research recordings are excluded.
 
 Piper Irina is used through a separately installed upstream sherpa-onnx Android
 TTS engine, not linked or bundled with WileyAI. Provenance and APK digest are

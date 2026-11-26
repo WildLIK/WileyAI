@@ -11,9 +11,15 @@ final class SystemSpeechEngine {
     private final Handler timer = new Handler(Looper.getMainLooper()); private OfflineSpeechEngine.Listener active;
     SystemSpeechEngine(Context context) { this.context = context; }
     boolean busy() { return busy; }
+    static boolean available(Context context, boolean onDevice) {
+        if (onDevice) return Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context);
+        return SpeechRecognizer.isRecognitionAvailable(context) && context.getPackageManager()
+                .queryIntentServices(new Intent(RecognitionService.SERVICE_INTERFACE), 0).stream()
+                .anyMatch(service -> service.serviceInfo != null && !context.getPackageName().equals(service.serviceInfo.packageName));
+    }
     void start(boolean onDevice, OfflineSpeechEngine.Listener listener) {
         if (busy) return;
-        if (!SpeechRecognizer.isRecognitionAvailable(context) || (onDevice && (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)))) { listener.error("Этот системный распознаватель недоступен. Выберите Vosk или установите службу распознавания Android."); listener.finished(); return; }
+        if (!available(context,onDevice)) { listener.error("Этот системный распознаватель недоступен. Выберите Vosk или установите службу распознавания Android."); listener.finished(); return; }
         try {
             if (onDevice && Build.VERSION.SDK_INT >= 31) recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context);
             else {

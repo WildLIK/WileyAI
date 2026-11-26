@@ -55,8 +55,10 @@ def test_gigaam_read_only_and_isolated():
     hands_free = (SOURCE / 'HandsFreeService.java').read_text(encoding='utf-8')
     main_activity = (SOURCE / 'MainActivity.java').read_text(encoding='utf-8')
     assert 'speech.start(model, listener, waiting)' in hands_free  # existing Vosk path preserved
-    assert 'offlineSpeech.start(speechModels.active(), recognition)' in main_activity
-    assert 'gigaAm.start(waiting, listener)' in hands_free and 'gigaAmSpeech.start(15000, recognition)' in main_activity
+    assert 'startSelectedSpeech(asrEngine, recognition)' in main_activity
+    assert 'if (engine == 0) offlineSpeech.start(speechModels.active(), listener)' in main_activity
+    assert 'gigaAm.start(waiting, listener)' in hands_free
+    assert 'if (engine == 3) gigaAmSpeech.start(15000, listener)' in main_activity
 
 def test_gigaam_official_sherpa_configuration_api(tmp_path):
     import zipfile

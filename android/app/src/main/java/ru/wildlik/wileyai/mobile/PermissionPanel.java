@@ -1,12 +1,8 @@
 package ru.wildlik.wileyai.mobile;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.AppOpsManager;
-import android.app.NotificationManager;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.provider.Settings;
 import android.widget.LinearLayout;
 import java.util.ArrayList;
@@ -16,18 +12,19 @@ import java.util.function.Supplier;
 final class PermissionPanel {
     private final Activity activity;
     private final MobileUi ui;
+    private final RuntimeAccess access;
     private final List<Runnable> updates=new ArrayList<>();
 
-    PermissionPanel(Activity activity,MobileUi ui){
+    PermissionPanel(Activity activity,MobileUi ui,RuntimeAccess access){
         this.activity=activity;
         this.ui=ui;
+        this.access=access;
     }
 
     void render(LinearLayout parent,Runnable screen,Runnable apps,Runnable cloud){
-        row(parent,"Микрофон","Распознавание речи",()->state(activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED),
-            ()->system(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+activity.getPackageName()))));
-        row(parent,"Уведомления","Напоминания и фоновый вызов",()->state(activity.getSystemService(NotificationManager.class).areNotificationsEnabled()),
-            ()->system(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.getPackageName())));
+        for (RuntimeAccess.Item item : RuntimeAccess.Item.values()) {
+            row(parent,item.title,item.description,()->access.status(item),()->access.request(item,ui,this::refresh));
+        }
         row(parent,"Цифровой помощник","Вызов из Android",()->WileyVoiceService.selected(activity)?"Выбрана WileyAI":"WileyAI не выбрана",()->{
             try{activity.startActivity(new Intent(Settings.ACTION_VOICE_INPUT_SETTINGS));}
             catch(RuntimeException unavailable){system(new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS));}

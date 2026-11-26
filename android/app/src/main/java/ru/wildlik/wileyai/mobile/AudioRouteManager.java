@@ -135,6 +135,8 @@ final class AudioRouteManager {
     /** Activates Bluetooth communication/SCO route if a BT headset is connected and BT SCO is enabled. */
     static boolean acquireBluetoothRoute(Context context) {
         if (!isBtScoEnabled(context)) return false;
+        if (Build.VERSION.SDK_INT >= 31 && context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) return false;
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if (am == null) return false;
         if (Build.VERSION.SDK_INT >= 31) {

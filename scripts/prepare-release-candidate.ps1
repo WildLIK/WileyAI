@@ -34,6 +34,8 @@ Assert-Passed 'Required Windows and Python checks'
 Assert-Passed 'Distribution interface'
 $androidChecks = @('-Release', '-Check')
 if ($Offline) { $androidChecks += '-Offline' ; $env:UV_OFFLINE = '1' }
+& $python scripts/prepare-android-camplus.py
+Assert-Passed 'Pinned public CAM++ model'
 & $python $vault run android -- pwsh.exe -NoProfile -File scripts/build-android.ps1 @androidChecks
 Assert-Passed 'Signed Android APK and lint'
 $winOptions = @("--config.directories.output=$work")

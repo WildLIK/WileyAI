@@ -22,7 +22,11 @@ final class SpeechPanel {
         this.importZip = importZip; this.gigaAmImport = gigaAmImport;
     }
     private boolean canChange() {
-        if (HandsFreeService.running()) { ui.dialog().setMessage("Сначала остановите голосовую активацию в разделе «Голосовой вызов» или в уведомлении.").setPositiveButton("Понятно", null).show(); return false; }
+        if (HandsFreeService.running()) {
+            SetupAction.show(ui,"Остановить фоновый вызов?", "Для изменения речевой модели сначала остановите прослушивание. Затем повторите действие.",
+                    "Остановить", () -> HandsFreeService.stop(activity), null, null);
+            return false;
+        }
         if (speech.getAsBoolean()) { ui.dialog().setMessage("Сначала завершите запись").setPositiveButton("Понятно", null).show(); return false; } return true;
     }
     void render(LinearLayout parent) {
@@ -118,12 +122,12 @@ final class SpeechPanel {
             gigaAmRuntime.setText(GigaAmRuntime.get(activity).diagnostic());
         }
     }
-    private void confirmDownload() {
+    void confirmDownload() {
         if (!canChange()) return;
         ui.dialog().setTitle("Скачать русское распознавание?").setMessage("44,1 МиБ. Нужно 400 МиБ свободного места для установки.\n\nОсновной сервер Vosk, при сбое — проверенная копия на Hugging Face. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
             .setNegativeButton("Отмена", null).setPositiveButton("Скачать", (d, w) -> models.download(preferences.getBoolean("speech_wifi_only", true))).show();
     }
-    private void confirmGigaAmDownload() {
+    void confirmGigaAmDownload() {
         if (!canChange() || gigaAm.busy()) return;
         ui.dialog().setTitle("Скачать модель GigaAM v3?").setMessage(GigaAmModel.sizeText() + " МиБ, нужно 600 МиБ свободного места. Источник: Hugging Face, закреплённая ревизия; каждый файл проверяется по SHA-256. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
             .setNegativeButton("Отмена", null).setPositiveButton("Скачать", (d, w) -> gigaAm.download(preferences.getBoolean("speech_wifi_only", true))).show();

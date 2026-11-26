@@ -64,6 +64,10 @@ public final class StageOneInstrumentation extends Instrumentation {
                 test(only, () -> result.putString("upgrade_probe", ReleaseUpgradeProbe.run(context, only.equals("releaseUpgradeSeed"))));
                 finish(Activity.RESULT_OK, result);
                 return;
+            } else if (only.equals("releaseOwner")) {
+                test(only, () -> result.putString("owner_probe", ReleaseOwnerProbe.run(context, getContext())));
+                finish(Activity.RESULT_OK, result);
+                return;
             }
             if(only.equals("wakeAcousticNext8"))test("wakeAcousticNext8",()->result.putString("wake_acoustic_next8",AcousticDiagnosticsDeviceProbe.run(context)));
             if(only.equals("wakeStudyNext11"))test("wakeStudyNext11",()->WakeStudySessionsProbe.run(context));

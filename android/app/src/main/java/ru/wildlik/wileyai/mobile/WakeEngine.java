@@ -36,8 +36,7 @@ final class WakeEngine {
         if (closed || !WakePhrase.valid(phrase) || !busy.compareAndSet(false, true)) return; cancelled = false; int ticket = ++generation;
         boolean prefixEnabled = recoverPrefix && continuous && WakePhrase.SHORT.equals(phrase);
         int selectedEngine = WakeSettings.wakeEngine(context);
-        boolean useLiveKit = selectedEngine != WakeSettings.ENGINE_VOSK
-                && (WakePhrase.SHORT.equals(phrase) || WakePhrase.DEFAULT.equals(phrase));
+        boolean useLiveKit = WakeModelAssets.liveKitEligible(context, selectedEngine, phrase);
         VoiceTelemetry.wakeStarted();DiagnosticLog.event(DiagnosticJournal.Event.WAKE_START,0);
         if (prefixEnabled) DiagnosticLog.event(DiagnosticJournal.Event.WAKE_PREFIX_ENABLED,1);
         worker.execute(() -> {
@@ -70,13 +69,8 @@ final class WakeEngine {
             lkHandle = WakeComparison.open(modelFile.toAbsolutePath().toString());
             if (lkHandle == 0) throw new IllegalStateException("LiveKit C v2 open failed");
 
-            boolean camRequested = selectedEngine == WakeSettings.ENGINE_LIVEKIT_V2_CAM || OwnerSpeakerFilter.isEnabled(context);
-            if (camRequested && OwnerSpeakerFilter.hasEnrolledProfile(context)) {
-                try {
-                    speakerFilter = OwnerSpeakerFilter.open(WakeModelAssets.ensureCamPlus(context), 1);
-                } catch (Exception camUnavailable) {
-                    android.util.Log.i("WileyWake", "cam_unavailable");
-                }
+            if (selectedEngine == WakeSettings.ENGINE_LIVEKIT_V2_CAM) {
+                speakerFilter = OwnerSpeakerFilter.open(WakeModelAssets.ensureCamPlus(context), 1);
             }
             if (cancelled) return;
 

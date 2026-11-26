@@ -24,6 +24,24 @@ final class WakeModelAssets {
         return ensureVerified(context, CAMPPLUS_ASSET, "campplus.onnx", CAMPPLUS_SHA256);
     }
 
+    static boolean hasLiveKit(Context context) { return bundled(context, "C_v2.onnx"); }
+
+    static boolean hasCamPlus(Context context) { return bundled(context, "campplus.onnx"); }
+
+    static boolean liveKitEligible(Context context, int engine, String phrase) {
+        return engine != WakeSettings.ENGINE_VOSK && hasLiveKit(context)
+                && (WakePhrase.SHORT.equals(phrase) || WakePhrase.DEFAULT.equals(phrase))
+                && (engine != WakeSettings.ENGINE_LIVEKIT_V2_CAM
+                    || (hasCamPlus(context) && OwnerSpeakerFilter.hasEnrolledProfile(context)));
+    }
+
+    private static boolean bundled(Context context, String name) {
+        try {
+            String[] entries = context.getAssets().list("wake-stage1");
+            return entries != null && java.util.Arrays.asList(entries).contains(name);
+        } catch (IOException absent) { return false; }
+    }
+
     private static synchronized Path ensureVerified(
             Context context, String assetPath, String fileName, String expectedSha256) throws IOException {
         Context app = context.getApplicationContext();

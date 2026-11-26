@@ -16,7 +16,6 @@ import android.widget.TextView;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Explicit local-only owner voice enrollment for CAM++ 3D-Speaker.
@@ -36,22 +35,23 @@ public final class OwnerEnrollmentActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<short[]> clips = new ArrayList<>();
     private MobileUi ui;
+    private RuntimeAccess access;
     private TextView profileStatus, captureStatus;
-    private Button recordBtn, saveBtn, testBtn, clearBtn;
+    private Button recordBtn, saveBtn, testBtn, clearBtn, repairBtn;
     private volatile boolean busy;
+    private boolean modelReady;
+    private String message = "";
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
-        ui = new MobileUi(this, new SettingsRepository(this).theme());
+        String theme = new SettingsRepository(this).theme();
+        ui = new MobileUi(this, "system".equals(theme) ? "aurora" : theme);
+        access = new RuntimeAccess(this);
         LinearLayout root = ui.vertical();
         root.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(18));
         root.setBackgroundColor(ui.theme.base);
 
-        root.addView(ui.text("Регистрация голоса владельца", 22, ui.theme.text));
-        root.addView(ui.text(
-                "Запись начинается только по нажатию кнопки и хранится локально в виде эмбеддинга CAM++. "
-                        + "Чужие голоса никогда не дообучаются автоматически.",
-                14, ui.theme.secondary));
+        ui.card(root, "Мой голос", "Запишите 3–5 фраз. WileyAI сохранит на телефоне голосовой профиль. Сами записи нужны только во время настройки.");
 
         profileStatus = ui.text("", 15, ui.theme.accentText);
         profileStatus.setPadding(0, ui.dp(8), 0, ui.dp(6));
@@ -60,6 +60,8 @@ public final class OwnerEnrollmentActivity extends Activity {
         captureStatus = ui.text("", 15, ui.theme.text);
         captureStatus.setPadding(0, ui.dp(4), 0, ui.dp(10));
         root.addView(captureStatus);
+        repairBtn = ui.button("Проверить или восстановить компонент", this::prepareModel);
+        root.addView(repairBtn);
 
         recordBtn = ui.button("", this::recordNextPhrase);
         root.addView(recordBtn);
@@ -79,28 +81,58 @@ public final class OwnerEnrollmentActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.addView(root);
         setContentView(scroll);
+        prepareModel();
+    }
+
+    @Override protected void onResume() { super.onResume(); if (recordBtn != null) refreshUi(); }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        access.returned(code, permissions, results, ui, this::refreshUi);
+    }
+
+    private void prepareModel() {
+        if (busy) return;
+        busy = true;
+        message = "Проверяю компонент голосового профиля…";
         refreshUi();
+        new Thread(() -> {
+            boolean ready = false;
+            try (OwnerSpeakerFilter ignored = OwnerSpeakerFilter.open(WakeModelAssets.ensureCamPlus(this), 1)) {
+                ready = true;
+            } catch (Exception | LinkageError error) {
+                android.util.Log.w("WileyOwner", "speaker_component_unavailable");
+            }
+            boolean available = ready;
+            main.post(() -> {
+                if (isDestroyed()) return;
+                busy = false;
+                modelReady = available;
+                message = available ? "" : "Компонент голосового профиля недоступен. Попробуйте восстановить его или вернитесь к голосовому вызову и выберите Vosk.";
+                refreshUi();
+            });
+        }, "OwnerComponentCheck").start();
     }
 
     private void refreshUi() {
         boolean enrolled = OwnerSpeakerFilter.hasEnrolledProfile(this);
-        profileStatus.setText(enrolled
-                ? "Профиль владельца: зарегистрирован (CAM++ 3D-Speaker)"
-                : "Профиль владельца: не зарегистрирован");
+        profileStatus.setText(!message.isEmpty() ? message : enrolled
+                ? "Профиль голоса сохранён" : "Профиль голоса ещё не создан");
         int n = clips.size();
         String next = PROMPTS[n % PROMPTS.length];
         captureStatus.setText("Записано фраз: " + n + " / 3–5\nСледующая фраза: «" + next + "»");
-        recordBtn.setEnabled(!busy && n < 5);
+        repairBtn.setVisibility(!busy && !modelReady ? android.view.View.VISIBLE : android.view.View.GONE);
+        recordBtn.setEnabled(!busy && modelReady && n < 5);
         recordBtn.setText(busy ? "Идёт запись…" : n >= 5 ? "Записано максимум 5 фраз" : "Записать фразу («" + next + "»)");
-        saveBtn.setEnabled(!busy && n >= 3);
-        testBtn.setEnabled(!busy && enrolled);
+        saveBtn.setEnabled(!busy && modelReady && n >= 3);
+        testBtn.setEnabled(!busy && modelReady && enrolled);
         clearBtn.setEnabled(!busy && (enrolled || n > 0));
     }
 
     private void recordNextPhrase() {
-        if (busy) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            captureStatus.setText("Нет разрешения на микрофон.");
+        if (busy || !modelReady) return;
+        if (!access.granted(RuntimeAccess.Item.MIC)) {
+            access.request(RuntimeAccess.Item.MIC, ui, this::recordNextPhrase);
             return;
         }
         busy = true;
@@ -119,10 +151,12 @@ public final class OwnerEnrollmentActivity extends Activity {
             String finalErr = err;
             main.post(() -> {
                 busy = false;
+                if (isDestroyed()) return;
                 if (finalClip != null) {
                     clips.add(finalClip);
+                    message = "";
                 } else if (finalErr != null) {
-                    captureStatus.setText("Ошибка: " + finalErr);
+                    message = "Не удалось записать фразу. Проверьте микрофон и повторите попытку.";
                 }
                 refreshUi();
             });
@@ -130,33 +164,41 @@ public final class OwnerEnrollmentActivity extends Activity {
     }
 
     private void saveEnrollment() {
-        if (busy || clips.size() < 3) return;
+        if (busy || !modelReady || clips.size() < 3) return;
         busy = true;
         refreshUi();
         List<short[]> copy = new ArrayList<>(clips);
         new Thread(() -> {
             String msg;
+            boolean saved = false;
             try {
                 Path camModel = WakeModelAssets.ensureCamPlus(this);
                 try (OwnerSpeakerFilter filter = OwnerSpeakerFilter.open(camModel, 1)) {
                     int used = filter.enroll(this, copy);
                     msg = "Профиль владельца сохранён (" + used + " фраз).";
+                    saved = true;
                 }
-            } catch (Exception e) {
-                msg = "Ошибка регистрации: " + e.getMessage();
+            } catch (Exception | LinkageError e) {
+                msg = "Не удалось сохранить профиль. Проверьте, что фразы записались разборчиво, и повторите попытку.";
             }
             String finalMsg = msg;
+            boolean committed = saved;
             main.post(() -> {
+                if (isDestroyed()) return;
                 busy = false;
-                clips.clear();
+                if (committed) clips.clear();
+                message = finalMsg;
                 refreshUi();
-                profileStatus.setText(finalMsg);
             });
         }, "OwnerEnrollSave").start();
     }
 
     private void testLiveSimilarity() {
-        if (busy || !OwnerSpeakerFilter.hasEnrolledProfile(this)) return;
+        if (busy || !modelReady || !OwnerSpeakerFilter.hasEnrolledProfile(this)) return;
+        if (!access.granted(RuntimeAccess.Item.MIC)) {
+            access.request(RuntimeAccess.Item.MIC, ui, this::testLiveSimilarity);
+            return;
+        }
         busy = true;
         refreshUi();
         profileStatus.setText("Говорите сейчас (2.5 с)…");
@@ -169,21 +211,19 @@ public final class OwnerEnrollmentActivity extends Activity {
                     float[] ref = OwnerSpeakerFilter.loadProfile(this);
                     float thr = OwnerSpeakerFilter.threshold(this);
                     OwnerSpeakerFilter.Result r = filter.verifyAgainstReference(ref, pcm, pcm.length, thr);
-                    resultText = String.format(Locale.ROOT,
-                            "%s · сходство=%.3f (порог %.2f, %.1f ms)",
-                            r.accepted() ? "Владелец подтверждён" : "Отклонён как чужой",
-                            r.similarity(), r.threshold(), r.elapsedUs() / 1000.0);
+                    resultText = r.accepted() ? "Голос совпал с профилем." : "Голос не совпал с профилем. Попробуйте говорить в тихом месте.";
                 }
-            } catch (Exception e) {
-                resultText = "Ошибка проверки: " + e.getMessage();
+            } catch (Exception | LinkageError e) {
+                resultText = "Не удалось проверить голос. Повторите запись в тихом месте.";
             } finally {
                 HandsFreeService.resumeExternal();
             }
             String finalMsg = resultText;
             main.post(() -> {
+                if (isDestroyed()) return;
                 busy = false;
+                message = finalMsg;
                 refreshUi();
-                profileStatus.setText(finalMsg);
             });
         }, "OwnerEnrollTest").start());
     }
@@ -195,6 +235,7 @@ public final class OwnerEnrollmentActivity extends Activity {
                 .setPositiveButton("Удалить", (d, w) -> {
                     try { OwnerSpeakerFilter.clearEnrollment(this); } catch (Exception ignored) {}
                     clips.clear();
+                    message = "";
                     refreshUi();
                 }).show();
     }

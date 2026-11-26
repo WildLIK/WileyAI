@@ -55,6 +55,7 @@ def test_wake_keeps_same_capture_until_consumer_closes(tmp_path):
             static float liveKitThreshold(android.content.Context c){return 0.98f;}
           }
           class WakeModelAssets {
+            static boolean liveKitEligible(android.content.Context c,int engine,String phrase){return false;}
             static Path ensureLiveKitV2(android.content.Context c){return java.nio.file.Paths.get("c_v2");}
             static Path ensureCamPlus(android.content.Context c){return java.nio.file.Paths.get("cam");}
           }

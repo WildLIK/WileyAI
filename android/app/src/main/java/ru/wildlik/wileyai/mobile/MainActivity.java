@@ -43,7 +43,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MainActivity extends Activity {
     private static final String STORE = "wiley-mobile";
-    private static final int MIC_PERMISSION = 71;
     private static final int SPEECH_IMPORT = 72;
     private static final int LLM_IMPORT = 73;
     private static final int GIGAAM_IMPORT = 74;
@@ -93,7 +92,11 @@ public final class MainActivity extends Activity {
     private final java.util.ArrayDeque<String> screenTrail = new java.util.ArrayDeque<>();
     private AppCatalog appCatalog;
     private AppCatalogPanel appPanel;
-    private boolean resumed, micForPhone, manualWakeSuspended;
+    private boolean resumed, manualWakeSuspended;
+    private RuntimeAccess runtimeAccess;
+    private FirstRunSetup firstRun;
+    private Runnable setupRefresh = () -> {};
+    private TextView setupTrialStatus;
     private final Handler draftHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveDraftLater = this::saveDraft;
     private LinearLayout root, messages;
@@ -112,6 +115,8 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         settings = new SettingsRepository(this);
+        runtimeAccess = new RuntimeAccess(this);
+        firstRun = new FirstRunSetup(this);
         if (ReleaseUpdates.configured()) {
             var application = getApplicationContext();
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
@@ -124,12 +129,13 @@ public final class MainActivity extends Activity {
         gigaAmSpeech = new GigaAmSpeechEngine(this, GigaAmRuntime.get(this));
         localVoice = new LocalVoice(this, settings.preferences, this::error);
         localLlm = new LocalLlm(this); cloudChat=new CloudChat(this);gatewayChat=new GatewayClient(this);
-        llmModels = new LlmModels(this, () -> { llmChecked=true; updateEmptyChat(); if (page.equals("llm") && llmPanel != null) llmPanel.refresh(); if (page.equals("chat") && localMode && modeSwitch != null) modeSwitch.setText(headerSourceLabel()); });
+        llmModels = new LlmModels(this, () -> { llmChecked=true; updateEmptyChat(); if (page.equals("llm") && llmPanel != null) llmPanel.refresh(); if (page.equals("chat") && localMode && modeSwitch != null) modeSwitch.setText(headerSourceLabel()); if (page.equals("setup")) setupRefresh.run(); });
         speechModels = new SpeechModelManager(this, () -> {
             voskChecked=true; updateEmptyChat();
             if (page.equals("speech") && speechPanel != null) speechPanel.refresh();
+            if (page.equals("setup")) refreshSetupAndPermissions();
         });
-        asrModels = new GigaAmModelManager(this, () -> { gigaChecked=true; updateEmptyChat(); if (page.equals("speech") && speechPanel != null) speechPanel.refresh(); });
+        asrModels = new GigaAmModelManager(this, () -> { gigaChecked=true; updateEmptyChat(); if (page.equals("speech") && speechPanel != null) speechPanel.refresh(); if (page.equals("setup")) setupRefresh.run(); });
         if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         appCatalog = new AppCatalog(this, settings.preferences, () -> { if (page.equals("apps") && appPanel != null) appPanel.refresh(); });
         brain=new BrainController(this,appCatalog);
@@ -160,8 +166,13 @@ public final class MainActivity extends Activity {
         else if (ReleaseUpdates.OPEN.equals(getIntent().getAction())) showSection("about");
         else if (HandsFreeService.SETTINGS.equals(getIntent().getAction()) || Intent.ACTION_ASSIST.equals(getIntent().getAction())) showSection("assistant");
         else if (incoming != null) showPair(incoming.toString());
+        else if (firstRun.shouldOpen(this)) showSection("setup");
         else showChat();
         if (profileError != null) error(profileError);
+        if (!page.equals("setup")) showDiagnosticNotice();
+    }
+
+    private void showDiagnosticNotice() {
         if (!getSharedPreferences("wiley-diagnostics",MODE_PRIVATE).getBoolean("notice_shown",false)) {
             getSharedPreferences("wiley-diagnostics",MODE_PRIVATE).edit().putBoolean("notice_shown",true).apply();
             ui.dialog().setTitle("Локальная диагностика").setMessage("WileyAI сохраняет технические события на устройстве до 7 дней, не записывая разговоры, аудио и секреты. Журнал никуда не отправляется автоматически. Его можно отключить или очистить в настройках.")
@@ -198,7 +209,13 @@ public final class MainActivity extends Activity {
         localChats.close();
         super.onDestroy();
     }
-    @Override protected void onResume() { super.onResume(); resumed = true;if(ui!=null)ui.pauseArt(false);DiagnosticLog.event(DiagnosticJournal.Event.APP_OPEN,0); if (assistantPanel != null) assistantPanel.refresh(); if(permissionPanel!=null)permissionPanel.refresh();if(brainPanel!=null)brainPanel.refreshScreenStatus(); configureHeaderLogo(); updateEmptyChat();if(gatewayPanel!=null)gatewayPanel.refresh();if(modeSwitch!=null&&localMode)modeSwitch.setText(headerSourceLabel());pingHandler.removeCallbacks(pingLoop); pingHandler.post(pingLoop); }
+    @Override protected void onResume() { super.onResume(); resumed = true;if(ui!=null)ui.pauseArt(false);DiagnosticLog.event(DiagnosticJournal.Event.APP_OPEN,0); refreshSetupAndPermissions();if(brainPanel!=null)brainPanel.refreshScreenStatus(); configureHeaderLogo(); updateEmptyChat();if(gatewayPanel!=null)gatewayPanel.refresh();if(modeSwitch!=null&&localMode)modeSwitch.setText(headerSourceLabel());pingHandler.removeCallbacks(pingLoop); pingHandler.post(pingLoop); }
+
+    private void refreshSetupAndPermissions() {
+        if (assistantPanel != null) assistantPanel.refresh();
+        if (permissionPanel != null) permissionPanel.refresh();
+        if (page.equals("setup")) setupRefresh.run();
+    }
     @Override protected void onPause() { if(ui!=null)ui.pauseArt(true);DiagnosticLog.event(DiagnosticJournal.Event.APP_BACKGROUND,0);resumed = false;if(headerLogo!=null)headerLogo.paused(true);if(brain!=null)brain.pauseLocal(); offlineSpeech.cancel(); systemSpeech.cancel(); gigaAmSpeech.cancel(); localLlm.cancel(); cloudChat.cancel();localVoice.stop(); saveDraft(); discardRecording(); if (record != null) setRecordIcon(false); pingHandler.removeCallbacks(pingLoop); super.onPause(); }
 
     @Override protected void onSaveInstanceState(Bundle state) { saveDraft(); super.onSaveInstanceState(state); }
@@ -303,6 +320,7 @@ public final class MainActivity extends Activity {
     private void logoStart(){diagnosticRequestStart=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(DiagnosticJournal.Event.MODEL_BEGIN,0);logoCancelled=false;logoTerminal=false;logoState(NeonVoiceView.Mode.PROCESSING);}
     private void logoEnd(boolean success){if(logoCancelled){logoState(NeonVoiceView.Mode.IDLE);return;}DiagnosticLog.event(success?DiagnosticJournal.Event.MODEL_DONE:DiagnosticJournal.Event.MODEL_ERROR,diagnosticRequestStart==0?0:android.os.SystemClock.elapsedRealtime()-diagnosticRequestStart);logoTerminal=true;logoState(success?NeonVoiceView.Mode.SUCCESS:NeonVoiceView.Mode.ERROR);}
     private void showChat() {
+        if (page.equals("setup")) ui = new MobileUi(this, settings.theme());
         if(pendingProviderTarget!=null){BrainProvider.Kind current=new ModelManager(this).selected();if(providerBeforeSettings!=null&&ChatHeaderPolicy.activateAfterSettings(pendingProviderTarget,providerBeforeSettings.name(),current.name()))localMode=true;pendingProviderTarget=null;providerBeforeSettings=null;}
         settings.preferences.edit().putBoolean("chat_source_pc",!localMode).apply();
         long diagnosticScreenBegan=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(DiagnosticJournal.Event.SCREEN_CHAT,0);screenTrail.clear(); page = "chat"; restoreLocalDraft = true;
@@ -532,19 +550,28 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { handleBack(); }
     private void handleBack() {
         if (!canNavigate()) return;
+        if (page.equals("setup") && firstRun.step() > 0) {
+            setupStep(firstRun.step() - 1);
+            return;
+        }
         if (!screenTrail.isEmpty()) { String previous = screenTrail.removeLast(); if (previous.equals("chat")) showChat(); else showSection(previous); }
         else if (!page.equals("chat")) showChat(); else finish();
     }
     private void showSection(String section) {
         long diagnosticScreenBegan=android.os.SystemClock.elapsedRealtime();DiagnosticLog.event(switch(section){case "guide", "commands" -> DiagnosticJournal.Event.SCREEN_COMMANDS;case "settings" -> DiagnosticJournal.Event.SCREEN_SETTINGS;default -> DiagnosticJournal.Event.SCREEN_OTHER;},0);
         if(page.equals("chat")&&!section.equals("chat")){localLlm.cancel();if(brain!=null)brain.pauseLocal();}
-        page = section; layout();
+        if (section.equals("setup") || page.equals("setup")) {
+            String theme = settings.theme();
+            ui = new MobileUi(this, section.equals("setup") && "system".equals(theme) ? "aurora" : theme);
+        }
+        page = section; setupRefresh = () -> {}; setupTrialStatus = null; layout();
         String heading = switch(section) {
             case "personal" -> "Моё"; case "commands" -> "Проверка команд"; case "speech" -> "Распознавание речи";
             case "neural" -> "Мозг";case "connections" -> "Gateway";case "apps" -> "Любимые приложения"; case "media" -> "Музыка и YouTube"; case "assistant" -> "Голосовой вызов"; case "voice" -> "Озвучка"; case "llm" -> "Локальные модели"; case "cloud" -> "Облачные модели"; case "pc" -> "Устройства и подключения";
             case "profile" -> "Мой профиль"; case "memory" -> "Память WileyAI"; case "communication" -> "Как со мной общаться";
             case "guide" -> "Подсказки и команды"; case "levels" -> "Уровень управления"; case "notes" -> "Заметки и напоминания"; case "phone_notes" -> "Заметки телефона"; case "phone_reminders" -> "Напоминания телефона";
             case "permissions" -> "Разрешения и безопасность"; case "screen" -> "Наблюдение экрана"; case "app_defaults" -> "Приложения по умолчанию";
+            case "setup" -> "Настройка WileyAI";
             case "cloud_tools" -> "Инструменты и облако"; case "advanced" -> "Дополнительно"; case "about" -> "О приложении"; default -> "Настройки";
         };
         LinearLayout header = row(); padded(header, 8);
@@ -557,7 +584,8 @@ public final class MainActivity extends Activity {
             case "media":
                 mediaPanel = new MediaPanel(this, ui, appCatalog, () -> resumed && page.equals("media")); mediaPanel.render(cards,()->openSection("app_defaults")); break;
             case "assistant":
-                assistantPanel = new AssistantPanel(this, ui, () -> speechModels.active() != null); assistantPanel.render(cards); break;
+                assistantPanel = createAssistantPanel(); assistantPanel.render(cards); break;
+            case "setup": renderSetup(cards); break;
             case "llm":
                 llmPanel = new LlmPanel(this, ui, llmModels, settings.preferences, () -> localLlm.busy() || (brain!=null&&brain.busy()) || HandsFreeService.answering(), () -> {
                     Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
@@ -607,7 +635,7 @@ public final class MainActivity extends Activity {
                 cards.addView(ui.text("Напоминание можно создать командой после подтверждения. Android может задержать уведомление.",14,ui.theme.secondary));
                 break;
             case "permissions":
-                permissionPanel=new PermissionPanel(this,ui);
+                permissionPanel=new PermissionPanel(this,ui,runtimeAccess);
                 permissionPanel.render(cards,()->openSection("screen"),()->{
                     if(brainPanel==null)brainPanel=createBrainPanel();
                     brainPanel.screenApps();
@@ -651,13 +679,14 @@ public final class MainActivity extends Activity {
                 ui.link(cards,"Голосовой вызов","Фразы активации и работа в фоне",()->openSection("assistant"));
                 ui.link(cards,"Устройства и подключения","Сопряжение и проверка связи с ПК",()->openSection("pc"));
                 ui.link(cards,"Разрешения и безопасность","Системные доступы и согласия",()->openSection("permissions"));
+                ui.link(cards,"Мастер настройки","Разрешения, голос и модели",()->openSection("setup"));
                 ui.link(cards,"Оформление","Темы WileyAI",this::chooseTheme);
                 ui.link(cards,"Диагностика","Журнал работы и экспорт",this::showDiagnostics);
                 ui.link(cards,"О приложении",ReleaseUpdates.state().offer()==null?"Версия, обновления и обратная связь":
                         "Доступно обновление WileyAI",()->openSection("about"));
                 ui.link(cards,"Дополнительно","Проверки и резервная модель",()->openSection("advanced"));
         }
-        navigation(sectionTab(section));
+        if (!section.equals("setup")) navigation(sectionTab(section));
         trackDiagnosticScreenDraw(diagnosticScreenBegan);
     }
     private String sectionTab(String section){
@@ -668,6 +697,185 @@ public final class MainActivity extends Activity {
             default -> "settings";
         };
     }
+
+    private AssistantPanel createAssistantPanel() {
+        return new AssistantPanel(this, ui, runtimeAccess, () -> speechModels.active() != null,
+                () -> speechPanel().confirmDownload(), () -> openSection("speech"));
+    }
+
+    private void setupStep(int step) {
+        if (!canNavigate()) return;
+        firstRun.step(step);
+        showSection("setup");
+    }
+
+    private void finishSetup() {
+        if (!canNavigate()) return;
+        firstRun.finish();
+        if (!screenTrail.isEmpty() && screenTrail.peekLast().equals("settings")) {
+            screenTrail.removeLast();
+            showSection("settings");
+        }
+        else showChat();
+        showDiagnosticNotice();
+    }
+
+    private void renderSetup(LinearLayout cards) {
+        int step = firstRun.step();
+        cards.addView(ui.text("Шаг " + (step + 1) + " из 5", 14, ui.theme.accentText));
+        switch (step) {
+            case 0 -> ui.card(cards, "Добро пожаловать!", "Попросите Вайли открыть приложение, назвать время или помочь в чате. Можно начать с текста и настроить голос позже.");
+            case 1 -> renderSetupPermissions(cards);
+            case 2 -> renderSetupComponents(cards);
+            case 3 -> {
+                assistantPanel = createAssistantPanel();
+                assistantPanel.renderSetup(cards);
+            }
+            case 4 -> renderSetupSummary(cards);
+            default -> throw new IllegalStateException("Invalid setup step");
+        }
+        cards.addView(ui.button(step == 0 ? "Начать настройку" : step == FirstRunSetup.LAST
+                ? "Начать пользоваться Вайли" : "Далее", step == FirstRunSetup.LAST ? this::finishSetup : () -> setupStep(step + 1)));
+        if (step > 0) cards.addView(ui.button("Предыдущий шаг", () -> setupStep(step - 1)));
+        if (step < FirstRunSetup.LAST) cards.addView(ui.button("Настроить позже", this::finishSetup));
+    }
+
+    private void renderSetupPermissions(LinearLayout cards) {
+        ui.card(cards, "Разрешения Android", "Каждое разрешение можно дать отдельно. Для текстового чата они не нужны.");
+        var updates = new java.util.ArrayList<Runnable>();
+        for (RuntimeAccess.Item item : RuntimeAccess.Item.values()) {
+            TextView state = ui.text("", 15, ui.theme.accentText);
+            Button grant = ui.button("Разрешить " + item.title.toLowerCase(java.util.Locale.ROOT),
+                    () -> runtimeAccess.request(item, ui, this::refreshSetupAndPermissions));
+            ui.card(cards, item.title, item.description);
+            cards.addView(state);
+            cards.addView(grant);
+            updates.add(() -> {
+                state.setText(runtimeAccess.status(item));
+                grant.setVisibility(runtimeAccess.granted(item) ? View.GONE : View.VISIBLE);
+            });
+        }
+        setupRefresh = () -> updates.forEach(Runnable::run);
+        setupRefresh.run();
+    }
+
+    private void renderSetupComponents(LinearLayout cards) {
+        ui.card(cards, "Основные компоненты", "Выберите, чем пользоваться. Загрузка начнётся только после подтверждения.");
+        LinearLayout recognition = ui.disclosure(cards,"Распознавание речи");
+        ui.card(recognition,"Vosk", "Понимает команды и фразу фонового вызова. Загрузка 44,1 МиБ.");
+        TextView voskState = ui.text("",14,ui.theme.secondary);
+        recognition.addView(voskState);
+        recognition.addView(ui.button("Скачать или продолжить Vosk", () -> speechPanel().confirmDownload()));
+        Button pauseVosk = ui.button("Приостановить Vosk", speechModels::pause);
+        recognition.addView(pauseVosk);
+        ui.card(recognition,"GigaAM v3", "Рекомендуем для русских команд. Работает без интернета. Загрузка " + GigaAmModel.sizeText() + " МиБ.");
+        TextView gigaState = ui.text("",14,ui.theme.secondary);
+        recognition.addView(gigaState);
+        recognition.addView(ui.button("Скачать или продолжить GigaAM", () -> speechPanel().confirmGigaAmDownload()));
+        Button pauseGiga = ui.button("Приостановить GigaAM", asrModels::pause);
+        recognition.addView(pauseGiga);
+        recognition.addView(ui.button("Выбрать распознавание или управлять загрузкой", () -> openSection("speech")));
+
+        LinearLayout synthesis = ui.disclosure(cards,"Озвучка ответов");
+        ui.card(synthesis,"Системная озвучка", "Для работы без интернета нужен установленный русский голос Android.");
+        TextView voiceState = ui.text("",14,ui.theme.secondary);
+        synthesis.addView(voiceState);
+        synthesis.addView(ui.button("Выбрать и прослушать голос", () -> openSection("voice")));
+
+        LinearLayout neural = ui.disclosure(cards,"Локальная нейросеть");
+        ui.card(neural,"Qwen3 0.6B", "Для разговоров без интернета. Загрузка 378,3 МиБ. Голосовые команды и простые действия могут работать без этой модели.");
+        TextView llmState = ui.text("",14,ui.theme.secondary);
+        neural.addView(llmState);
+        neural.addView(ui.button("Скачать Qwen или выбрать совместимый GGUF", () -> openSection("llm")));
+        neural.addView(ui.button("Продолжить без разговорной модели", () -> setupStep(3)));
+        setupRefresh = () -> {
+            voskState.setText(speechModels.detail());
+            gigaState.setText(asrModels.detail());
+            llmState.setText(llmModels.status());
+            voiceState.setText(setupVoiceState());
+            pauseVosk.setVisibility(speechModels.busy() ? View.VISIBLE : View.GONE);
+            pauseGiga.setVisibility(asrModels.busy() ? View.VISIBLE : View.GONE);
+        };
+        setupRefresh.run();
+        localVoice.inspect(this::refreshSetupAndPermissions);
+    }
+
+    private void renderSetupSummary(LinearLayout cards) {
+        ui.card(cards, "Всё готово к началу", "Здесь видно, какие функции уже доступны и что можно добавить позже.");
+        TextView summary = ui.text("",16,ui.theme.text);
+        cards.addView(summary);
+        setupTrialStatus = ui.text("Скажите «Сколько сейчас времени?» после приглашения.",14,ui.theme.secondary);
+        cards.addView(setupTrialStatus);
+        cards.addView(ui.button("Проверить голосовую команду", this::startSetupTrial));
+        cards.addView(ui.button("Открыть озвучку", () -> openSection("voice")));
+        setupRefresh = () -> summary.setText("Микрофон · " + runtimeAccess.status(RuntimeAccess.Item.MIC)
+                + "\nРаспознавание · " + selectedSpeechState()
+                + "\nОзвучка · " + setupVoiceState()
+                + "\nРазговорная модель · " + (llmModels.active() != null && LocalLlmNative.supported() ? "файл установлен. Ответ можно проверить в чате" : "локальная модель не готова. Команды доступны")
+                + "\nГолосовой вызов · " + (HandsFreeService.running() ? HandsFreeService.status() : "служба не запущена"));
+        setupRefresh.run();
+        localVoice.inspect(this::refreshSetupAndPermissions);
+    }
+
+    private String setupVoiceState() {
+        return localVoice.voices().isEmpty() ? "русский офлайн-голос пока не подтверждён" : "доступен русский голос · " + localVoice.engineLabel();
+    }
+
+    private String selectedSpeechState() {
+        return switch (settings.preferences.getInt("asr_engine", 0)) {
+            case 1 -> SystemSpeechEngine.available(this,false) ? "служба Android доступна, может использовать сеть" : "служба Android недоступна";
+            case 2 -> SystemSpeechEngine.available(this,true) ? "доступно распознавание Android на устройстве" : "офлайн-распознавание Android недоступно";
+            case 3 -> asrModels.active() == null ? "нужна модель GigaAM" : "файл GigaAM установлен. Проверьте командой";
+            default -> speechModels.active() == null ? "нужен комплект Vosk" : "комплект Vosk установлен. Проверьте командой";
+        };
+    }
+
+    private void startSetupTrial() {
+        if (setupTrialStatus == null) return;
+        if (recognitionBusy()) {
+            if (systemSpeech.busy()) systemSpeech.cancel(); else if (gigaAmSpeech.busy()) gigaAmSpeech.cancel(); else offlineSpeech.cancel();
+            setupTrialStatus.setText("Проверка остановлена. Можно попробовать снова.");
+            return;
+        }
+        int engine = settings.preferences.getInt("asr_engine", 0);
+        if (!checkSpeechSetup(engine)) return;
+        if (!runtimeAccess.granted(RuntimeAccess.Item.MIC)) {
+            runtimeAccess.request(RuntimeAccess.Item.MIC,ui,this::startSetupTrial);
+            return;
+        }
+        TextView target = setupTrialStatus;
+        target.setText("Подготавливаю микрофон…");
+        Runnable start = () -> {
+            if (!resumed || setupTrialStatus != target) { releaseManualWake(); return; }
+            startSelectedSpeech(engine, new OfflineSpeechEngine.Listener() {
+                public void ready(Runnable begin) { state("Говорите сейчас"); begin.run(); }
+                public void state(String text) { if (setupTrialStatus == target) target.setText(text); }
+                public void partial(String text) {}
+                public void error(String text) { state(text); }
+                public void result(String text) {
+                    if (setupTrialStatus != target || !resumed) return;
+                    PhoneCommands.Action time = PhoneCommands.parse(text,true);
+                    if (time == null || !"info".equals(time.kind) || !"time".equals(time.value)) {
+                        state("Попробуйте ещё раз сказать «Сколько сейчас времени?».");
+                        return;
+                    }
+                    new PhoneActionEngine(MainActivity.this, answer -> {
+                        state(answer);
+                        if (!localVoice.voices().isEmpty()) localVoice.speak(answer);
+                        else state(answer + " · Русский офлайн-голос пока не доступен.");
+                    }, appCatalog,
+                            () -> resumed && setupTrialStatus == target).execute(time);
+                }
+                public void finished() { releaseManualWake(); }
+            });
+        };
+        if (HandsFreeService.running()) {
+            if (manualWakeSuspended) return;
+            manualWakeSuspended = true;
+            HandsFreeService.pauseExternal(start);
+        } else start.run();
+    }
+
     private BrainPanel createBrainPanel(){
         return new BrainPanel(this,ui,()->openSection("llm"),()->openSection("cloud"),
             ()->openSection("connections"),()->localMode=true);
@@ -818,7 +1026,6 @@ public final class MainActivity extends Activity {
             return;
         }
         if(request==DIAGNOSTIC_EXPORT){String report=pendingDiagnosticExport;pendingDiagnosticExport=null;if(result==RESULT_OK && data!=null && data.getData()!=null && report!=null){Uri destination=data.getData();background(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(destination,"w")){if(out==null)throw new java.io.IOException();out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));onUi(()->note("Диагностический файл сохранён"));}catch(Exception e){onUi(()->error("Не удалось сохранить диагностический файл."));}});}else if(result==RESULT_OK && report==null)error("Предпросмотр устарел. Откройте его ещё раз.");return;}
-        if (request == AssistantPanel.ROLE_REQUEST && assistantPanel != null) assistantPanel.refresh();
         if (request == SPEECH_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !speechModels.busy() && !recognitionBusy()) speechModels.importZip(data.getData());
         if (request == GIGAAM_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !asrModels.busy() && !recognitionBusy()) asrModels.importZip(data.getData());
         if (request == LLM_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !llmModels.busy() && !localLlm.busy()) llmModels.importFile(data.getData());
@@ -951,7 +1158,11 @@ public final class MainActivity extends Activity {
                 PhoneCommands.Action action = StructuredActionAdapter.requiresPlan(value)?null:PhoneCommands.parse(value, true);
                 if (action != null) new PhoneActionEngine(this, message -> localReply(id, message), appCatalog, () -> resumed).execute(action);
                 else if (new ModelManager(this).selected()!=BrainProvider.Kind.LOCAL || (llmModels.active() != null && !llmModels.busy())) generateLocal(id);
-                else localReply(id, llmModels.busy() ? "Дождитесь окончания установки разговорной модели в разделе «Локальные модели»." : "Для разговора установите Qwen3 в «Настройки → Мозг → Локальные модели» или выберите ПК. Команды телефону работают без LLM. Сообщение сохранено только на телефоне.");
+                else {
+                    localReply(id, llmModels.busy() ? "Разговорная модель ещё загружается." : "Для свободного разговора нужна модель. Системные команды уже доступны.");
+                    SetupAction.show(ui,"Разговорная модель", "Можно установить Qwen для разговоров без интернета или пользоваться командами телефона.",
+                            "Выбрать модель", () -> openSection("llm"), "Продолжить без неё", () -> {});
+                }
             });
             return;
         }
@@ -1079,10 +1290,9 @@ public final class MainActivity extends Activity {
             if (WileyVoiceService.invoke()) return;
             if (!localMode) { note("Голосовое окно недоступно. Откройте настройки голосового помощника."); return; }
             if (chatting.get()) { note("Дождитесь ответа перед записью"); return; }
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { note("Разрешите микрофон в настройках Android."); return; }
+            if (!runtimeAccess.granted(RuntimeAccess.Item.MIC)) { runtimeAccess.request(RuntimeAccess.Item.MIC,ui,this::toggleRecording); return; }
             int engine=settings.preferences.getInt("asr_engine",0);
-            if (engine==0 && (speechModels.active()==null || speechModels.busy())) { note("Распознавание Vosk недоступно. Откройте настройки речи."); return; }
-            if (engine==3 && (asrModels.active()==null || asrModels.busy())) { note("GigaAM недоступен. Откройте настройки речи."); return; }
+            if (!checkSpeechSetup(engine)) return;
             note("Голосовое окно недоступно. Запускаю распознавание в чате…");
             manualWakeSuspended=true;
             HandsFreeService.pauseExternal(() -> {
@@ -1092,20 +1302,40 @@ public final class MainActivity extends Activity {
             });
             return;
         }
-        if (localMode && settings.preferences.getInt("asr_engine", 0) == 0 && (speechModels.active() == null || speechModels.busy())) { ui.dialog().setTitle("Русский голосовой комплект").setMessage(speechModels.busy() ? "Дождитесь установки или остановите её в разделе «Локальные модели»." : "Установите русский комплект в разделе «Локальные модели». Он занимает 44,1 МиБ для загрузки и не требует разговорной LLM. Текстовые команды уже доступны без установки.").setPositiveButton("Понятно", null).show(); return; }
+        if (localMode && !checkSpeechSetup(settings.preferences.getInt("asr_engine",0))) return;
         if (!localMode && profile == null) { showPair(""); return; }
         if (chatting.get()) { note("Дождитесь ответа перед записью"); return; }
-        micForPhone = localMode;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION); return; }
+        if (!runtimeAccess.granted(RuntimeAccess.Item.MIC)) {
+            runtimeAccess.request(RuntimeAccess.Item.MIC,ui,() -> { if (page.equals("chat")) toggleRecording(); });
+            return;
+        }
         if (localMode) beginLocalRecognition(); else beginRecording();
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
-        if (code == AssistantPanel.PERMISSIONS) { if (assistantPanel != null) assistantPanel.permissionsReturned(); return; }
-        if (code == MIC_PERMISSION && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED && page.equals("chat")) {
-            if (micForPhone && localMode) beginLocalRecognition(); else if (!micForPhone && !localMode && profile != null) beginRecording();
+        runtimeAccess.returned(code, permissions, results, ui, this::refreshSetupAndPermissions);
+    }
+
+    private boolean checkSpeechSetup(int engine) {
+        Runnable settings = () -> openSection("speech");
+        if (engine == 0 && (speechModels.active() == null || speechModels.busy())) {
+            SetupAction.show(ui,"Нужен русский комплект Vosk", speechModels.detail(),
+                    "Распознавание речи", settings, speechModels.busy() ? null : "Скачать Vosk",
+                    speechModels.busy() ? null : () -> speechPanel().confirmDownload());
+            return false;
         }
-        else if (code == MIC_PERMISSION) note("Разрешите микрофон в настройках Android");
+        if (engine == 3 && (asrModels.active() == null || asrModels.busy())) {
+            SetupAction.show(ui,"Нужна модель GigaAM", asrModels.detail(),
+                    "Распознавание речи", settings, asrModels.busy() ? null : "Скачать GigaAM",
+                    asrModels.busy() ? null : () -> speechPanel().confirmGigaAmDownload());
+            return false;
+        }
+        if ((engine == 1 || engine == 2) && !SystemSpeechEngine.available(this,engine == 2)) {
+            SetupAction.show(ui,"Распознавание Android недоступно", "Выберите Vosk или GigaAM для голосовых команд.",
+                    "Распознавание речи", settings, null, null);
+            return false;
+        }
+        return true;
     }
     private void releaseManualWake(){if(manualWakeSuspended){manualWakeSuspended=false;HandsFreeService.resumeExternal();}}
     private void beginLocalRecognition() {
@@ -1142,9 +1372,13 @@ public final class MainActivity extends Activity {
             public void error(String message) { DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_ERROR,0);VoiceDiagnostics.stt(-1, asrEngine == 0 ? "Vosk" : asrEngine == 3 ? "GigaAM" : "Android", "ошибка распознавания", false, 0); note(message); }
             public void finished() { DiagnosticLog.event(DiagnosticJournal.Event.MANUAL_STT_END,0);releaseManualWake();if(!chatting.get())logoState(NeonVoiceView.Mode.IDLE);if (record != null) setRecordIcon(false); if (composer != null && localReady) composer.setEnabled(true); if (send != null) send.setEnabled(localReady && !chatting.get()); }
         };
-        if (asrEngine == 0) offlineSpeech.start(speechModels.active(), recognition);
-        else if (asrEngine == 3) gigaAmSpeech.start(15000, recognition);
-        else systemSpeech.start(asrEngine == 2, recognition);
+        startSelectedSpeech(asrEngine, recognition);
+    }
+
+    private void startSelectedSpeech(int engine, OfflineSpeechEngine.Listener listener) {
+        if (engine == 0) offlineSpeech.start(speechModels.active(), listener);
+        else if (engine == 3) gigaAmSpeech.start(15000, listener);
+        else systemSpeech.start(engine == 2, listener);
     }
     private void beginRecording() {
         if (destroyed || localMode || profile == null || !page.equals("chat")) return;

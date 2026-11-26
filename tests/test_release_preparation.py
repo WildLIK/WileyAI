@@ -14,18 +14,20 @@ def load(script):
 
 
 def test_manifest_only_requires_explicit_opt_in_and_never_accepts_a_bad_signature(tmp_path, monkeypatch):
+    from core.version import VERSION
+
     release = load("prepare-update-release")
-    installer = tmp_path / "WileyAI-Setup-0.14.44-x64.exe"
+    installer = tmp_path / f"WileyAI-Setup-{VERSION}-x64.exe"
     installer.write_bytes(b"fixture installer")
     monkeypatch.setenv("SystemRoot", str(tmp_path))
-    monkeypatch.setattr(release, "run", lambda *args, **kwargs: '{"version":"0.14.44","status":"NotSigned"}')
+    monkeypatch.setattr(release, "run", lambda *args, **kwargs: f'{{"version":"{VERSION}","status":"NotSigned"}}')
     with pytest.raises(ValueError, match="Authenticode"):
-        release.windows(installer, "0.14.44")
-    item = release.windows(installer, "0.14.44", allow_unsigned=True)
+        release.windows(installer, VERSION)
+    item = release.windows(installer, VERSION, allow_unsigned=True)
     assert item["authentication"] == "signed-manifest"
-    monkeypatch.setattr(release, "run", lambda *args, **kwargs: '{"version":"0.14.44","status":"HashMismatch"}')
+    monkeypatch.setattr(release, "run", lambda *args, **kwargs: f'{{"version":"{VERSION}","status":"HashMismatch"}}')
     with pytest.raises(ValueError, match="Authenticode"):
-        release.windows(installer, "0.14.44", allow_unsigned=True)
+        release.windows(installer, VERSION, allow_unsigned=True)
 
 
 def test_production_bundle_rejects_local_experimental_models(tmp_path):

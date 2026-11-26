@@ -57,19 +57,17 @@ final class VoicePanel {
         parent.addView(ui.button("Остановить озвучку", stop));
         parent.addView(ui.text("Голоса выбранного движка", 16, ui.theme.accentText));
         voices = ui.vertical(); parent.addView(voices);
+        parent.addView(ui.button("Добавить голоса в Android", this::openAndroidVoiceSettings));
         LinearLayout advanced = ui.disclosure(parent, "Другие движки и сведения");
         advanced.addView(ui.button("Обновить список голосов", () -> voice.reload(this::refresh)));
-        advanced.addView(ui.button("Добавить голоса в Android", () -> {
-            try { activity.startActivity(new Intent("com.android.settings.TTS_SETTINGS")); }
-            catch (Exception error) { try { activity.startActivity(new Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)); } catch (Exception missing) { ui.dialog().setMessage("Откройте настройки синтеза речи Android").setPositiveButton("Понятно", null).show(); } }
-        }));
         ui.card(advanced, "Как устроена озвучка", "Это установленные голоса Android, а не языковые модели. WileyAI использует только русские голоса, которые движок помечает как доступные без сети. Тембр и пол часто не указаны системой — сравните варианты кнопкой «Прослушать». Новые голоса устанавливаются средствами выбранного движка.");
-        voice.ready(this::refresh);
+        voice.inspect(this::refresh);
     }
     private void engines() {
-        voice.ready(() -> {
+        voice.inspect(() -> {
             if (closed) return;
             List<TextToSpeech.EngineInfo> engines = voice.engines(); String[] names = new String[engines.size()];
+            if (engines.isEmpty()) { openAndroidVoiceSettings(); return; }
             for (int i = 0; i < names.length; i++) names[i] = engines.get(i).label;
             ui.dialog().setTitle("Движок озвучки WileyAI").setItems(names, (d, which) -> { engine.setText("Подключаю движок…"); voice.selectEngine(engines.get(which).name, this::refresh); }).setNegativeButton("Отмена", null).show();
         });
@@ -77,7 +75,10 @@ final class VoicePanel {
     private void refresh() {
         if (closed) return;
         List<Voice> available = voice.voices(); voices.removeAllViews(); engine.setText(voice.engineLabel() + " · голоса без интернета");
-        if (available.isEmpty()) { ui.card(voices, "Русский голос не установлен", "Добавьте русский голос в настройках озвучки Android, затем обновите список."); return; }
+        if (available.isEmpty()) {
+            ui.card(voices, "Русский голос недоступен", "Добавьте русский голос в настройках озвучки Android, затем обновите список.");
+            return;
+        }
         String selected = preferences.getString("offline_voice", ""); if (selected.isEmpty()) selected = available.get(0).getName();
         for (int i = 0; i < available.size(); i++) {
             Voice item=available.get(i); boolean chosen=item.getName().equals(selected);
@@ -89,6 +90,17 @@ final class VoicePanel {
             Button play=ui.button("▶",()->voice.preview(item.getName()));play.setContentDescription("Прослушать голос");line.addView(play,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
             Button choose=ui.button(chosen?"✓":"○",()->{voice.select(item.getName());refresh();});choose.setContentDescription(chosen?"Голос выбран":"Выбрать голос");line.addView(choose,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,ui.dp(3),0,ui.dp(3));voices.addView(line,params);
+        }
+    }
+    private void openAndroidVoiceSettings() {
+        try {
+            activity.startActivity(new Intent("com.android.settings.TTS_SETTINGS"));
+        } catch (android.content.ActivityNotFoundException error) {
+            try {
+                activity.startActivity(new Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA));
+            } catch (android.content.ActivityNotFoundException missing) {
+                ui.dialog().setMessage("Android не предоставил экран установки голосов. Откройте настройки синтеза речи в приложении «Настройки».").setPositiveButton("Понятно", null).show();
+            }
         }
     }
     void close() { closed = true; voice.stop(); }

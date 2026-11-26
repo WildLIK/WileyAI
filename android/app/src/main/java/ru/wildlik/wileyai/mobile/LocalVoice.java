@@ -13,14 +13,16 @@ import java.util.function.Consumer;
 final class LocalVoice {
     enum Stage { PREPARE, SUBMIT, SYNTHESIS, FIRST_AUDIO, PLAYING }
     private record Prepared(String requested, long expiresAt) {}
+    private record InitCallback(Runnable refresh, boolean refreshOnFailure) {}
     private static final long REUSE_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(15);
     private final Context context;
     private final SharedPreferences preferences;
     private final Consumer<String> error;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final List<Runnable> waiting = new ArrayList<>();
+    private final List<InitCallback> waiting = new ArrayList<>();
     private TextToSpeech tts;
     private boolean ready, closed;
+    private boolean reportInitFailure;
     private int version;
     private String loadedEngine = "", lastUtterance = "";
     private Runnable afterSpeech;
@@ -29,18 +31,31 @@ final class LocalVoice {
     private Prepared prepared;
     private final java.util.concurrent.atomic.AtomicReference<String> awaitingAudio = new java.util.concurrent.atomic.AtomicReference<>();
     LocalVoice(Context context, SharedPreferences preferences, Consumer<String> error) { this.context = context.getApplicationContext(); this.preferences = preferences; this.error = error; }
-    void ready(Runnable work) {
+    void ready(Runnable work) { ensureReady(new InitCallback(work, false), true); }
+    void inspect(Runnable work) { ensureReady(new InitCallback(work, true), false); }
+    private void ensureReady(InitCallback work, boolean reportFailure) {
         if (closed) return;
-        if (ready && !loadedEngine.equals(preferences.getString("offline_engine", ""))) { reload(work); return; }
-        if (ready) { work.run(); return; }
+        if (ready && !loadedEngine.equals(preferences.getString("offline_engine", ""))) { reload(work, reportFailure); return; }
+        if (ready) { work.refresh().run(); return; }
         waiting.add(work);
+        reportInitFailure |= reportFailure;
         if (tts != null) return;
         final int ticket = ++version;
         String engine = preferences.getString("offline_engine", "");
         loadedEngine = engine;
         tts = new TextToSpeech(context, status -> main.post(() -> {
             if (closed || ticket != version) return;
-            if (status != TextToSpeech.SUCCESS) { waiting.clear(); if (tts != null) tts.shutdown(); tts = null; android.util.Log.w("WileyTts", "init_failed"); error.accept(engine.isEmpty() ? "Не удалось запустить системную озвучку. Проверьте TTS-движок в настройках Android." : "Выбранный движок озвучки недоступен. В разделе «Озвучка ответов» нажмите «Использовать системный движок» или включите выбранный движок в Android."); complete(); return; }
+            boolean showFailure = reportInitFailure;
+            reportInitFailure = false;
+            if (status != TextToSpeech.SUCCESS) {
+                if (tts != null) tts.shutdown();
+                tts = null;
+                android.util.Log.w("WileyTts", "init_failed");
+                notifyInitialized(false);
+                if (showFailure) error.accept(engine.isEmpty() ? "Не удалось запустить системную озвучку. Проверьте TTS-движок в настройках Android." : "Выбранный движок озвучки недоступен. В разделе «Озвучка» нажмите «Системный» или включите выбранный движок в Android.");
+                complete();
+                return;
+            }
             android.util.Log.i("WileyTts", "init_ok");
             tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
                 public void onBeginSynthesis(String id,int sampleRate,int audioFormat,int channels) {
@@ -64,8 +79,16 @@ final class LocalVoice {
                 public void onError(String id) { main.post(() -> { if (!closed && ticket == version && id.equals(lastUtterance)) { prepared=null;lastUtterance=""; android.util.Log.w("WileyTts", "utterance_error"); error.accept("Системный TTS-движок не смог озвучить текст. Проверьте установку офлайн-голоса."); complete(); } }); }
                 public void onStop(String id, boolean interrupted) { main.post(() -> { if (!closed && ticket == version && id.equals(lastUtterance)) { lastUtterance=""; android.util.Log.i("WileyTts", "utterance_stopped"); complete(); } }); }
             });
-            ready = true; List<Runnable> callbacks = new ArrayList<>(waiting); waiting.clear(); for (Runnable callback : callbacks) callback.run();
+            ready = true;
+            notifyInitialized(true);
         }), engine.isEmpty() ? null : engine);
+    }
+    private void notifyInitialized(boolean available) {
+        List<InitCallback> callbacks = new ArrayList<>(waiting);
+        waiting.clear();
+        for (InitCallback callback : callbacks) {
+            if (available || callback.refreshOnFailure()) callback.refresh().run();
+        }
     }
     String engineLabel() {
         if (!ready) return "Системная озвучка Android";
@@ -76,8 +99,9 @@ final class LocalVoice {
     String description() { return preferences.getString("voice_engine_description:" + preferences.getString("offline_engine", ""), ""); }
     List<TextToSpeech.EngineInfo> engines() { return ready ? new ArrayList<>(tts.getEngines()) : new ArrayList<>(); }
     void selectEngine(String name, Runnable changed) { preferences.edit().putString("offline_engine", name).remove("offline_voice").apply(); reload(changed); }
-    void reload(Runnable changed) {
-        version++; prepared=null; waiting.clear(); afterSpeech = null; lastUtterance = ""; firstUtterance=""; timing=null; if (tts != null) { tts.stop(); tts.shutdown(); } tts = null; ready = false; ready(changed);
+    void reload(Runnable changed) { reload(new InitCallback(changed, true), false); }
+    private void reload(InitCallback changed, boolean reportFailure) {
+        version++; prepared=null; waiting.clear(); reportInitFailure=false; afterSpeech = null; lastUtterance = ""; firstUtterance=""; timing=null; if (tts != null) { tts.stop(); tts.shutdown(); } tts = null; ready = false; ensureReady(changed,reportFailure);
     }
     List<Voice> voices() {
         List<Voice> voices = new ArrayList<>();

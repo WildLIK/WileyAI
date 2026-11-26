@@ -33,7 +33,7 @@ android {
     namespace 'ru.wildlik.wileyai.mobile'
     compileSdk 34
     ndkVersion '28.2.13676358'
-    if (upgradeProbeVersion) testBuildType 'release'
+    if (upgradeProbeVersion || providers.gradleProperty('wileyReleaseTest').isPresent()) testBuildType 'release'
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.31.6' } }
     defaultConfig {
         applicationId 'ru.wildlik.wileyai.mobile'
@@ -99,7 +99,6 @@ def comparisonAssets = tasks.register('prepareWakeComparisonModel', Sync) {
 
 def stage1WakeAssets = tasks.register('prepareStage1WakeModels', Sync) {
     from('../../local/wakeword26b/next15/C_v2.onnx')
-    from('../../local/wakeword26b/next11-speaker/models/campplus.onnx')
     into(layout.buildDirectory.dir('generated/wake-research-assets/wake-stage1'))
 }
 tasks.configureEach {
@@ -120,7 +119,31 @@ def commandVadAssets = tasks.register('prepareCommandVadAsset', Sync) {
         }
     }
 }
-tasks.named('preBuild').configure { dependsOn(commandVadAssets) }
+def camPlusAssets = tasks.register('prepareCamPlusAsset', Sync) {
+    def model = file('../../local/android-public-models/wake-stage1/campplus.onnx')
+    from(model)
+    into(layout.buildDirectory.dir('generated/public-speaker-assets/wake-stage1'))
+    inputs.property('releaseSignerConfigured', releaseStore != null)
+    doFirst {
+        if (!model.isFile()) {
+            if (releaseStore) throw new GradleException('Run python scripts/prepare-android-camplus.py before signing a public APK')
+        } else {
+            def sha = java.security.MessageDigest.getInstance('SHA-256').digest(model.bytes).encodeHex().toString()
+            if (sha != '53cab20ba8f2eb2f6e2d89ecc18e88ef3222169b61b4419cbc13666744a4574b') {
+                throw new GradleException('CAM++ does not match the pinned public model')
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/public-speaker-assets'))
+tasks.named('preBuild').configure {
+    dependsOn(commandVadAssets, camPlusAssets)
+    doFirst {
+        if (releaseStore && !file('../../local/android-public-models/wake-stage1/campplus.onnx').isFile()) {
+            throw new GradleException('Run python scripts/prepare-android-camplus.py before signing a public APK')
+        }
+    }
+}
 
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75@aar'
@@ -128,6 +151,9 @@ dependencies {
     // Optional GigaAM runtime: packaged only when the user-placed AAR exists (local/, not committed).
     // The sherpa-onnx Kotlin API needs kotlin-stdlib at runtime (Intrinsics checks, synthetic constructors).
     def gigaAmAar = file('../../local/android-libs/sherpa-onnx-1.13.5.aar')
+    if (releaseStore && !gigaAmAar.exists()) {
+        throw new GradleException('Signed release requires sherpa-onnx for GigaAM, Silero and CAM++')
+    }
     if (!gigaAmAar.exists() && file('../../local/android-libs/sherpa-onnx-1.12.6.aar').exists()) {
         throw new GradleException('Установите проверенный sherpa-onnx 1.13.5: scripts/prepare-android-sherpa-16kb.ps1')
     }

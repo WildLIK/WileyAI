@@ -9,6 +9,8 @@ import subprocess
 from zipfile import ZipFile
 
 VAD = "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f"
+CAMPLUS = "assets/wake-stage1/campplus.onnx"
+CAMPLUS_SHA256 = "53cab20ba8f2eb2f6e2d89ecc18e88ef3222169b61b4419cbc13666744a4574b"
 PRIVATE = re.compile(
     r"(?:^|/)(?:\.env(?:\..*)?|credentials\.dpapi|wake-research-assets|wake-stage1|wake-next16|"
     r"research-audio|process-faults\.json)(?:/|$)|\.(?:pfx|p12|jks|keystore|pem|sqlite3?|flac|wav|gguf|safetensors)$",
@@ -18,7 +20,7 @@ APK_REQUIRED = {
     "assets/licenses/APACHE-2.0.txt", "assets/licenses/JNA-LICENSE.txt", "assets/licenses/VOSK-COPYING.txt",
     "assets/licenses/ONEST-OFL.txt", "assets/licenses/llama-cpp-MIT.txt",
     "assets/licenses/NOTICE.txt", "assets/voice-vad/silero_vad_v5.onnx",
-    "assets/voice-vad/THIRD_PARTY_NOTICES.md",
+    "assets/voice-vad/THIRD_PARTY_NOTICES.md", CAMPLUS,
 }
 
 
@@ -35,11 +37,14 @@ def android_assets(apk):
     allowed_model = "assets/voice-vad/silero_vad_v5.onnx"
     with ZipFile(apk) as bundle:
         names = set(bundle.namelist())
-        check_names(names, {allowed_model})
+        check_names(names - {CAMPLUS}, {allowed_model})
         if missing := APK_REQUIRED - names:
             raise ValueError("APK missing public assets and notices: " + ", ".join(sorted(missing)))
         if hashlib.sha256(bundle.read(allowed_model)).hexdigest() != VAD:
             raise ValueError("Unexpected Silero VAD bytes")
+        with bundle.open(CAMPLUS) as model:
+            if hashlib.file_digest(model, "sha256").hexdigest() != CAMPLUS_SHA256:
+                raise ValueError("Unexpected CAM++ bytes")
         if "lib/arm64-v8a/libsherpa-onnx-jni.so" in names:
             notices = {"assets/voice-vad/ONNX-Runtime-LICENSE.txt", "assets/voice-vad/ONNX-Runtime-ThirdPartyNotices.txt"}
             if missing := notices - names:

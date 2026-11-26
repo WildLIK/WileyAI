@@ -152,8 +152,7 @@ public final class HandsFreeService extends Service {
         try {
             String phrase = settings.getString("wake_phrase", WakeSettings.defaultPhrase(this)); if (!WakePhrase.valid(phrase)) phrase = WakePhrase.DEFAULT;
             int selectedEngine = WakeSettings.wakeEngine(this);
-            boolean liveKitEligible = selectedEngine != WakeSettings.ENGINE_VOSK
-                    && (WakePhrase.SHORT.equals(phrase) || WakePhrase.DEFAULT.equals(phrase));
+            boolean liveKitEligible = WakeModelAssets.liveKitEligible(this, selectedEngine, phrase);
             Path model = VerifiedModelInstaller.active(getFilesDir().toPath().resolve("speech-models"));
             if (model == null && !liveKitEligible) throw new IllegalStateException();
             String selected = WakePhrase.label(phrase); update("Загружаю голосовую активацию…");

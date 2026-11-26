@@ -91,7 +91,8 @@ final class OwnerSpeakerFilter implements AutoCloseable {
     }
 
     static boolean hasEnrolledProfile(Context context) {
-        return Files.isRegularFile(profilePath(context));
+        try { return loadProfile(context) != null; }
+        catch (IOException invalid) { return false; }
     }
 
     static void clearEnrollment(Context context) throws IOException {
@@ -218,11 +219,15 @@ final class OwnerSpeakerFilter implements AutoCloseable {
         Path file = profilePath(context);
         if (!Files.isRegularFile(file)) return null;
         try {
+            if (Files.size(file) > 32768) return null;
             JSONObject obj = new JSONObject(new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
             JSONArray arr = obj.optJSONArray("embedding");
-            if (arr == null || arr.length() == 0) return null;
+            if (!"campplus-3d-speaker".equals(obj.optString("model")) || arr == null || arr.length() != 192) return null;
             float[] out = new float[arr.length()];
-            for (int i = 0; i < arr.length(); i++) out[i] = (float) arr.getDouble(i);
+            for (int i = 0; i < arr.length(); i++) {
+                out[i] = (float) arr.getDouble(i);
+                if (!Float.isFinite(out[i])) return null;
+            }
             return normalize(out);
         } catch (Exception invalid) {
             throw new IOException("Повреждённый профиль голоса владельца", invalid);
@@ -245,7 +250,12 @@ final class OwnerSpeakerFilter implements AutoCloseable {
         } catch (Exception jsonError) {
             throw new IOException("Не удалось сериализовать профиль владельца", jsonError);
         }
-        Files.write(file, obj.toString().getBytes(StandardCharsets.UTF_8));
+        Path pending = Files.createTempFile(file.getParent(), "speaker-profile-", ".part");
+        try {
+            Files.write(pending, obj.toString().getBytes(StandardCharsets.UTF_8));
+            Files.move(pending, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally { Files.deleteIfExists(pending); }
     }
 
     static float[] normalize(float[] v) {

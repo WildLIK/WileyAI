@@ -26,6 +26,9 @@ if ($Release) {
     if (!$env:WILEYAI_ANDROID_RELEASE_STORE -or !$env:WILEYAI_UPDATE_PUBLIC_KEY) {
         throw 'Release build requires the permanent Android keystore and the signed update public key.'
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'local/android-public-models/wake-stage1/campplus.onnx'))) {
+        throw 'Run python scripts/prepare-android-camplus.py before building the signed APK.'
+    }
     $arguments += 'assembleRelease'
     if ($Check) { $arguments += 'lintRelease' }
 } else {
