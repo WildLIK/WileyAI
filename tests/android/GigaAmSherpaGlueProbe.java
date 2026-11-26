@@ -17,6 +17,7 @@ public final class GigaAmSherpaGlueProbe {
         check(com.k2fsa.sherpa.onnx.OfflineRecognizer.created == 1);
         String text = backend.decode(handle, new float[8000], 16000);
         check(text.equals("звездная карта"));
+        check(com.k2fsa.sherpa.onnx.OfflineStream.released == 1);
         backend.close(handle);
         check(com.k2fsa.sherpa.onnx.OfflineRecognizer.closed == 1);
         com.k2fsa.sherpa.onnx.OfflineRecognizer.failDecode = true;
@@ -24,6 +25,8 @@ public final class GigaAmSherpaGlueProbe {
         boolean failure = false;
         try { backend.decode(second, new float[8000], 16000); } catch (IOException expected) { failure = expected.getMessage().contains("движка"); }
         check(failure);
+        check(com.k2fsa.sherpa.onnx.OfflineStream.released == 2);
+        backend.close(second);
         // Missing native engine (AAR absent): the class-not-found path stays an honest message.
         com.k2fsa.sherpa.onnx.OfflineRecognizer.failDecode = false;
         check(backend.create("enc.onnx", "dec.onnx", "join.onnx", "tokens.txt", GigaAmModel.THREADS) > 0);

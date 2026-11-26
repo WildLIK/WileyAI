@@ -78,7 +78,9 @@ test("avatar remains rendered during cross-window speech, narrow resize and cont
       .getByRole("button", { name: "Показать аватара", exact: true })
       .click();
     const avatar = await opened;
-    await expect(avatar.locator(".avatar-stage canvas")).toBeVisible();
+    // A canvas can exist before the VRM has loaded or rendered its first frame.
+    const stage = avatar.locator(".avatar-stage");
+    await expect(stage).toHaveAttribute("data-render", "running", { timeout: 18000 });
     await expect.poll(() => visiblePixels(avatar)).toBeGreaterThan(500);
     await expect(avatar.locator(".avatar-error")).toHaveCount(0);
     await avatar
@@ -139,6 +141,7 @@ test("avatar remains rendered during cross-window speech, narrow resize and cont
     await expect(
       avatar.getByText("Восстанавливаю 3D после сбоя видеодрайвера…"),
     ).toBeVisible();
+    await expect(stage).toHaveAttribute("data-render", "running", { timeout: 18000 });
     await expect(avatar.locator(".avatar-error")).toHaveCount(0);
     await expect.poll(() => visiblePixels(avatar)).toBeGreaterThan(500);
   } finally {

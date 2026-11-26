@@ -25,11 +25,18 @@ final class PcmRingBuffer {
     }
 
     synchronized short[] snapshot() {
-        short[] out = new short[size];
-        int start = (next - size + samples.length) % samples.length;
-        int first = Math.min(size, samples.length - start);
+        return snapshotTail(size);
+    }
+
+    synchronized int size() { return size; }
+
+    synchronized short[] snapshotTail(int count) {
+        if (count < 0 || count > size) throw new IllegalArgumentException("PCM tail outside retained audio");
+        short[] out = new short[count];
+        int start = (next - count + samples.length) % samples.length;
+        int first = Math.min(count, samples.length - start);
         System.arraycopy(samples, start, out, 0, first);
-        System.arraycopy(samples, 0, out, first, size - first);
+        System.arraycopy(samples, 0, out, first, count - first);
         return out;
     }
 

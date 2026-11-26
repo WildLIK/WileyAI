@@ -22,6 +22,7 @@ public final class HandsFreeService extends Service {
     private static long requestSequence,pendingWindowWake;
     private final WakeActivation.Gate wakeWindow=new WakeActivation.Gate();
     private long activeWake, quietUntil, recognitionEpoch;
+    private String activeJournalEventId;
     private boolean firstWakeCommand;
     private final Runnable retryWake=this::resumeWake;
     private static String lastState = "Голосовая активация выключена";
@@ -145,12 +146,16 @@ public final class HandsFreeService extends Service {
     private void resumeWake() {
         if (destroyed || engaged || externalMic || wake.busy() || wakeWindow.waiting()) return;
         long remaining=quietUntil-SystemClock.elapsedRealtime();
-        if(remaining>0||speech.busy()||gigaAm.busy()||voice.speaking()){scheduleWake(Math.max(100,remaining));return;}
+        if(remaining>0||speech.busy()||gigaAm.busy()||voice.speaking()||AudioRouteManager.othersNeedMic(this)){scheduleWake(Math.max(100,remaining));return;}
         if (!settings.getBoolean("handsfree_enabled", false)) { stopSelf(); return; }
         if (!WileyVoiceService.selected(this)) { settings.edit().putBoolean("handsfree_enabled", false).apply(); stopSelf(); return; }
         try {
-            Path model = VerifiedModelInstaller.active(getFilesDir().toPath().resolve("speech-models")); if (model == null) throw new IllegalStateException();
             String phrase = settings.getString("wake_phrase", WakeSettings.defaultPhrase(this)); if (!WakePhrase.valid(phrase)) phrase = WakePhrase.DEFAULT;
+            int selectedEngine = WakeSettings.wakeEngine(this);
+            boolean liveKitEligible = selectedEngine != WakeSettings.ENGINE_VOSK
+                    && (WakePhrase.SHORT.equals(phrase) || WakePhrase.DEFAULT.equals(phrase));
+            Path model = VerifiedModelInstaller.active(getFilesDir().toPath().resolve("speech-models"));
+            if (model == null && !liveKitEligible) throw new IllegalStateException();
             String selected = WakePhrase.label(phrase); update("Загружаю голосовую активацию…");
             boolean usePcm = settings.getInt("asr_engine", 0) == 3;
             boolean recoverPrefix = settings.getBoolean(WakeFinalPrefix.PREFERENCE,false);
@@ -188,7 +193,9 @@ public final class HandsFreeService extends Service {
         if (acoustic != null) acoustic.cancelAnalysis();
         if(wakeId==0)dropPendingWake(4);
         WakeActivation decision=wakeWindow.take();
-        activeWake=decision==null?0:decision.id();firstWakeCommand=activeWake!=0;
+        activeWake=decision==null?0:decision.id();
+        activeJournalEventId=decision==null?null:decision.journalEventId();
+        firstWakeCommand=activeWake!=0;
         if(decision!=null){
             DiagnosticLog.event(DiagnosticJournal.Event.WAKE_WINDOW_OUTCOME,1,activeWake);
             if (acoustic != null) acoustic.window(activeWake, "opened");
@@ -200,18 +207,19 @@ public final class HandsFreeService extends Service {
         update("Готовлю микрофон…"); audio.requestAudioFocus(focus);
         if (settings.getInt("asr_engine", 0) == 3) GigaAmRuntime.get(this).prepare(); // weights warm up while the panel opens
         PcmHandoff captured=pendingWakeAudio;pendingWakeAudio=null;
+        if (dialogue || captured == null) AudioRouteManager.acquireBluetoothRoute(this);
         if(captured!=null && !dialogue && settings.getInt("asr_engine",0)==3 && captured.isActive()) {
-            listen(ticket,captured,decision==null?-1:decision.detectedAt());
+            listen(ticket,captured,decision);
         }
         else {if(captured!=null)captured.close();wake.pause(() -> { if (valid(ticket)) { if(dialogue)process("давай поговорим",ticket);else listen(ticket); } });}
     }
     private boolean valid(int ticket) { return !destroyed && engaged && cycle == ticket; }
-    private void listen(int ticket) { listen(ticket,null,-1); }
-    private void listen(int ticket, PcmHandoff captured, long wakeAt) {
+    private void listen(int ticket) { listen(ticket,null,null); }
+    private void listen(int ticket, PcmHandoff captured, WakeActivation activation) {
         if (!valid(ticket)) {if(captured!=null)captured.close();return;}
         if (speech.busy() || gigaAm.busy()) {
             long waitingEpoch=recognitionEpoch;
-            main.postDelayed(()->{if(waitingEpoch==recognitionEpoch)listen(ticket,captured,wakeAt);else if(captured!=null)captured.close();},100);
+            main.postDelayed(()->{if(waitingEpoch==recognitionEpoch)listen(ticket,captured,activation);else if(captured!=null)captured.close();},100);
             return;
         }
         long epoch=++recognitionEpoch;
@@ -219,6 +227,8 @@ public final class HandsFreeService extends Service {
             int waiting=followup?ConversationMode.waitMillis(conversation,true,settings.getInt("followup_seconds",8),settings.getInt("conversation_seconds",30),turns,SystemClock.elapsedRealtime()-conversationBegan):15000;
             if(waiting==0){if(captured!=null)captured.close();finishRequest();return;}
             String engine = settings.getInt("asr_engine", 0) == 3 ? "GigaAM" : settings.getInt("asr_engine", 0) == 0 ? "Vosk" : "Android";
+            boolean confirmedNameHandoff = captured != null && activation != null && activation.id() == activeWake
+                    && activation.personalName() && engine.equals("GigaAM");
             long sttBegan = SystemClock.elapsedRealtime();
             TurnTiming timing = new TurnTiming();
             turnTiming = timing;
@@ -258,15 +268,17 @@ public final class HandsFreeService extends Service {
                     recognitionEpoch++;
                     timing.mark(DiagnosticJournal.Event.TURN_STT_DONE_MS);
                     boolean hadWords=!text.isBlank();
+                    if(activeJournalEventId!=null && hadWords){
+                        WakeActivationJournal.updateAsrTextAsync(HandsFreeService.this,activeJournalEventId,text);
+                    }
                     if(firstWakeCommand){
                         firstWakeCommand=false;
                         String phrase=settings.getString("wake_phrase",WakeSettings.defaultPhrase(HandsFreeService.this));
-                        text=PhoneCommands.stripAddress(WakePhrase.removeLeadingWake(text,phrase));
-                        text=WakePhrase.removeConfusableWake(text,phrase,candidate->{
+                        text=WakePhrase.firstCommand(text,phrase,candidate->{
                             PhoneCommands.Action command=PhoneCommands.parse(candidate,true);
                             return command!=null&&!command.kind.equals("open")&&!command.kind.equals("media_search")
                                 &&!command.kind.equals("media_play_search")&&!StructuredActionAdapter.requiresPlan(candidate);
-                        });
+                        }, confirmedNameHandoff);
                         if(text.isEmpty()&&hadWords){
                             wakeResult(7);
                             update("Слушаю команду…");
@@ -304,8 +316,8 @@ public final class HandsFreeService extends Service {
             };
             if (settings.getInt("asr_engine", 0) == 3) {
                 if (captured != null) {
-                    if (wakeAt >= 0) DiagnosticLog.event(DiagnosticJournal.Event.WAKE_GIGA_HANDOFF_MS,
-                        SystemClock.elapsedRealtime() - wakeAt,activeWake);
+                    if (activation != null) DiagnosticLog.event(DiagnosticJournal.Event.WAKE_GIGA_HANDOFF_MS,
+                        SystemClock.elapsedRealtime() - activation.detectedAt(),activeWake);
                     gigaAm.startFromPcm(waiting,listener,captured);
                 } else gigaAm.start(waiting, listener);
                 return;
@@ -532,17 +544,19 @@ public final class HandsFreeService extends Service {
     private void finishRequest() {
         if(destroyed||!engaged)return;
         DiagnosticLog.event(DiagnosticJournal.Event.VOICE_END,0,activeWake);
-        cycle++;recognitionEpoch++;voiceEpoch++;engaged=false;activeWake=0;firstWakeCommand=false;
+        cycle++;recognitionEpoch++;voiceEpoch++;engaged=false;activeWake=0;activeJournalEventId=null;firstWakeCommand=false;
         quietUntil=SystemClock.elapsedRealtime()+650;
         if(brain!=null)brain.cancel();
         if(pendingPlan!=null)finishPlanConfirmation(false);
         pendingMemoryMatches=null;appSelection.clear();conversation=false;followup=false;playerAction=false;options=null;videoOptions=null;
         dropPendingWake(4);
         speech.cancel();gigaAm.cancel();llm.cancel();cloud.cancel();remoteGateway.cancel();voice.stop();audio.abandonAudioFocusRequest(focus);
+        AudioRouteManager.releaseBluetoothRoute(this);
         Host previous = host; host = null; if (previous != null) previous.dismiss();
         scheduleWake(650);
     }
     @Override public void onDestroy() {
+        WakeComparison.stop("foreground_service_stopped");
         AcousticDiagnostics acoustic = AcousticDiagnostics.current();
         if (acoustic != null) acoustic.stop("foreground_service_stopped");
         destroyed=true;cycle++;recognitionEpoch++;dropPendingWake(4);

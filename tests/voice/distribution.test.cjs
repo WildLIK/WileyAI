@@ -15,9 +15,7 @@ test("installer, Python metadata and update checker use the same version", () =>
     readFileSync(resolve(root, "package.json"), "utf8"),
   ).version;
   assert.equal(
-    readFileSync(resolve(root, "core/version.py"), "utf8").match(
-      /VERSION = "([^"]+)"/,
-    )[1],
+    JSON.parse(readFileSync(resolve(root, "release-version.json"), "utf8")).version,
     version,
   );
   assert.equal(

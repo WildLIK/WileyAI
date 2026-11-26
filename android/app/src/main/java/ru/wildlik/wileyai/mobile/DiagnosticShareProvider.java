@@ -14,18 +14,27 @@ import java.io.FileNotFoundException;
 public final class DiagnosticShareProvider extends ContentProvider {
     @Override public boolean onCreate(){return true;}
     private File file(Uri uri) throws FileNotFoundException {
-        if (!"/log.txt".equals(uri.getPath()) || getContext()==null) throw new FileNotFoundException();
-        return new File(getContext().getCacheDir(),"wileyai-diagnostic-share.txt");
+        if (getContext() == null) throw new FileNotFoundException();
+        if ("/log.txt".equals(uri.getPath())) {
+            return new File(getContext().getCacheDir(), "wileyai-diagnostic-share.txt");
+        }
+        if ("/wake-journal.zip".equals(uri.getPath())) {
+            return new File(getContext().getCacheDir(), "wileyai-wake-journal.zip");
+        }
+        throw new FileNotFoundException();
     }
     @Override public ParcelFileDescriptor openFile(Uri uri,String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new FileNotFoundException();
         return ParcelFileDescriptor.open(file(uri),ParcelFileDescriptor.MODE_READ_ONLY);
     }
-    @Override public String getType(Uri uri){return "text/plain";}
+    @Override public String getType(Uri uri){
+        return "/wake-journal.zip".equals(uri.getPath()) ? "application/zip" : "text/plain";
+    }
     @Override public Cursor query(Uri uri,String[] projection,String selection,String[] args,String sort){
         String[] cols=projection==null?new String[]{OpenableColumns.DISPLAY_NAME,OpenableColumns.SIZE}:projection;
         MatrixCursor result=new MatrixCursor(cols);Object[] row=new Object[cols.length];
-        try{File f=file(uri);for(int i=0;i<cols.length;i++){if(OpenableColumns.DISPLAY_NAME.equals(cols[i]))row[i]="WileyAI_Log.txt";else if(OpenableColumns.SIZE.equals(cols[i]))row[i]=f.length();}result.addRow(row);}catch(FileNotFoundException ignored){}
+        String name = "/wake-journal.zip".equals(uri.getPath()) ? "WileyAI_WakeJournal.zip" : "WileyAI_Log.txt";
+        try{File f=file(uri);for(int i=0;i<cols.length;i++){if(OpenableColumns.DISPLAY_NAME.equals(cols[i]))row[i]=name;else if(OpenableColumns.SIZE.equals(cols[i]))row[i]=f.length();}result.addRow(row);}catch(FileNotFoundException ignored){}
         return result;
     }
     @Override public Uri insert(Uri uri,ContentValues values){throw new UnsupportedOperationException();}

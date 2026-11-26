@@ -1,7 +1,12 @@
 package ru.wildlik.wileyai.mobile;
 
 /** Fixed-vocabulary description of an accepted final hypothesis. No speech is retained. */
-record WakeActivation(long id,long detectedAt,int variant,boolean conversation,int confidenceMilli,long lagMillis) {
+record WakeActivation(long id,long detectedAt,int variant,boolean conversation,int confidenceMilli,long lagMillis,String journalEventId) {
+    WakeActivation(long id,long detectedAt,int variant,boolean conversation,int confidenceMilli,long lagMillis) {
+        this(id,detectedAt,variant,conversation,confidenceMilli,lagMillis,null);
+    }
+    boolean personalName() { return !conversation && variant >= 1 && variant <= 6; }
+
     /** Main-loop claim: block the decoder until the matching Android window arrives or expires. */
     static final class Gate {
         private WakeActivation pending;

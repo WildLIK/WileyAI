@@ -34,7 +34,9 @@ final class H2Shadow {
     static AtomicFile report(Context context) {
         return new AtomicFile(new File(context.getNoBackupFilesDir(),"h2-last.json"));
     }
+    static boolean active() { return instance != null; }
     static synchronized void start(Context context) {
+        if (WakeComparison.active()) { state = "Остановите сравнение голосового вызова"; return; }
         if (instance != null) return;
         H2Shadow s = new H2Shadow(context);
         instance = s;

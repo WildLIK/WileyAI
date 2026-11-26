@@ -15,6 +15,8 @@ def test_wake_keeps_same_capture_until_consumer_closes(tmp_path):
         'android/content/pm/PackageManager.java': 'package android.content.pm; public class PackageManager { public static final int PERMISSION_GRANTED=0; }',
         'android/os/Looper.java': 'package android.os; public class Looper { public static Looper getMainLooper(){return new Looper();} }',
         'android/os/Handler.java': 'package android.os; public class Handler { public Handler(Looper l){} public boolean post(Runnable r){r.run();return true;} }',
+        'android/os/Debug.java': 'package android.os; public class Debug { public static long threadCpuTimeNanos(){return 0;} }',
+        'org/json/JSONException.java': 'package org.json; public class JSONException extends Exception {}',
         'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static long elapsedRealtime(){return 100;} public static long elapsedRealtimeNanos(){return 100000000;} }',
         'android/util/Log.java': 'package android.util; public class Log {public static int i(String a,String b){return 0;}}',
         'android/media/AudioFormat.java': 'package android.media; public class AudioFormat { public static final int CHANNEL_IN_MONO=1, ENCODING_PCM_16BIT=2; }',
@@ -30,10 +32,52 @@ def test_wake_keeps_same_capture_until_consumer_closes(tmp_path):
           public String optString(String s){return "вайли";}public double optDouble(String s,double fallback){return s.equals("end")?0.03125:1.0;}}''',
         'org/json/JSONArray.java': 'package org.json; public class JSONArray {public int length(){return 1;}public JSONObject getJSONObject(int i){return new JSONObject("");}}',
         'org/vosk/Recognizer.java': '''package org.vosk; public class Recognizer implements AutoCloseable {
-          public Recognizer(Object m,int s,String g){} public void setWords(boolean b){}public boolean acceptWaveForm(short[] b,int n){return true;}
+          public Recognizer(Object m,int s,String g){} public void reset(){} public void setWords(boolean b){}public boolean acceptWaveForm(short[] b,int n){return true;}
           public String getResult(){return "{}";}public void close(){} }''',
         'ru/wildlik/wileyai/mobile/WakeStubs.java': '''package ru.wildlik.wileyai.mobile; import java.nio.file.Path;
           class SpeechRuntime {static Lease acquire(Path p){return new Lease();}static class Lease implements AutoCloseable {Object model(){return new Object();}public void close(){}}}
+          class WakeComparison {
+            static WakeComparison active; volatile int samples, decisions;
+            record VoskFinal(boolean exact, boolean prefix, double confidence, double prefixConfidence, String reason) {}
+            static WakeComparison forBlock(String phrase){return active;}
+            void offer(android.media.AudioRecord mic,long id,long start,short[] pcm,int n,VoskFinal decision,long wall,long cpu,String grammar){
+              samples+=n;
+              if(decision!=null && decision.exact())decisions++;
+            }
+            static long open(String m){return 0;}
+            static float score(long h,short[] p){return 0f;}
+            static void close(long h){}
+          }
+          class WakeComparisonPcm { static final int BLOCK = 1280; }
+          class WakeSettings {
+            static final int ENGINE_VOSK=0, ENGINE_LIVEKIT_V2=1, ENGINE_LIVEKIT_V2_CAM=2;
+            static int wakeEngine(android.content.Context c){return 0;}
+            static float liveKitThreshold(android.content.Context c){return 0.98f;}
+          }
+          class WakeModelAssets {
+            static Path ensureLiveKitV2(android.content.Context c){return java.nio.file.Paths.get("c_v2");}
+            static Path ensureCamPlus(android.content.Context c){return java.nio.file.Paths.get("cam");}
+          }
+          class OwnerSpeakerFilter implements AutoCloseable {
+            record Result(boolean accepted,float similarity,float threshold,long elapsedUs,String reason){}
+            static boolean isEnabled(android.content.Context c){return false;}
+            static boolean hasEnrolledProfile(android.content.Context c){return false;}
+            static float threshold(android.content.Context c){return 0.38f;}
+            static OwnerSpeakerFilter open(Path p,int t){return new OwnerSpeakerFilter();}
+            Result verify(android.content.Context c,short[] p,int l){return new Result(true,1f,0.38f,0,"ok");}
+            public void close(){}
+          }
+          class WakeActivationJournal {
+            static final int PRE_SAMPLES=24000, POST_SAMPLES=24000;
+            static String recordEventAsync(android.content.Context c,String e,double cf,double ss,double st,double lt,String m,boolean t,long wl,long cl,String o,String r,short[] p){return null;}
+            static void savePostAudioAsync(android.content.Context c,String id,short[] p,int l){}
+          }
+          class AudioRouteManager {
+            static class EffectsSession implements AutoCloseable { public void close(){} }
+            static EffectsSession attachEffects(android.content.Context c,android.media.AudioRecord r,boolean f){return new EffectsSession();}
+            static String describeMicRoute(android.media.AudioRecord r){return "STUB";}
+          }
+          class HandsFreeService { static boolean acousticSpeaking(){return false;} }
           class WakeVocabulary {static String grammar(Object m,String p){return "";}}
           class H2Shadow {
             static int samples,accepted;
@@ -71,9 +115,22 @@ def test_wake_keeps_same_capture_until_consumer_closes(tmp_path):
             if(!consumed.await(5,TimeUnit.SECONDS))throw new AssertionError("consumer timeout");wake.pause(()->{});
             if(!idle.await(5,TimeUnit.SECONDS))throw new AssertionError("capture not released");
             if(fail.get()!=null)throw new AssertionError(fail.get());}
-            wake.close();if(android.media.AudioRecord.count!=3)throw new AssertionError("capture lifecycle");
+            AcousticDiagnostics observer = AcousticDiagnostics.active;
+            AcousticDiagnostics.active=null;
+            WakeComparison comparison = new WakeComparison();
+            WakeComparison.active=comparison;
+            CountDownLatch quietIdle=new CountDownLatch(1);
+            AtomicInteger callbacks=new AtomicInteger();
+            wake.start(Paths.get("fake"),WakePhrase.SHORT,()->{},true,(event,pcm)->callbacks.incrementAndGet(),
+                msg->fail.set(new AssertionError(msg)),()->quietIdle.countDown());
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);
+            while(comparison.samples<4096 && System.nanoTime()<deadline)Thread.sleep(10);
+            wake.pause(()->{});
+            if(!quietIdle.await(5,TimeUnit.SECONDS)||fail.get()!=null||callbacks.get()!=0
+                ||comparison.samples!=4096||comparison.decisions!=2)throw new AssertionError("comparison activation isolation");
+            wake.close();if(android.media.AudioRecord.count!=4)throw new AssertionError("capture lifecycle");
             if(H2Shadow.samples!=3*2048 || H2Shadow.accepted!=3)throw new AssertionError("observer must not consume handoff tail");
-            if(AcousticDiagnostics.active.samples!=4096||AcousticDiagnostics.active.candidates!=1)
+            if(observer.samples!=4096||observer.candidates!=1)
               throw new AssertionError("acoustic tap must see the same capture and the handoff tail");
           }}''',
     }

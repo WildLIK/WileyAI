@@ -1,6 +1,6 @@
 import asyncio
+import sys
 from anyio import CancelScope
-from telethon import errors
 from .mail_send import ConfirmBody
 from .telegram_client import TelegramConfig, PhoneBody, CodeBody, PasswordBody, TelegramPreview
 
@@ -14,11 +14,21 @@ def install_telegram(app,telegram,store):
         async with telegram.lock:
             try:
                 async with asyncio.timeout(limit): return await action()
-            except errors.FloodWaitError as error: raise ValueError(f"Telegram просит подождать {error.seconds} секунд") from error
-            except (errors.PhoneCodeInvalidError,errors.PhoneCodeExpiredError) as error: raise ValueError("Код Telegram неверный или истёк. Проверьте код или запросите новый") from error
-            except errors.PasswordHashInvalidError as error: raise ValueError("Неверный пароль двухэтапной проверки Telegram") from error
-            except errors.RPCError as error: raise ValueError("Telegram отклонил запрос. Проверьте данные входа и доступ к диалогу") from error
             except (TimeoutError,OSError) as error: raise ValueError("Не удалось связаться с Telegram. Проверьте подключение; отправленное сообщение проверяется в очереди") from error
+            except Exception as error:
+                # The optional RPC library is loaded by the connection, never by passive routes.
+                errors = sys.modules.get("telethon.errors")
+                if errors is None or not isinstance(error, errors.RPCError):
+                    raise
+                if isinstance(error, errors.FloodWaitError):
+                    message = f"Telegram просит подождать {error.seconds} секунд"
+                elif isinstance(error, (errors.PhoneCodeInvalidError, errors.PhoneCodeExpiredError)):
+                    message = "Код Telegram неверный или истёк. Проверьте код или запросите новый"
+                elif isinstance(error, errors.PasswordHashInvalidError):
+                    message = "Неверный пароль двухэтапной проверки Telegram"
+                else:
+                    message = "Telegram отклонил запрос. Проверьте данные входа и доступ к диалогу"
+                raise ValueError(message) from error
 
     @app.get("/telegram/status")
     def status(): return telegram.status()

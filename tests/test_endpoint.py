@@ -143,7 +143,7 @@ def test_diagnostic_timings_separate_llm_and_local_command_without_extra_actions
         assert len(timing) == 1 and timing[0]["llm_ms"] >= 5 and timing[0]["interpretation_ms"] >= 0
         events = send("Не открывай Блокнот")
         timing = [event for event in events if event["type"] == "voice_timing"]
-        assert len(timing) == 1 and timing[0]["llm_ms"] == 0 and len(calls) == 1
+        assert len(timing) == 1 and "llm_ms" not in timing[0] and len(calls) == 1
 
 
 def test_worker_cleanup_checks_its_process_birth_before_enumerating_descendants(tmp_path, monkeypatch):

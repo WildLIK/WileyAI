@@ -52,6 +52,7 @@ final class OfflineSpeechEngine {
         worker.execute(() -> {
             StringBuilder text = new StringBuilder();
             String[] recognized = {null};
+            AudioRouteManager.EffectsSession effects = null;
             VoiceTelemetry.Capture capture = null;
             try {
                 if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) throw new SecurityException();
@@ -73,8 +74,9 @@ final class OfflineSpeechEngine {
                     if (finishing) { recognized[0] = ""; return; }
                     int minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
                     if (minimum <= 0) throw new IllegalStateException("Аудиоформат недоступен");
-                    audio = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum * 2, 8192));
+                    audio = new AudioRecord(AudioRouteManager.commandAudioSource(context), 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum * 2, 8192));
                     if (audio.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("Микрофон недоступен");
+                    effects = AudioRouteManager.attachEffects(context, audio, true);
                     audio.startRecording();
                     if (audio.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) throw new IllegalStateException("Микрофон занят");
                     capture=VoiceTelemetry.captureOpened(VoiceTelemetry.VOSK);DiagnosticLog.event(DiagnosticJournal.Event.AUDIO_RECORD_COUNT,VoiceTelemetry.snapshot().captureCount());
@@ -107,6 +109,7 @@ final class OfflineSpeechEngine {
             catch (LinkageError error) { post(ticket, () -> listener.error("Нативный движок Vosk несовместим с этим устройством")); }
             catch (Exception error) { post(ticket, () -> listener.error("Не удалось распознать речь. Проверьте микрофон и повторите установку комплекта, если ошибка сохраняется.")); }
             finally {
+                if (effects != null) effects.close();
                 AudioRecord recorder = audio; audio = null;
                 if (recorder != null) { try { recorder.stop(); } catch (IllegalStateException ignored) {} recorder.release(); }
                 if(capture!=null){capture.close();DiagnosticLog.event(DiagnosticJournal.Event.AUDIO_RECORD_COUNT,VoiceTelemetry.snapshot().captureCount());}

@@ -38,14 +38,13 @@ final class PcmHandoff {
     /** Boundary is an absolute sample position in the current capture, inclusive. */
     synchronized void activate(long commandStart) {
         if (active || closed || sealed || overflow) throw new IllegalStateException("handoff unavailable");
-        short[] saved = history.snapshot();
-        long first = written - saved.length;
+        long first = written - history.size();
         if (commandStart < first || commandStart > written) throw new IllegalArgumentException("boundary outside retained audio");
+        short[] retained = history.snapshotTail((int)(written - commandStart));
         active = true;
         boundary=commandStart;
-        enqueue(Arrays.copyOfRange(saved, (int)(commandStart-first), saved.length));
+        enqueue(retained);
         history.clear();
-        Arrays.fill(saved, (short) 0);
         notifyAll();
     }
 

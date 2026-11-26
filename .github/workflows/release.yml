@@ -4,14 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing vX.Y.Z tag to build and publish; leave empty for an artifact only
+        description: Existing build tag; artifacts are staged for manual publication
         required: false
         default: ''
         type: string
-  push:
-    tags: ["v*"]
 
-# Build and tests run with a read-only token; only the publish job can write.
+# Only the owner promotes verified, signed artifacts to Releases.
 permissions:
   contents: read
 
@@ -51,34 +49,3 @@ jobs:
           path: |
             local/releases/WileyAI-Setup-*.exe
             local/releases/SHA256SUMS.txt
-
-  publish:
-    needs: installer
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release_tag || github.ref }}
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: WileyAI-Windows-x64
-          path: local/releases
-      - name: Publish tagged version
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        shell: pwsh
-        run: |
-          $tag = $env:RELEASE_TAG
-          $packageVersion = (Get-Content package.json | ConvertFrom-Json).version
-          if ($tag -ne "v$packageVersion") { throw 'Tag and package version differ' }
-          $notes = "docs/releases/$packageVersion.ru.md"
-          if (Test-Path -LiteralPath $notes) {
-            gh release create $tag "local/releases/WileyAI-Setup-$packageVersion-x64.exe" local/releases/SHA256SUMS.txt --title "WileyAI $packageVersion" --notes-file $notes
-          } else {
-            gh release create $tag "local/releases/WileyAI-Setup-$packageVersion-x64.exe" local/releases/SHA256SUMS.txt --title "WileyAI $packageVersion" --generate-notes
-          }

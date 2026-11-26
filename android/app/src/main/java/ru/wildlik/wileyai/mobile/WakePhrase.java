@@ -8,6 +8,14 @@ public final class WakePhrase {
     public static final String SHORT = "вайли";
     static final double MIN_CONFIDENCE = .75;
     public static final String[] PRESETS = {SHORT, DEFAULT, "привет помощник", "слушай помощник"};
+    private static final java.util.regex.Pattern COMMON_ADDRESS = java.util.regex.Pattern.compile(
+            "(?iu)^\\s*(?:окей[\\s,]+)?(?:[ув]ай[\\s,]*ли|wiley)(?=$|[\\s,.:;!?—-])[\\s,.:;!?—-]*");
+    private static final java.util.regex.Pattern CONFUSABLE_ADDRESS = java.util.regex.Pattern.compile(
+            "(?iu)^\\s*(?:окей[\\s,]+)?(?:вали|вади)(?:[,.:;!?—-]+\\s*|\\s+)(.+)$");
+    private static final java.util.regex.Pattern HANDOFF_CONFUSABLE_ADDRESS = java.util.regex.Pattern.compile(
+            "(?iu)^\\s*(?:окей[\\s,]+)?(?:уали|вале|байли|айли|вайле)(?:[,.:;!?—-]+\\s*|\\s+)(.+)$");
+    private static final java.util.regex.Pattern HANDOFF_ONLY_WAKE = java.util.regex.Pattern.compile(
+            "(?iu)^\\s*(?:окей[\\s,]+)?(?:уали|байли|айли|вайле)[,.!?—-]*\\s*$");
     public static boolean valid(String phrase) { return java.util.Arrays.asList(PRESETS).contains(phrase); }
     public static String label(String phrase) { return SHORT.equals(phrase) ? "Вайли" : DEFAULT.equals(phrase) ? "Окей, Вайли" : "слушай помощник".equals(phrase) ? "Слушай, помощник" : "Привет, помощник"; }
     public static String[] decoderPhrases(String phrase) {
@@ -53,11 +61,40 @@ public final class WakePhrase {
         }
         return text;
     }
+    /** Called only for the first result after a confirmed wake. Preserve any uncertain suffix. */
+    static String firstCommand(String text, String phrase, java.util.function.Predicate<String> recognizedCommand) {
+        return firstCommand(text, phrase, recognizedCommand, false);
+    }
+
+    static String firstCommand(String text, String phrase, java.util.function.Predicate<String> recognizedCommand,
+                               boolean confirmedNameHandoff) {
+        if (text == null) return "";
+        String command = text;
+        while (true) {
+            String remainder = removeLeadingWake(command, phrase);
+            if (remainder.equals(command)) remainder = COMMON_ADDRESS.matcher(command).replaceFirst("");
+            if (remainder.equals(command)) break;
+            command = remainder;
+        }
+        command = removeConfusableWake(command, phrase, recognizedCommand);
+        if (confirmedNameHandoff && recognizedCommand != null && (SHORT.equals(phrase) || DEFAULT.equals(phrase))) {
+            // Observed ASR prefix distortions on fast fused wake-word handoffs (e.g. LiveKit C + GigaAM).
+            // Strip only when the remainder is an explicitly recognized safe command (never open/search/negation).
+            if (HANDOFF_ONLY_WAKE.matcher(command).matches()) return "";
+            var match = HANDOFF_CONFUSABLE_ADDRESS.matcher(command);
+            if (match.matches()) {
+                String remainder = match.group(1).trim();
+                if (recognizedCommand.test(remainder)) return remainder;
+            }
+        }
+        return command;
+    }
+
     /** Resolve a known ASR homophone only after a confirmed wake and a recognized complete command. */
     static String removeConfusableWake(String text,String phrase,java.util.function.Predicate<String> recognizedCommand) {
         if(text==null || !(SHORT.equals(phrase)||DEFAULT.equals(phrase)) || recognizedCommand==null)return text;
         if (text.trim().matches("(?iu)вали[,.!?—-]*")) return "";
-        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?iu)^\\s*вали[,.:;!?—-]*\\s+(.+)$").matcher(text);
+        java.util.regex.Matcher m=CONFUSABLE_ADDRESS.matcher(text);
         if(!m.matches())return text;
         String remainder=m.group(1).trim();
         return recognizedCommand.test(remainder)?remainder:text;

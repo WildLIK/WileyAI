@@ -31,6 +31,85 @@ final class AssistantPanel {
         android.content.SharedPreferences preferences = activity.getSharedPreferences("wiley-mobile",0);
         Button phrase = ui.button("Фраза: «" + WakePhrase.label(preferences.getString("wake_phrase",WakeSettings.defaultPhrase(activity))) + "»", () -> {});
         phrase.setOnClickListener(v -> { String[] labels = new String[WakePhrase.PRESETS.length]; for (int i=0;i<labels.length;i++) labels[i]=WakePhrase.label(WakePhrase.PRESETS[i]); ui.dialog().setTitle("Фраза вызова").setItems(labels,(d,which) -> { String selected=WakePhrase.PRESETS[which]; preferences.edit().putString("wake_phrase",selected).apply(); phrase.setText("Фраза: «"+WakePhrase.label(selected)+"»"); HandsFreeService.reload(activity); }).setNegativeButton("Отмена",null).show(); }); parent.addView(phrase);
+
+        Button wakeEngineBtn = ui.button("Движок активации: " + WakeSettings.wakeEngineLabel(WakeSettings.wakeEngine(activity)), () -> {});
+        wakeEngineBtn.setOnClickListener(v -> {
+            String[] opts = {"Vosk · резервный", "LiveKit C v2 · эксперимент", "LiveKit C v2 + CAM++ · эксперимент"};
+            ui.dialog().setTitle("Движок голосовой активации").setItems(opts, (d, which) -> {
+                if (which == WakeSettings.ENGINE_LIVEKIT_V2_CAM && !OwnerSpeakerFilter.hasEnrolledProfile(activity)) {
+                    ui.dialog().setTitle("Нужна регистрация голоса")
+                            .setMessage("Чтобы включить фильтр CAM++, сначала запишите 3–5 фраз голоса владельца.")
+                            .setNegativeButton("Отмена", null)
+                            .setPositiveButton("Зарегистрировать", (dd, ww) -> activity.startActivity(new Intent(activity, OwnerEnrollmentActivity.class)))
+                            .show();
+                    return;
+                }
+                WakeSettings.setWakeEngine(activity, which);
+                wakeEngineBtn.setText("Движок активации: " + WakeSettings.wakeEngineLabel(which));
+                HandsFreeService.reload(activity);
+            }).setNegativeButton("Отмена", null).show();
+        });
+        parent.addView(wakeEngineBtn);
+
+        parent.addView(ui.button("Регистрация голоса владельца (CAM++)",
+                () -> activity.startActivity(new Intent(activity, OwnerEnrollmentActivity.class))));
+
+        LinearLayout camSection = ui.disclosure(parent, "Чувствительность и фильтр владельца");
+        Switch camSwitch = new Switch(activity);
+        camSwitch.setText("Фильтр голоса владельца (CAM++)");
+        camSwitch.setTextColor(ui.theme.text);
+        camSwitch.setMinHeight(ui.dp(52));
+        camSwitch.setChecked(OwnerSpeakerFilter.isEnabled(activity));
+        camSwitch.setOnCheckedChangeListener((v, on) -> {
+            if (on && !OwnerSpeakerFilter.hasEnrolledProfile(activity)) {
+                camSwitch.setChecked(false);
+                activity.startActivity(new Intent(activity, OwnerEnrollmentActivity.class));
+                return;
+            }
+            OwnerSpeakerFilter.setEnabled(activity, on);
+            if (WakeSettings.wakeEngine(activity) != WakeSettings.ENGINE_VOSK) {
+                WakeSettings.setWakeEngine(activity, on ? WakeSettings.ENGINE_LIVEKIT_V2_CAM : WakeSettings.ENGINE_LIVEKIT_V2);
+                wakeEngineBtn.setText("Движок активации: " + WakeSettings.wakeEngineLabel(WakeSettings.wakeEngine(activity)));
+            }
+            HandsFreeService.reload(activity);
+        });
+        ui.styleControl(camSwitch);
+        camSection.addView(camSwitch);
+
+        Button camThrBtn = ui.button("Чувствительность CAM++: " + String.format(java.util.Locale.ROOT, "%.2f", OwnerSpeakerFilter.threshold(activity)), () -> {});
+        camThrBtn.setOnClickListener(v -> {
+            float[] vals = {0.32f, 0.38f, 0.44f, 0.50f};
+            String[] labels = {"Мягкая · 0.32", "Сбалансированная · 0.38 (реком.)", "Строгая · 0.44", "Очень строгая · 0.50"};
+            ui.dialog().setTitle("Порог сходства CAM++").setItems(labels, (d, which) -> {
+                OwnerSpeakerFilter.setThreshold(activity, vals[which]);
+                camThrBtn.setText("Чувствительность CAM++: " + String.format(java.util.Locale.ROOT, "%.2f", vals[which]));
+            }).setNegativeButton("Отмена", null).show();
+        });
+        camSection.addView(camThrBtn);
+
+        Button lkThrBtn = ui.button("Порог LiveKit C v2: " + String.format(java.util.Locale.ROOT, "%.2f", WakeSettings.liveKitThreshold(activity)), () -> {});
+        lkThrBtn.setOnClickListener(v -> {
+            float[] vals = {0.95f, 0.98f, 0.99f};
+            String[] labels = {"Чувствительный · 0.95", "Оптимальный · 0.98 (реком.)", "Строгий · 0.99"};
+            ui.dialog().setTitle("Порог срабатывания LiveKit C v2").setItems(labels, (d, which) -> {
+                WakeSettings.setLiveKitThreshold(activity, vals[which]);
+                lkThrBtn.setText("Порог LiveKit C v2: " + String.format(java.util.Locale.ROOT, "%.2f", vals[which]));
+                HandsFreeService.reload(activity);
+            }).setNegativeButton("Отмена", null).show();
+        });
+        camSection.addView(lkThrBtn);
+
+        parent.addView(ui.button("Журнал активаций и обратная связь",
+                () -> activity.startActivity(new Intent(activity, WakeDiagnosticsActivity.class))));
+
+        LinearLayout audioRoute = ui.disclosure(parent, "Эхоподавление, Bluetooth и маршруты");
+        audioRoute.addView(ui.text(AudioRouteManager.routeSummary(activity), 13, ui.theme.secondary));
+        ui.setting(audioRoute, "Аппаратное эхоподавление (AEC)", AudioRouteManager.isAecEnabled(activity),
+                on -> AudioRouteManager.setAecEnabled(activity, on));
+        ui.setting(audioRoute, "Шумоподавление микрофона (NS)", AudioRouteManager.isNsEnabled(activity),
+                on -> { AudioRouteManager.setNsEnabled(activity, on); HandsFreeService.reload(activity); });
+        ui.setting(audioRoute, "Bluetooth-гарнитура (SCO / BLE)", AudioRouteManager.isBtScoEnabled(activity),
+                on -> AudioRouteManager.setBtScoEnabled(activity, on));
         ui.card(parent, "Вызов голосом", "Скажите «Вайли» или «Окей, Вайли», дождитесь сигнала и произнесите команду. Для вопросов нужна разговорная модель; команды работают без неё.");
         Switch prefix = new Switch(activity);
         prefix.setText("Слитные команды · эксперимент");
@@ -48,7 +127,10 @@ final class AssistantPanel {
             if (HandsFreeService.running()) { HandsFreeService.stop(activity); refresh(); return; }
             if (!WileyVoiceService.selected(activity)) { ui.dialog().setMessage("Сначала назначьте WileyAI цифровым помощником Android.").setPositiveButton("Назначить", (d,w) -> role()).setNegativeButton("Отмена", null).show(); return; }
             if (!WileyVoiceService.ready()) { ui.dialog().setMessage("Android ещё не подключён к службе WileyAI. Повторно выберите WileyAI в настройках цифрового помощника и вернитесь в приложение.").setPositiveButton("Настройки Android", (d,w) -> role()).setNegativeButton("Закрыть", null).show(); return; }
-            if (!modelInstalled.getAsBoolean()) { ui.dialog().setMessage("Сначала установите русский комплект Vosk в «Настройки → Распознавание речи».").setPositiveButton("Понятно", null).show(); return; }
+            String currentPhrase = preferences.getString("wake_phrase", WakeSettings.defaultPhrase(activity));
+            boolean liveKitReady = WakeSettings.wakeEngine(activity) != WakeSettings.ENGINE_VOSK
+                    && (WakePhrase.SHORT.equals(currentPhrase) || WakePhrase.DEFAULT.equals(currentPhrase));
+            if (!modelInstalled.getAsBoolean() && !liveKitReady) { ui.dialog().setMessage("Сначала установите русский комплект Vosk в «Настройки → Распознавание речи».").setPositiveButton("Понятно", null).show(); return; }
             ui.dialog().setTitle("Включить фоновый микрофон?").setMessage("Фраза распознаётся локально. Микрофон будет работать и при закрытом экране WileyAI, с постоянным уведомлением «Остановить». Это увеличивает расход батареи. Аудиозаписи не сохраняются и не отправляются в сеть. После вызова текст запроса сохраняется в отдельном чате помощника.")
                 .setNegativeButton("Отмена", null).setPositiveButton("Включить", (d,w) -> permissions()).show();
         }); parent.addView(enable);

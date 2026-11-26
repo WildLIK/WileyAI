@@ -11,6 +11,26 @@
 /backups/
 /downloads/
 /local/
+/update-key.spki
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.key
+*.pem
+*.dpapi
+*.wileybackup
+WileyAI_Log*.txt
+WileyAI_diagnostics_*.txt
+WileyAI_Wake*.zip
+WileyAI-feedback*.zip
+WileyAI-wake-study*.zip
+/*.zip
+/WileyAI*Голос/
+/docs/benchmarks/voice365-e2e.json
+/docs/benchmarks/voice365a-e2e.json
+/docs/benchmarks/intent-gate-c7.json
+/docs/benchmarks/intent-routing-3.6.7.json
 *.gguf
 *.safetensors
 

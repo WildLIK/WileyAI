@@ -60,8 +60,19 @@ public final class StageOneInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Context context = getTargetContext(); Bundle result = new Bundle();
         try {
+            if (only.equals("releaseUpgradeSeed") || only.equals("releaseUpgradeVerify")) {
+                test(only, () -> result.putString("upgrade_probe", ReleaseUpgradeProbe.run(context, only.equals("releaseUpgradeSeed"))));
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
             if(only.equals("wakeAcousticNext8"))test("wakeAcousticNext8",()->result.putString("wake_acoustic_next8",AcousticDiagnosticsDeviceProbe.run(context)));
             if(only.equals("wakeStudyNext11"))test("wakeStudyNext11",()->WakeStudySessionsProbe.run(context));
+            if(only.equals("wakeCompareNext16"))test("wakeCompareNext16",()->result.putString("wake_compare_next16",WakeComparisonProbe.run(context)));
+            if(only.equals("wakeStage1S23"))test("wakeStage1S23",()->result.putString("wake_stage1_s23",WakeStage1Probe.run(context)));
+            if(only.equals("wakeE2ePipeline"))test("wakeE2ePipeline",()->result.putString("wake_e2e",WakeStage1Probe.runE2e(context)));
+            if(only.equals("voiceNext17"))test("voiceNext17",()->VoiceNext17Probe.run(context));
+            if(only.equals("voiceNext18"))test("voiceNext18",()->VoiceNext18Probe.run(context));
+            if(only.equals("voiceNext19"))test("voiceNext19",()->VoiceNext19Probe.run(context));
             if(only.equals("wakeNext12"))test("wakeNext12",()->result.putString("wake_next12",WakeNext12Probe.run(context)));
             if(only.equals("phoneFinishChecks"))test("phoneFinishChecks",()->result.putString("phone_final_checks",GatewayDeviceProbe.finalChecks(this,context)));
             if(only.equals("appNameMemory"))test("appNameMemory",()->AppNameMemoryProbe.run(context));

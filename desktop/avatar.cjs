@@ -329,9 +329,23 @@ function installAvatar({
         at: 0,
       });
     else pointerWindows.delete(event.sender.id);
+    refreshPointerTimer();
   });
-  setInterval(() => {
-    if (sleeping || locked || !pointerWindows.size) return;
+  let pointerTimer;
+  function pointerVisible(window) {
+    return window && !window.isDestroyed() && !window.webContents.isDestroyed() &&
+      window.isVisible() && !window.isMinimized();
+  }
+  function refreshPointerTimer() {
+    const shouldRun = !sleeping && !locked &&
+      [...pointerWindows.values()].some(({ window }) => pointerVisible(window));
+    if (shouldRun && !pointerTimer) pointerTimer = setInterval(updatePointer, 100).unref();
+    if (!shouldRun && pointerTimer) {
+      clearInterval(pointerTimer);
+      pointerTimer = undefined;
+    }
+  }
+  function updatePointer() {
     let point;
     for (const [id, watched] of pointerWindows) {
       const { window } = watched;
@@ -339,7 +353,7 @@ function installAvatar({
         pointerWindows.delete(id);
         continue;
       }
-      if (!window.isVisible() || window.isMinimized()) continue;
+      if (!pointerVisible(window)) continue;
       point ||= screen.getCursorScreenPoint();
       const bounds = window.getContentBounds();
       const display = screen.getDisplayMatching(bounds).workArea;
@@ -358,7 +372,8 @@ function installAvatar({
       watched.at = now;
       sendToWindow(window, "avatar-pointer", value);
     }
-  }, 100).unref();
+    refreshPointerTimer();
+  }
   ipcMain.handle("avatar-next-display", (event) => {
     trusted(event);
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -377,6 +392,7 @@ function installAvatar({
     activity(window);
   });
   const pause = () => {
+    refreshPointerTimer();
     signals.clear();
     demos.clear();
     stop();
@@ -388,6 +404,7 @@ function installAvatar({
   });
   powerMonitor.on("resume", () => {
     sleeping = false;
+    refreshPointerTimer();
     keepVisible();
     report();
   });
@@ -397,6 +414,7 @@ function installAvatar({
   });
   powerMonitor.on("unlock-screen", () => {
     locked = false;
+    refreshPointerTimer();
     keepVisible();
     report();
   });
@@ -423,16 +441,19 @@ function installAvatar({
         signals.release(id);
         demos.release(id);
         pointerWindows.delete(id);
+        refreshPointerTimer();
         capabilities.delete(id);
         reportCapabilities();
       };
       window.on("hide", () => {
+        refreshPointerTimer();
         if (
           window === windows.get("avatar-test") ||
           window === windows.get("avatar")
         )
           demos.clear();
       });
+      for (const event of ["show", "minimize", "restore"]) window.on(event, refreshPointerTimer);
       window.on("closed", release);
       window.webContents.on("render-process-gone", release);
       window.webContents.on(

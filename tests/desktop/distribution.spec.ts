@@ -91,6 +91,7 @@ test("distribution: component progress/cancel/restart and private GitHub update 
       available: null as { version: string; url: string } | null,
       dismissed: "",
       checking: false,
+      signed: false,
       has_key: false,
       error: "",
     };
@@ -126,6 +127,7 @@ test("distribution: component progress/cancel/restart and private GitHub update 
     await page
       .getByRole("tab", { name: "Данные и копии", exact: true })
       .click();
+    await expect(page.getByLabel("Канал обновлений")).toHaveCount(0);
     await page
       .getByRole("button", { name: "Проверить обновления", exact: true })
       .click();
@@ -151,6 +153,19 @@ test("distribution: component progress/cancel/restart and private GitHub update 
       page.getByText("Доступ к закрытому репозиторию · ключ сохранён"),
     ).toBeVisible();
     await page.screenshot({ path: "local/screenshots/updates-760.png" });
+    await page.getByText("Сообщить об ошибке", { exact: true }).click();
+    await page.getByLabel("Описание проблемы").fill("Нейтральное описание для локального отчёта.");
+    const preview = page.waitForResponse((response) => new URL(response.url()).pathname === "/feedback/preview");
+    await page.getByRole("button", { name: "Предпросмотр отчёта" }).click();
+    expect((await preview).ok()).toBe(true);
+    await expect(page.getByRole("button", { name: "Сохранить ZIP" })).toBeVisible();
+    await page.getByText("description.txt", { exact: true }).click();
+    await expect(page.locator("pre").filter({ hasText: "Нейтральное описание для локального отчёта." })).toBeVisible();
+    state.signed = true;
+    state.dismissed = "";
+    await page.getByRole("button", { name: "Проверить обновления", exact: true }).click();
+    await page.getByRole("button", { name: "Посмотреть обновление", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Скачать обновление", exact: true })).toBeVisible();
   } finally {
     await app.close();
   }

@@ -5,7 +5,7 @@ import java.nio.file.*;
 
 /** Diagnostic PCM16 mono encoder. FLAC uses fixed blocks and verbatim subframes per RFC 9639. */
 final class AcousticAudio {
-    private static final int BLOCK = 2048, RATE = AcousticCapture.RATE;
+    private static final int BLOCK = 2048, RATE = AcousticCapture.RATE, COMPARISON_SECONDS = 3602;
     private static final int[] CRC8 = crcTable(8, 0x07), CRC16 = crcTable(16, 0x8005);
 
     private static int[] crcTable(int bits, int polynomial) {
@@ -33,8 +33,16 @@ final class AcousticAudio {
     }
 
     static void encode(Path raw, Path result, boolean flac) throws IOException {
+        encode(raw, result, flac, 600);
+    }
+
+    static void encodeComparisonFlac(Path raw, Path result) throws IOException {
+        encode(raw, result, true, COMPARISON_SECONDS);
+    }
+
+    private static void encode(Path raw, Path result, boolean flac, int seconds) throws IOException {
         long bytes = Files.size(raw), count = bytes / 2;
-        if (bytes % 2 != 0 || count > RATE * 600L) throw new IOException("invalid PCM length");
+        if (bytes % 2 != 0 || count > (long) RATE * seconds) throw new IOException("invalid PCM length");
         try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(result)));
              InputStream in = new BufferedInputStream(Files.newInputStream(raw))) {
             if (!flac) {
@@ -127,7 +135,8 @@ final class AcousticAudio {
         if (kind == 0x52494646) total = (in.length() - 44) / 2;
         else if (kind == 0x664c6143) { in.seek(18); total = in.readLong() & ((1L << 36) - 1); }
         else throw new IOException("unsupported format");
-        if (total < 0 || total > RATE * 600L || start < 0 || requested < 0) throw new IOException("invalid range");
+        int maxSeconds = kind == 0x664c6143 ? COMPARISON_SECONDS : 600;
+        if (total < 0 || total > (long) RATE * maxSeconds || start < 0 || requested < 0) throw new IOException("invalid range");
         return (int)Math.min(requested, Math.max(0, total - start));
     }
 

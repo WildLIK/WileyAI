@@ -168,7 +168,7 @@ async def select_tools(settings, text, catalog, index=None, strategy="all"):
     try:
         async with asyncio.timeout(1.5):
             vectors = await index.embed(settings, [text, *[item["description"] for item in catalog]])
-        ranked = semantic.scores(vectors[1:], semantic.vector(vectors[0]))
+        ranked = await asyncio.to_thread(semantic.scores, vectors[1:], semantic.vector(vectors[0]))
         chosen = set(sorted(range(len(catalog)), key=lambda i: ranked[i], reverse=True)[:4])
         # Search and opening are one workflow; retrieval may not sever that link.
         if any(catalog[i]["id"].startswith("applications.") for i in chosen):

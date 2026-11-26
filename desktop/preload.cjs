@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld("wiley", {
   setStartup: (enabled) => ipcRenderer.invoke("startup-set", enabled),
   startOllama: () => ipcRenderer.invoke("start-ollama"),
   openUpdate: () => ipcRenderer.invoke("open-update"),
+  installUpdate: () => ipcRenderer.invoke("install-update"),
+  saveFeedback: (description) => ipcRenderer.invoke("save-feedback", description),
   googleCalendarLogin: () => ipcRenderer.invoke("google-calendar-login"),
   chatgptLogin: (newAccount = false) =>
     ipcRenderer.invoke("chatgpt-login", newAccount),

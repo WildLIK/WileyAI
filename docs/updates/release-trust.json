@@ -1,0 +1,5 @@
+{
+  "manifest_p256_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKLGY70YswDRQHxnbc9Anogbwbl2q4QkrxFAu+6biw0iNw0gPSfoO/AGFjULKTr27daXAUHiAcRX8ktjlE/wmkg==",
+  "manifest_spki_sha256": "a0c220ef4fcad6e9ba09218b43ddc110cb4c74fdad1b40e4bfd5a34ac6ab770c",
+  "android_certificate_sha256": "7ec2a7013c696174ee5c912791a08adc91da74d2e0f46fc8425500bdd40ed1f1"
+}

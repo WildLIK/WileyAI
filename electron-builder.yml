@@ -16,6 +16,10 @@ files:
   - package.json
   - "!node_modules/**"
 extraResources:
+  - from: local/packaging/update-key.spki
+    to: backend/update-key.spki
+  - from: release-version.json
+    to: backend/release-version.json
   - from: assets/voice
     to: licenses/voice
     filter: ["*.txt", "*.json"]

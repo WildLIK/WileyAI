@@ -1,4 +1,4 @@
-param([switch]$Offline, [switch]$Check)
+param([switch]$Offline, [switch]$Check, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $env:JAVA_HOME) { throw 'Set JAVA_HOME to JDK 17.' }
@@ -8,7 +8,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $root 'local\android-native\llama.cp
 $keytool = Join-Path $env:JAVA_HOME 'bin\keytool.exe'
 if (-not (Test-Path -LiteralPath $keytool)) { throw 'keytool was not found in JAVA_HOME.' }
 $key = Join-Path $root 'local\android-signing\wiley-debug.keystore'
-if (-not (Test-Path -LiteralPath $key)) {
+if (-not $Release -and -not (Test-Path -LiteralPath $key)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $key) | Out-Null
     & $keytool -genkeypair -keystore $key -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create the debug signing key.' }
@@ -22,7 +22,15 @@ else {
 }
 $arguments = @('-p', (Join-Path $root 'android'), '--no-daemon')
 if ($Offline) { $arguments += '--offline' }
-$arguments += 'assembleDebug'
-if ($Check) { $arguments += @('lintDebug', 'assembleDebugAndroidTest') }
+if ($Release) {
+    if (!$env:WILEYAI_ANDROID_RELEASE_STORE -or !$env:WILEYAI_UPDATE_PUBLIC_KEY) {
+        throw 'Release build requires the permanent Android keystore and the signed update public key.'
+    }
+    $arguments += 'assembleRelease'
+    if ($Check) { $arguments += 'lintRelease' }
+} else {
+    $arguments += 'assembleDebug'
+    if ($Check) { $arguments += @('lintDebug', 'assembleDebugAndroidTest') }
+}
 & $gradlePath @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build the APK.' }

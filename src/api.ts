@@ -365,6 +365,8 @@ declare global {
       ): Promise<{ available: boolean; enabled: boolean }>;
       startOllama(): Promise<void>;
       openUpdate(): Promise<void>;
+      installUpdate(): Promise<void>;
+      saveFeedback(description: string): Promise<boolean>;
       googleCalendarLogin(): Promise<void>;
       chatgptLogin(newAccount?: boolean): Promise<void>;
       chatgptUsage(): Promise<void>;

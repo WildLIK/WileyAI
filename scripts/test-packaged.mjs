@@ -13,7 +13,7 @@ try {
 }
 
 async function verifyPackaged(data) {
-  const executable = resolve("local/releases/win-unpacked/WileyAI.exe");
+  const executable = resolve(process.argv[2] || "local/releases/win-unpacked/WileyAI.exe");
   const version = JSON.parse(
     await readFile(resolve("package.json"), "utf8"),
   ).version;
@@ -67,6 +67,15 @@ async function verifyPackaged(data) {
       return response.json();
     };
     const health = await api("/health");
+    const feedback = JSON.parse((await api("/feedback/preview", "POST", { description: "Packaged build probe" }))["system.json"]);
+    const packaged = JSON.parse(await readFile(join(resolve(executable, ".."), "resources", "build-info.json"), "utf8"));
+    if (feedback.wileyai !== version || feedback.build_id !== packaged.build_id ||
+        feedback.git_commit !== packaged.git_commit || feedback.git_dirty !== packaged.git_dirty ||
+        !/^windows-x64-[0-9a-f-]{36}$/.test(feedback.build_id) || !/^[0-9a-f]{40}$/.test(feedback.git_commit) ||
+        !feedback.engines?.llm?.model || !feedback.engines?.stt?.engine || !feedback.engines?.tts?.engine) {
+      throw new Error("Packaged feedback is missing verified build or engine metadata");
+    }
+    console.log("Standalone feedback includes the packaged build identity and selected engines.");
     if (health.version !== version || health.stt_available)
       throw new Error("Unexpected base runtime state");
     const recognition = await api("/settings");
@@ -204,7 +213,9 @@ async function verifyPackaged(data) {
     const discovered = await api("/applications/scan", "POST");
     if (
       !discovered.supported ||
-      Object.keys(discovered.categories).length !== 6 ||
+      !["music", "video", "messengers", "browsers", "windows", "other"].every(
+        (category) => typeof discovered.categories?.[category] === "string",
+      ) ||
       !Array.isArray(discovered.items)
     )
       throw new Error("Standalone application scan failed");

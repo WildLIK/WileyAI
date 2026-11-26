@@ -134,6 +134,7 @@ final class AcousticDiagnostics {
         prefs.edit().putInt("limit_mib", Math.max(50, Math.min(500, mib))).putBoolean("prune", prune).apply();
     }
     synchronized void start(String mode, int minutes, boolean suppress, int form, int condition) {
+        if (WakeComparison.active()) { status = "Остановите сравнение голосового вызова"; return; }
         if (active != null || analyzing) return;
         if (!HandsFreeService.running()) { status = "Сначала включите фоновый голосовой вызов"; return; }
         begin(mode, minutes, suppress, form, condition);

@@ -114,28 +114,24 @@ final class GigaAmSherpa implements GigaAmSession.Backend {
         }
     }
     @Override public String decode(long handle, float[] samples, int sampleRate) throws IOException {
-        Object recognizer, stream, result;
+        Object stream = null;
         try {
+            Object recognizer;
             synchronized (this) { recognizer = recognizers.get(handle); }
             if (recognizer == null) throw new IOException("Распознаватель GigaAM уже освобождён");
             Class<?> recognizerType = recognizer.getClass();
             stream = recognizerType.getMethod("createStream").invoke(recognizer);
             stream.getClass().getMethod("acceptWaveform", float[].class, int.class).invoke(stream, samples, sampleRate);
             recognizerType.getMethod("decode", stream.getClass()).invoke(recognizer, stream);
-            result = recognizerType.getMethod("getResult", stream.getClass()).invoke(recognizer, stream);
+            Object result = recognizerType.getMethod("getResult", stream.getClass()).invoke(recognizer, stream);
+            Object text = result.getClass().getMethod("getText").invoke(result);
+            return text == null ? "" : text.toString();
         } catch (IOException failure) { throw failure; }
         catch (ReflectiveOperationException|RuntimeException shape) {
             IOException failure = new IOException("Распознавание GigaAM прервалось ошибкой движка");
             failure.initCause(shape); throw failure;
-        }
-        try {
-            Object text = result.getClass().getMethod("getText").invoke(result);
-            return text == null ? "" : text.toString();
-        } catch (ReflectiveOperationException shape) {
-            IOException failure = new IOException("Движок вернул результат неизвестного формата");
-            failure.initCause(shape); throw failure;
         } finally {
-            try { stream.getClass().getMethod("release").invoke(stream); }
+            if (stream != null) try { stream.getClass().getMethod("release").invoke(stream); }
             catch (ReflectiveOperationException|RuntimeException ignored) { /* stream cleanup is best-effort */ }
         }
     }

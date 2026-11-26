@@ -85,6 +85,11 @@ class TextBody(BaseModel):
 class UpdatePreferences(BaseModel):
     automatic: bool
     token: str | None = Field(default=None, max_length=4096, pattern=r"^[A-Za-z0-9_]*$")
+    retention_days: Literal[1, 7, 30] | None = None
+
+
+class FeedbackBody(BaseModel):
+    description: str = Field(default="", max_length=4000)
 
 
 class MemoryBody(BaseModel):
@@ -492,8 +497,36 @@ def create_app(root: Path = DATA_DIR, token: str | None = None) -> FastAPI:
         return await updates.check()
 
     @app.put("/updates")
-    def update_preferences(body: UpdatePreferences):
-        return updates.configure(body.automatic, body.token)
+    async def update_preferences(body: UpdatePreferences):
+        return await updates.settings(body.automatic, body.token, body.retention_days)
+
+    @app.post("/updates/download")
+    async def download_update():
+        try:
+            return await updates.download()
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        except (OSError, httpx.HTTPError) as error:
+            raise HTTPException(503, "Загрузка не завершена. Проверьте сеть и свободное место.") from error
+
+    @app.post("/updates/verify-installer")
+    async def verify_update_installer():
+        try:
+            return {"sha256": await updates.install_digest()}
+        except (OSError, ValueError) as error:
+            raise HTTPException(409, "Нет проверенного установщика. Повторите загрузку.") from error
+
+    @app.post("/feedback/preview")
+    def feedback_preview(body: FeedbackBody):
+        from .feedback import entries
+        return entries(store.settings(), updates.state(), body.description, root / "process-faults.json")
+
+    @app.post("/feedback/zip")
+    def feedback_zip(body: FeedbackBody):
+        from fastapi.responses import Response
+        from .feedback import archive, entries
+        return Response(archive(entries(store.settings(), updates.state(), body.description, root / "process-faults.json")),
+                        media_type="application/zip")
 
     @app.post("/updates/dismiss")
     def dismiss_update():

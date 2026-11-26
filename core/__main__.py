@@ -1,5 +1,7 @@
 import argparse
 import socket
+import sys
+import threading
 
 import uvicorn
 
@@ -9,6 +11,7 @@ from .api import create_app
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--parent-stdin", action="store_true")
     args = parser.parse_args()
     app = create_app()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -16,6 +19,11 @@ def main():
     app.state.local_port = sock.getsockname()[1]
     print(f"WILEYAI_PORT={sock.getsockname()[1]}", flush=True)
     server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
+    if args.parent_stdin:
+        def wait_for_parent():
+            sys.stdin.buffer.read()
+            server.should_exit = True
+        threading.Thread(target=wait_for_parent, name="desktop-lifecycle", daemon=True).start()
     server.run(sockets=[sock])
 
 

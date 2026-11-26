@@ -46,9 +46,11 @@ speech recognizer. The model is never bundled: the user downloads the pinned
 sherpa-onnx ONNX export
 (csukuangfj/sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16 on
 Hugging Face) at their explicit request, and each file is verified against its
-published SHA-256 before installation. The optional sherpa-onnx Android AAR
-(Apache-2.0, https://github.com/k2-fsa/sherpa-onnx) is likewise a separate
-user-requested component, not part of the default APK.
+published SHA-256 before installation. The APK includes the pinned sherpa-onnx
+1.13.5 runtime when the reviewed AAR is available (Apache-2.0,
+https://github.com/k2-fsa/sherpa-onnx), with Kotlin stdlib 1.9.24 (Apache-2.0,
+https://github.com/JetBrains/kotlin). ONNX Runtime MIT and third-party notices
+are included in assets/voice-vad. These libraries do not include GigaAM weights.
 
 Desktop speech endpoint detection includes ONNX Runtime Web 1.31.1 (MIT,
 https://github.com/microsoft/onnxruntime) and Silero VAD v5 (MIT, copyright
@@ -59,6 +61,8 @@ artifact comes from ricky0123/vad revision
 The vad-web microphone wrapper is not included; WileyAI retains its own
 AudioWorklet and uses a dedicated local inference worker. TEN VAD and WebRTC VAD
 were evaluated locally and are not included in the application.
+Android uses the same Silero v5 artifact through sherpa-onnx to detect speech
+within GigaAM command sessions after voice activation.
 
 Silero VAD model license:
 
@@ -98,12 +102,13 @@ https://huggingface.co/istupakov/silero-vad-onnx. The model and VAD revisions
 and file SHA-256 checksums are pinned in core/gigaam.py. Weights are downloaded
 separately and do not execute remote Python code.
 
-The Fairy Assistant - Crystal VRM avatar (model version 0.15) is included in
+The Fairy Assistant - Crystal VRM avatar (model version 0.16) is included in
 resources/avatars/Fairy_Assistant.vrm. It was authored by the FairyAssistant
 project with a locally created VRoid Studio base and original Blender costume,
 hair and wing refinements. The embedded VRM 1.0 license and use permissions
-apply: https://vrm.dev/licenses/1.0/. Avatar use by everyone and redistribution
-are permitted; the remaining permissions are recorded in the VRM metadata.
+apply: https://vrm.dev/licenses/1.0/. Its metadata permits redistribution and
+personal non-profit use, requires credit to FairyAssistant project, and
+prohibits modification. The VRM is distributed as-is.
 This is a character asset, separate from optional AI model weights.
 
 
@@ -113,7 +118,11 @@ https://github.com/ggml-org/llama.cpp/tree/8642541b255bfb5dc39cd351a178be09013a5
 The license is included in android/app/src/main/assets/licenses/llama-cpp-MIT.txt.
 Qwen3 0.6B model weights (Apache-2.0, https://huggingface.co/Qwen/Qwen3-0.6B)
 are downloaded separately from the pinned unsloth GGUF revision recorded in
-docs/research/android-llm-catalog.json. No weights are bundled in the APK.
+docs/research/android-llm-catalog.json.
+
+The only ONNX model shipped with the public Android and Windows builds is the
+verified Silero VAD v5 artifact above. Local wake-word, speaker comparison
+and other research models and recordings are excluded.
 
 Piper Irina is used through a separately installed upstream sherpa-onnx Android
 TTS engine, not linked or bundled with WileyAI. Provenance and APK digest are

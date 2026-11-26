@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { resolve, join, sep } from "node:path";
+import { createPublicKey, randomUUID } from "node:crypto";
 
 const root = resolve(import.meta.dirname, "..");
 const staging = join(root, "local", "packaging");
@@ -20,7 +21,19 @@ const run = (exe, args, capture = false) => {
 };
 if (process.platform !== "win32" || process.arch !== "x64")
   throw new Error("Build on Windows x64");
+const version = JSON.parse(await readFile(join(root, "release-version.json"), "utf8")).version;
+if (JSON.parse(await readFile(join(root, "package.json"), "utf8")).version !== version)
+  throw new Error("package.json must match release-version.json");
+const gitCommit = run("git", ["rev-parse", "HEAD"], true);
+const gitDirty = Boolean(run("git", ["status", "--porcelain"], true));
 await mkdir(staging, { recursive: true });
+const updateKey = process.env.WILEYAI_UPDATE_PUBLIC_KEY || "";
+if (updateKey) {
+  const parsed = createPublicKey({ key: Buffer.from(updateKey, "base64"), format: "der", type: "spki" });
+  if (parsed.asymmetricKeyType !== "ec" || parsed.asymmetricKeyDetails.namedCurve !== "prime256v1")
+    throw new Error("WILEYAI_UPDATE_PUBLIC_KEY must be a P-256 public key in DER SPKI/base64 format");
+}
+await writeFile(join(staging, "update-key.spki"), updateKey + "\n", "ascii");
 const pythonRoot = join(staging, "python");
 if (
   !resolve(pythonRoot).startsWith(resolve(root) + sep) ||
@@ -130,7 +143,10 @@ await writeFile(
   join(staging, "build-info.json"),
   JSON.stringify(
     {
-      version: JSON.parse(await readFile(join(root, "package.json"))).version,
+      version,
+      build_id: "windows-x64-" + randomUUID(),
+      git_commit: gitCommit,
+      git_dirty: gitDirty,
       python: "3.12.13",
       platform: "win32-x64",
     },

@@ -76,6 +76,16 @@ final class SpeechPanel {
         gigaAmUnload = ui.button("Выгрузить модель сейчас", () -> { GigaAmRuntime.releaseIfCreated("manual"); refresh(); }); card.addView(gigaAmUnload);
         gigaAmRuntime = ui.text(GigaAmRuntime.get(activity).diagnostic(), 14, ui.theme.secondary); gigaAmRuntime.setPadding(0, ui.dp(8), 0, 0); card.addView(gigaAmRuntime);
         LinearLayout gigaAmAdvanced = ui.disclosure(card, "Управление GigaAM");
+        Switch quietSpeech = new Switch(activity);
+        quietSpeech.setText("Тихие команды после голосового вызова");
+        quietSpeech.setTextColor(ui.theme.text);
+        quietSpeech.setMinHeight(ui.dp(56));
+        quietSpeech.setChecked(preferences.getBoolean(GigaAmSileroVad.ENABLED, true));
+        quietSpeech.setOnCheckedChangeListener((button, checked) ->
+            preferences.edit().putBoolean(GigaAmSileroVad.ENABLED, checked).apply());
+        ui.styleControl(quietSpeech);
+        gigaAmAdvanced.addView(quietSpeech);
+        gigaAmAdvanced.addView(ui.text("Silero определяет речь после голосового вызова. Если выключить, GigaAM будет определять речь по громкости.", 14, ui.theme.secondary));
         gigaAmAdvanced.addView(ui.button("Импортировать ZIP модели", () -> { if (canChange() && !gigaAm.busy()) gigaAmImport.run(); }));
         gigaAmRemove = ui.button("Удалить модель GigaAM", () -> {
             if (canChange() && !gigaAm.busy()) ui.dialog().setTitle("Удалить модель GigaAM?").setMessage("Экспериментальное распознавание потребует повторной загрузки. Vosk не затрагивается. Чаты сохранятся.").setNegativeButton("Отмена", null).setPositiveButton("Удалить", (d, w) -> { GigaAmRuntime.releaseIfCreated("model_removed"); gigaAm.remove(); }).show();

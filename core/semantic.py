@@ -10,6 +10,7 @@ import math
 import sqlite3
 import struct
 from contextlib import contextmanager, closing
+from functools import lru_cache
 from pathlib import Path
 
 import httpx
@@ -18,10 +19,13 @@ from .document_library import Library
 from .document_summary import chunks
 from .storage import SOURCE_TEXT
 
-try:
-    import numpy
-except ImportError:  # Optional in the base runtime; scoring falls back to Python.
-    numpy = None
+@lru_cache(maxsize=1)
+def _numpy():
+    try:
+        import numpy
+    except ImportError:  # Optional in the base runtime; scoring falls back to Python.
+        return None
+    return numpy
 
 MAX_CHUNKS = 10000
 MAX_CACHE = 12000
@@ -47,6 +51,7 @@ def scores(values, query):
     """Cosine similarity with a unit query. Stored float32 vectors are re-normalized."""
     if not values:
         return []
+    numpy = _numpy()
     if numpy is None:
         result = []
         for value in values:
@@ -160,6 +165,7 @@ class SemanticIndex:
                     records.extend(db.execute("SELECT hash,value FROM vectors WHERE model=? AND hash IN (" + ",".join("?" for _ in batch) + ")", (key, *batch)).fetchall())
             for fingerprint, raw in records:
                 if isinstance(raw, bytes) and len(raw) % 4 == 0 and 8 <= len(raw) <= 16384:
+                    numpy = _numpy()
                     result[fingerprint] = numpy.frombuffer(raw, "<f4") if numpy is not None else list(struct.unpack("<" + "f" * (len(raw) // 4), raw))
                 elif isinstance(raw, str):
                     result[fingerprint] = json.loads(raw)  # Early local development cache.

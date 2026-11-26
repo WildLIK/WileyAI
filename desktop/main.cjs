@@ -92,6 +92,27 @@ let avatarDesktop;
 let avatarLayout;
 let avatarControls;
 let core;
+let pendingInstaller;
+let faultWrites = Promise.resolve();
+
+function recordProcessFault(component, reason, code) {
+  if (!["crashed", "oom", "launch-failed", "abnormal-exit"].includes(reason)) return;
+  faultWrites = faultWrites.then(async () => {
+    const file = path.join(dataRoot, "process-faults.json");
+    const load = (name, fallback) => fs.readFile(path.join(dataRoot, name), "utf8")
+      .then(JSON.parse).catch(() => fallback);
+    const saved = await load("process-faults.json", []);
+    const settings = await load("updates.json", {});
+    const days = [1, 7, 30].includes(settings.retention_days) ? settings.retention_days : 7;
+    const now = Math.floor(Date.now() / 1000);
+    const recent = Array.isArray(saved) ? saved.filter((item) => item?.at >= now - days * 86400).slice(-99) : [];
+    recent.push({ at: now, component, reason, code: Number.isInteger(code) ? code : null });
+    await fs.mkdir(dataRoot, { recursive: true });
+    const temporary = file + ".part";
+    await fs.writeFile(temporary, JSON.stringify(recent));
+    await fs.rename(temporary, file);
+  }).catch(() => {});
+}
 let connection;
 const coreConnection = new CoreConnection();
 let tray;
@@ -292,7 +313,7 @@ function trusted(event) {
 
 async function startCore() {
   const token = randomBytes(32).toString("hex");
-  const child = spawnService(python, [...pythonFlags, "-m", "core"], {
+  const child = spawnService(python, [...pythonFlags, "-m", "core", "--parent-stdin"], {
     cwd: backend,
     windowsHide: true,
     env: {
@@ -302,7 +323,7 @@ async function startCore() {
       PYTHONIOENCODING: "utf-8",
       PYTHONUNBUFFERED: "1",
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
   core = child;
   child.stderr.on("data", (data) => process.stderr.write(data));
@@ -322,6 +343,7 @@ async function startCore() {
     child.on("exit", (code) => {
       clearTimeout(timer);
       if (!quitting) {
+        recordProcessFault("core", "abnormal-exit", code);
         const error = new Error(
           `Ядро завершилось с кодом ${code}. Перезапустите WileyAI.`,
         );
@@ -639,6 +661,50 @@ app.whenReady().then(async () => {
     trusted(event);
     // Only a fixed repository page can be opened, never a renderer-supplied URL.
     await shell.openExternal("https://github.com/WildLIK/WileyAI/releases");
+  });
+  ipcMain.handle("install-update", async (event) => {
+    trusted(event);
+    if (!app.isPackaged || process.platform !== "win32" || quitting || pendingInstaller)
+      throw new Error("Установка доступна из установленной WileyAI.");
+    const active = await coreConnection.wait();
+    const response = await fetch(active.url + "/updates/verify-installer", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + active.token },
+      redirect: "error",
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!response.ok) throw new Error("Повторно скачайте проверенное обновление.");
+    const { sha256 } = await response.json();
+    if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error("Некорректная контрольная сумма.");
+    const result = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+      type: "question", buttons: ["Отмена", "Закрыть и обновить"], cancelId: 0, defaultId: 0,
+      message: "Закрыть WileyAI и запустить проверенный установщик?",
+      detail: "Повторный запуск можно выбрать на последней странице установщика.",
+    });
+    if (result.response === 1 && !quitting && !pendingInstaller) {
+      pendingInstaller = sha256;
+      app.quit();
+    }
+  });
+  ipcMain.handle("save-feedback", async (event, description) => {
+    trusted(event);
+    if (typeof description !== "string" || description.length > 4000)
+      throw new Error("Сократите описание до 4000 символов.");
+    const active = await coreConnection.wait();
+    const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), {
+      defaultPath: "WileyAI-feedback.zip", filters: [{ name: "Архив ZIP", extensions: ["zip"] }],
+    });
+    if (result.canceled || !result.filePath) return false;
+    const response = await fetch(active.url + "/feedback/zip", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + active.token, "Content-Type": "application/json" },
+      body: JSON.stringify({ description }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error("Не удалось подготовить отчёт.");
+    await fs.writeFile(result.filePath, Buffer.from(await response.arrayBuffer()));
+    return true;
   });
   async function googleLogin(event, endpoint) {
     trusted(event);
@@ -969,7 +1035,13 @@ app.whenReady().then(async () => {
     },
   });
   try {
-    await startCore();
+    const coreReady = startCore();
+    // The loading view can paint while Python starts. Its IPC calls share
+    // CoreConnection's readiness gate and cannot reach a half-started core.
+    void coreReady.catch(() => {});
+    if (!app.isPackaged || !process.argv.includes("--autostart") || test)
+      showWindow("chat");
+    await coreReady;
     if (!test) {
       tray = new Tray(
         nativeImage.createFromPath(path.join(__dirname, "icon.png")),
@@ -978,8 +1050,6 @@ app.whenReady().then(async () => {
       refreshTrayMenu();
       tray.on("double-click", () => showWindow("chat"));
     }
-    if (!app.isPackaged || !process.argv.includes("--autostart") || test)
-      showWindow("chat");
     // Windows do not need the optional engine; the core reaches it per request.
     void startManagedOllama().catch((error) =>
       process.stderr.write("Ollama: " + error.message + "\n"),
@@ -1004,13 +1074,13 @@ app.whenReady().then(async () => {
                 body:
                   "Доступна версия " +
                   item.version +
-                  ". Откройте выпуск на GitHub.",
+                  (item.signed ? ". Откройте WileyAI для установки." : ". Откройте выпуск на GitHub."),
                 icon: path.join(__dirname, "icon.png"),
               },
-              () =>
-                shell.openExternal(
-                  "https://github.com/WildLIK/WileyAI/releases",
-                ),
+              () => {
+                if (item.signed) showWindow("chat");
+                else void shell.openExternal("https://github.com/WildLIK/WileyAI/releases");
+              },
             );
         } catch {
           /* Update errors are shown in settings; the assistant stays usable. */
@@ -1055,6 +1125,10 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (test) app.quit();
 });
+app.on("render-process-gone", (_event, _contents, details) =>
+  recordProcessFault("renderer", details.reason, details.exitCode));
+app.on("child-process-gone", (_event, details) =>
+  recordProcessFault(details.type === "GPU" ? "gpu" : "electron-child", details.reason, details.exitCode));
 app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
@@ -1072,7 +1146,21 @@ app.on("before-quit", (event) => {
         signal: AbortSignal.timeout(1500),
       }).catch(() => {})
     : Promise.resolve();
-  stopSpeech.finally(() => {
+  stopSpeech.finally(async () => {
+    if (core?.pid && core.exitCode === null && !core.stdin.destroyed) {
+      await new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(deadline);
+          core.removeListener("exit", finish);
+          core.stdin.removeListener("error", finish);
+          resolve();
+        };
+        const deadline = setTimeout(finish, 3000);
+        core.once("exit", finish);
+        core.stdin.once("error", finish);
+        core.stdin.end();
+      });
+    }
     if (process.platform === "win32") {
       // Only kill process trees created and owned by this application.
       if (core?.pid && core.exitCode === null)
@@ -1088,6 +1176,25 @@ app.on("before-quit", (event) => {
     } else {
       core?.kill();
       ollamaProcess?.kill();
+    }
+    if (pendingInstaller) {
+      // Wait for the old application and its backend before invoking NSIS. Rehash after
+      // the confirmation dialog so a changed or interrupted download is never launched.
+      const builtinPowerShell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+      // PowerShell 7 can put its incompatible built-in modules first in the environment.
+      const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "psmodulepath"));
+      const launcher = spawn(builtinPowerShell, [
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+        "$ErrorActionPreference='Stop'; try { foreach ($processId in @($env:WILEY_UPDATE_PARENT,$env:WILEY_UPDATE_CORE)) { if ($processId) { $existing=Get-Process -Id $processId -ErrorAction SilentlyContinue; if ($existing -and !$existing.WaitForExit(30000)) { throw 'Busy' } } }; if ((Get-FileHash -LiteralPath $env:WILEY_UPDATE_FILE -Algorithm SHA256).Hash -ne $env:WILEY_UPDATE_HASH) { throw 'Hash' }; Start-Process -FilePath $env:WILEY_UPDATE_FILE } catch { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('Не удалось запустить обновление. Откройте WileyAI и повторите проверку.', 'WileyAI') }",
+      ], {
+        env: { ...launchEnv, WILEY_UPDATE_PARENT: String(process.pid),
+          WILEY_UPDATE_CORE: core?.pid && core.exitCode === null ? String(core.pid) : "",
+          WILEY_UPDATE_FILE: path.join(dataRoot, "updates-cache", "WileyAI-Update.exe"),
+          WILEY_UPDATE_HASH: pendingInstaller },
+        detached: true, windowsHide: true, stdio: "ignore",
+      });
+      launcher.on("error", () => {});
+      launcher.unref();
     }
     app.quit();
   });

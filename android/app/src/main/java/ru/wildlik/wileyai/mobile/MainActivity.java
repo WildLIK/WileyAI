@@ -49,6 +49,8 @@ public final class MainActivity extends Activity {
     private static final int GIGAAM_IMPORT = 74;
     private static final int GATEWAY_ATTACHMENT = 76;
     private static final int DIAGNOSTIC_EXPORT = 77;
+    private static final int FEEDBACK_EXPORT = 201;
+    private byte[] pendingFeedback;
     private String pendingDiagnosticExport;
     private final ExecutorService io = Executors.newCachedThreadPool();
     private final AtomicBoolean chatting = new AtomicBoolean(false);
@@ -110,6 +112,13 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         settings = new SettingsRepository(this);
+        if (ReleaseUpdates.configured()) {
+            var application = getApplicationContext();
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                UpdateCheckJob.schedule(application);
+                ReleaseUpdates.run(() -> ReleaseUpdates.check(application, false));
+            }, 15000);
+        }
         ui = new MobileUi(this, settings.theme());
         offlineSpeech = new OfflineSpeechEngine(this); systemSpeech = new SystemSpeechEngine(this);
         gigaAmSpeech = new GigaAmSpeechEngine(this, GigaAmRuntime.get(this));
@@ -148,6 +157,7 @@ public final class MainActivity extends Activity {
         localMode = !ChatHeaderPolicy.restorePc(settings.preferences.getBoolean("chat_source_pc",false),profile!=null);
         Uri incoming = getIntent() != null ? getIntent().getData() : null;
         if (MediaPanel.SETTINGS.equals(getIntent().getAction())) showSection("media");
+        else if (ReleaseUpdates.OPEN.equals(getIntent().getAction())) showSection("about");
         else if (HandsFreeService.SETTINGS.equals(getIntent().getAction()) || Intent.ACTION_ASSIST.equals(getIntent().getAction())) showSection("assistant");
         else if (incoming != null) showPair(incoming.toString());
         else showChat();
@@ -163,6 +173,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (MediaPanel.SETTINGS.equals(intent.getAction())) { saveDraft(); showSection("media"); return; }
+        if (ReleaseUpdates.OPEN.equals(intent.getAction())) { if (canNavigate()) openSection("about"); return; }
         if (HandsFreeService.SETTINGS.equals(intent.getAction()) || Intent.ACTION_ASSIST.equals(intent.getAction())) { saveDraft(); showSection("assistant"); return; }
         if (chatting.get() || recognitionBusy()) { error("Сначала завершите текущий ответ или запись и откройте ссылку подключения ещё раз."); return; }
         saveDraft();
@@ -534,7 +545,7 @@ public final class MainActivity extends Activity {
             case "profile" -> "Мой профиль"; case "memory" -> "Память WileyAI"; case "communication" -> "Как со мной общаться";
             case "guide" -> "Подсказки и команды"; case "levels" -> "Уровень управления"; case "notes" -> "Заметки и напоминания"; case "phone_notes" -> "Заметки телефона"; case "phone_reminders" -> "Напоминания телефона";
             case "permissions" -> "Разрешения и безопасность"; case "screen" -> "Наблюдение экрана"; case "app_defaults" -> "Приложения по умолчанию";
-            case "cloud_tools" -> "Инструменты и облако"; case "advanced" -> "Дополнительно"; default -> "Настройки";
+            case "cloud_tools" -> "Инструменты и облако"; case "advanced" -> "Дополнительно"; case "about" -> "О приложении"; default -> "Настройки";
         };
         LinearLayout header = row(); padded(header, 8);
         if (!screenTrail.isEmpty()) { Button back = button("‹", this::handleBack); back.setContentDescription("Назад"); header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48))); }
@@ -632,6 +643,7 @@ public final class MainActivity extends Activity {
             case "connections":
                 gatewayPanel=new GatewayPanel(this,ui,gatewayChat,()->openSection("llm"));gatewayPanel.render(cards);break;
             case "pc": renderPc(cards); break;
+            case "about": new AboutPanel(this, ui, this::saveFeedback).render(cards); break;
             default:
                 ui.link(cards,"Мозг","Локальные, облачные модели и подключения",()->openSection("neural"));
                 ui.link(cards,"Распознавание речи","Движки и модели для команд",()->openSection("speech"));
@@ -641,6 +653,8 @@ public final class MainActivity extends Activity {
                 ui.link(cards,"Разрешения и безопасность","Системные доступы и согласия",()->openSection("permissions"));
                 ui.link(cards,"Оформление","Темы WileyAI",this::chooseTheme);
                 ui.link(cards,"Диагностика","Журнал работы и экспорт",this::showDiagnostics);
+                ui.link(cards,"О приложении",ReleaseUpdates.state().offer()==null?"Версия, обновления и обратная связь":
+                        "Доступно обновление WileyAI",()->openSection("about"));
                 ui.link(cards,"Дополнительно","Проверки и резервная модель",()->openSection("advanced"));
         }
         navigation(sectionTab(section));
@@ -701,27 +715,32 @@ public final class MainActivity extends Activity {
     }
     private void showDiagnostics() { showDiagnosticControls(); }
     private void showDiagnosticControls() {
-        DiagnosticLog.preview(report -> {
-            if(isFinishing() || isDestroyed())return;
-            LinearLayout box=vertical();padded(box,12);
-            final android.app.AlertDialog[] holder=new android.app.AlertDialog[1];
-            long since=DiagnosticLog.startedAt();
-            long endTime=DiagnosticLog.enabled()?System.currentTimeMillis():DiagnosticLog.stoppedAt();
-            long minutes=since>0&&endTime>=since?(endTime-since)/60000:0;
-            box.addView(text("Сбор: "+(DiagnosticLog.enabled()?"включён":"выключен")+(since>0?"\nНачат: "+android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",since)+" · длительность: "+minutes+" мин":(DiagnosticLog.enabled()?"\nЗапись включена автоматически":"\nЗапись ещё не начиналась")),15,ui.theme.text));
-            int marker=report.indexOf("журнал, байт:");
-            if(marker>=0){int end=report.indexOf('\n',marker);box.addView(text(report.substring(marker,end<0?report.length():end),14,ui.theme.secondary));}
-            android.widget.Switch diagnosticSwitch=new android.widget.Switch(this);diagnosticSwitch.setText("Диагностика включена");diagnosticSwitch.setTextColor(ui.theme.text);diagnosticSwitch.setChecked(DiagnosticLog.enabled());diagnosticSwitch.setOnCheckedChangeListener((v,checked)->{if(checked)DiagnosticLog.start();else DiagnosticLog.stop();});ui.styleControl(diagnosticSwitch); box.addView(diagnosticSwitch);
-            box.addView(text("Последняя запись: "+(DiagnosticLog.lastEvent()>0?android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",DiagnosticLog.lastEvent()):"нет данных в текущем сеансе"),14,ui.theme.secondary));
-            box.addView(button("Скачать лог",()->DiagnosticLog.preview(this::previewDiagnostic)));
-            box.addView(button("Поделиться логом",()->DiagnosticLog.preview(this::previewDiagnostic)));
-            box.addView(button("Ложное пробуждение",()->DiagnosticLog.markLastWakeFalse(message->{
-                if(!isFinishing()&&!isDestroyed())android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_SHORT).show();
-            })));
-            box.addView(button("Обучение голосового вызова",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,WakeSampleActivity.class));}));
-            box.addView(button("Акустическая диагностика",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,AcousticDiagnosticsActivity.class));}));
-            box.addView(button("Очистить",()->ui.dialog().setMessage("Удалить локальный диагностический журнал?").setNegativeButton("Отмена",null).setPositiveButton("Очистить",(d,w)->DiagnosticLog.clear(()->{if(holder[0]!=null)holder[0].dismiss();showDiagnosticControls();})).show()));
-            holder[0]=ui.dialog().setTitle("Диагностика телефона").setView(box).setPositiveButton("Закрыть",null).show();
+        if(isFinishing() || isDestroyed())return;
+        LinearLayout box=vertical();padded(box,12);
+        final android.app.AlertDialog[] holder=new android.app.AlertDialog[1];
+        long since=DiagnosticLog.startedAt();
+        long endTime=DiagnosticLog.enabled()?System.currentTimeMillis():DiagnosticLog.stoppedAt();
+        long minutes=since>0&&endTime>=since?(endTime-since)/60000:0;
+        box.addView(text("Сбор: "+(DiagnosticLog.enabled()?"включён":"выключен")+(since>0?"\nНачат: "+android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",since)+" · длительность: "+minutes+" мин":(DiagnosticLog.enabled()?"\nЗапись включена автоматически":"\nЗапись ещё не начиналась")),15,ui.theme.text));
+        TextView journalSize=text("Размер журнала…",14,ui.theme.secondary);
+        box.addView(journalSize);
+        android.widget.Switch diagnosticSwitch=new android.widget.Switch(this);diagnosticSwitch.setText("Диагностика включена");diagnosticSwitch.setTextColor(ui.theme.text);diagnosticSwitch.setChecked(DiagnosticLog.enabled());diagnosticSwitch.setOnCheckedChangeListener((v,checked)->{if(checked)DiagnosticLog.start();else DiagnosticLog.stop();});ui.styleControl(diagnosticSwitch); box.addView(diagnosticSwitch);
+        box.addView(text("Последняя запись: "+(DiagnosticLog.lastEvent()>0?android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",DiagnosticLog.lastEvent()):"нет данных в текущем сеансе"),14,ui.theme.secondary));
+        box.addView(button("Скачать лог",()->DiagnosticLog.preview(this::previewDiagnostic)));
+        box.addView(button("Поделиться логом",()->DiagnosticLog.preview(this::previewDiagnostic)));
+        box.addView(button("Ложное пробуждение",()->DiagnosticLog.markLastWakeFalse(message->{
+            if(!isFinishing()&&!isDestroyed())android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_SHORT).show();
+        })));
+        box.addView(button("Обучение голосового вызова",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,WakeSampleActivity.class));}));
+        box.addView(button("Сравнение голосового вызова",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,WakeComparisonActivity.class));}));
+        box.addView(button("Акустическая диагностика",()->{if(holder[0]!=null)holder[0].dismiss();startActivity(new Intent(this,AcousticDiagnosticsActivity.class));}));
+        box.addView(button("Очистить",()->ui.dialog().setMessage("Удалить локальный диагностический журнал?").setNegativeButton("Отмена",null).setPositiveButton("Очистить",(d,w)->DiagnosticLog.clear(()->{if(holder[0]!=null)holder[0].dismiss();showDiagnosticControls();})).show()));
+        holder[0]=ui.dialog().setTitle("Диагностика телефона").setView(box).setPositiveButton("Закрыть",null).show();
+        background(()->{
+            long bytes=DiagnosticLog.storageBytes();
+            onUi(()->{
+                if(holder[0].isShowing())journalSize.setText(bytes<0?"Размер журнала недоступен":"Размер журнала: "+bytes+" байт");
+            });
         });
     }
     private void previewDiagnostic(String report){
@@ -773,8 +792,31 @@ public final class MainActivity extends Activity {
             try { startActivityForResult(file, GIGAAM_IMPORT); } catch (Exception e) { error("На устройстве нет приложения для выбора ZIP-файла"); }
         });
     }
+    private void saveFeedback(byte[] archive) {
+        pendingFeedback = archive;
+        try {
+            startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip")
+                    .addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "WileyAI-feedback.zip"), FEEDBACK_EXPORT);
+        } catch (Exception unavailable) { pendingFeedback = null; error("Системное сохранение файла недоступно."); }
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == FEEDBACK_EXPORT) {
+            byte[] archive = pendingFeedback;
+            pendingFeedback = null;
+            if (result == RESULT_OK && data != null && data.getData() != null) {
+                if (archive == null) { error("Предпросмотр устарел. Подготовьте отчёт снова."); return; }
+                Uri uri = data.getData();
+                background(() -> {
+                    try (var output = getContentResolver().openOutputStream(uri, "w")) {
+                        if (output == null) throw new java.io.IOException();
+                        output.write(archive);
+                        onUi(() -> note("Архив отчёта сохранён."));
+                    } catch (Exception unavailable) { onUi(() -> error("Не удалось записать ZIP.")); }
+                });
+            }
+            return;
+        }
         if(request==DIAGNOSTIC_EXPORT){String report=pendingDiagnosticExport;pendingDiagnosticExport=null;if(result==RESULT_OK && data!=null && data.getData()!=null && report!=null){Uri destination=data.getData();background(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(destination,"w")){if(out==null)throw new java.io.IOException();out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));onUi(()->note("Диагностический файл сохранён"));}catch(Exception e){onUi(()->error("Не удалось сохранить диагностический файл."));}});}else if(result==RESULT_OK && report==null)error("Предпросмотр устарел. Откройте его ещё раз.");return;}
         if (request == AssistantPanel.ROLE_REQUEST && assistantPanel != null) assistantPanel.refresh();
         if (request == SPEECH_IMPORT && result == RESULT_OK && data != null && data.getData() != null && !speechModels.busy() && !recognitionBusy()) speechModels.importZip(data.getData());

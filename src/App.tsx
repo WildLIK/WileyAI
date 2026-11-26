@@ -2248,7 +2248,7 @@ export function App() {
             {connected ? settings.model : "Модель не подключена"}
           </div>
         </header>
-        <UpdateNotice />
+        <UpdateNotice showUpdates={() => { setSettingsSection("data"); setTab("settings"); }} />
         {error && (
           <div className="error global-message" role="alert">
             <span>{error}</span>

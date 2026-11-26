@@ -3,14 +3,13 @@ import asyncio
 from datetime import datetime, timezone
 import hashlib
 import json
+from importlib import import_module
 import secrets
 import threading
 import time
 
 import keyring
 from pydantic import BaseModel, ConfigDict, Field
-from telethon import TelegramClient, errors, functions, types
-from telethon.sessions import StringSession
 
 from .mail_drafts import check_scope
 
@@ -45,7 +44,7 @@ class TelegramPreview(BaseModel):
 class Telegram:
     service="WileyAI.Telegram"
 
-    def __init__(self,store,factory=TelegramClient):
+    def __init__(self,store,factory=None):
         self.store,self.factory=store,factory
         self.key=hashlib.sha256(str(store.root.resolve()).casefold().encode()).hexdigest()
         self.lock=asyncio.Lock()
@@ -81,7 +80,10 @@ class Telegram:
         value=self.read()
         if not value.get("api_id"): raise ValueError("Сначала укажите api_id и api_hash своего приложения Telegram")
         if self.client is None:
-            self.client=self.factory(StringSession(value.get("session","")),value["api_id"],value["api_hash"],request_retries=0,connection_retries=1,timeout=15,auto_reconnect=False)
+            sdk = await asyncio.to_thread(import_module, "telethon")
+            from telethon.sessions import StringSession
+            factory = self.factory if self.factory is not None else sdk.TelegramClient
+            self.client=factory(StringSession(value.get("session","")),value["api_id"],value["api_hash"],request_retries=0,connection_retries=1,timeout=15,auto_reconnect=False)
             async with asyncio.timeout(25): await self.client.connect()
         elif not self.client.is_connected():
             async with asyncio.timeout(25): await self.client.connect()
@@ -97,6 +99,7 @@ class Telegram:
     async def code(self,code):
         if not self.status()["pending"]: raise ValueError("Код входа истёк. Запросите новый")
         client=await self.connection(False)
+        from telethon import errors
         try:
             async with asyncio.timeout(30): await client.sign_in(phone=self.pending["phone"],code=code,phone_code_hash=self.pending["hash"])
         except errors.SessionPasswordNeededError:
@@ -161,6 +164,7 @@ class Telegram:
     async def import_contacts(self,store):
         from .contacts import Contacts,ContactBody
         client=await self.connection()
+        from telethon import functions
         async with asyncio.timeout(30): result=await client(functions.contacts.GetContactsRequest(hash=0))
         book=Contacts(store)
         existing=book.list()
@@ -203,6 +207,8 @@ class Telegram:
         data=json.loads(item["peer"])
         kind=data.pop("_","")
         if kind not in {"InputPeerUser","InputPeerChat","InputPeerChannel","InputPeerSelf"}: raise ValueError("Недопустимый получатель Telegram")
+        await asyncio.to_thread(import_module, "telethon")
+        from telethon import errors, functions, types
         peer=getattr(types,kind)(**data)
         client=await self.connection()
         message_id=item["message_id"]
@@ -231,6 +237,7 @@ class Telegram:
 
     async def disconnect(self):
         if self.client:
+            from telethon import errors
             try:
                 async with asyncio.timeout(15): await self.client.log_out()
             except (errors.RPCError,TimeoutError,OSError): pass

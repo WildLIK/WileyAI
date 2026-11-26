@@ -1,0 +1,8 @@
+# Reviewed exact history entries: one model checksum, one documentation table, five local test tokens.
+be747af9b024879b5222c85f8ff3fe999e6bccad:android/app/src/main/java/ru/wildlik/wileyai/mobile/GigaAmModel.java:generic-api-key:11
+a1c571876b2b216b4189b554454904c401398ed7:docs/research/gateway-comparison.ru.md:generic-api-key:133
+32673c9b4069d310b1bb5f6b0bd72274819df1fe:tests/test_gigaam.py:generic-api-key:188
+7250c62bd6b28dd29aee233a2aaf6414c1938fa8:tests/test_applications.py:generic-api-key:81
+8c57048ce82fb1262f46a604e78b35757794bd49:tests/test_live_intents.py:generic-api-key:22
+8c57048ce82fb1262f46a604e78b35757794bd49:tests/test_intents.py:generic-api-key:16
+654a1e94e6a1884217914e6a73a23e779141c965:tests/test_routines.py:generic-api-key:16

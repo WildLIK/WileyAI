@@ -23,6 +23,19 @@ def test_versions():
         assert updates.version(value) is None
 
 
+def test_old_experimental_preference_does_not_prevent_updates(tmp_path):
+    (tmp_path / "updates.json").write_text(json.dumps({
+        "channel": "experimental", "automatic": False, "retention_days": 30,
+        "checked_at": 123, "available": {"version": "v99.0.0-beta"}, "etag": "old",
+    }), encoding="utf-8")
+    checker = updates.Updates(tmp_path, client=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"tag_name": "v0.3.0"})))
+    state = asyncio.run(checker.check())
+    assert "channel" not in state
+    assert state["automatic"] is False and state["retention_days"] == 30
+    assert state["available"]["version"] == "v0.3.0"
+
+
 def test_release_notification_is_once_persistent_and_can_be_dismissed(tmp_path):
     def handler(request):
         assert str(request.url) == updates.API

@@ -1,26 +1,59 @@
 plugins { id 'com.android.application' }
 
+def releaseVersion = new groovy.json.JsonSlurper().parse(file('../../release-version.json'))
+if (!(releaseVersion.version ==~ /(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})/)
+        || !(releaseVersion.androidVersionCode instanceof Integer) || releaseVersion.androidVersionCode <= 0) {
+    throw new GradleException('Invalid release-version.json')
+}
+def gitCommit = providers.exec {
+    workingDir file('../..')
+    commandLine 'git', 'rev-parse', 'HEAD'
+}.standardOutput.asText.get().trim()
+if (!(gitCommit ==~ /[0-9a-f]{40}/)) throw new GradleException('Cannot identify the build commit')
+def gitDirty = !providers.exec {
+    workingDir file('../..')
+    commandLine 'git', 'status', '--porcelain'
+}.standardOutput.asText.get().trim().isEmpty()
+def buildId = UUID.randomUUID().toString()
+def upgradeProbeVersion = providers.gradleProperty('wileyUpgradeProbeVersion').orNull
+if (upgradeProbeVersion && !(upgradeProbeVersion ==~ /(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})/)) {
+    throw new GradleException('Invalid isolated upgrade probe version')
+}
+
+def updatePublicKey = providers.environmentVariable('WILEYAI_UPDATE_PUBLIC_KEY').orElse('').get()
+if (!(updatePublicKey ==~ /[A-Za-z0-9+\/=]{0,256}/)) {
+    throw new GradleException('WILEYAI_UPDATE_PUBLIC_KEY must be base64 DER SPKI')
+}
+def releaseStore = providers.environmentVariable('WILEYAI_ANDROID_RELEASE_STORE').orNull
+if (releaseStore && file(releaseStore).canonicalFile == file('../../local/android-signing/wiley-debug.keystore').canonicalFile) {
+    throw new GradleException('The development keystore cannot sign release builds')
+}
+
 android {
     namespace 'ru.wildlik.wileyai.mobile'
     compileSdk 34
     ndkVersion '28.2.13676358'
+    if (upgradeProbeVersion) testBuildType 'release'
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.31.6' } }
     defaultConfig {
         applicationId 'ru.wildlik.wileyai.mobile'
         minSdk 26
         targetSdk 34
         buildConfigField "boolean", "DIAGNOSTIC", "false"
-        versionCode 77
-        versionName '0.14.35-next12'
+        buildConfigField "String", "UPDATE_PUBLIC_KEY", "\"$updatePublicKey\""
+        buildConfigField "String", "BUILD_ID", "\"android-$buildId\""
+        buildConfigField "String", "GIT_COMMIT", "\"$gitCommit\""
+        buildConfigField "boolean", "GIT_DIRTY", "$gitDirty"
+        versionCode (upgradeProbeVersion ? releaseVersion.androidVersionCode - 1 : releaseVersion.androidVersionCode)
+        versionName (upgradeProbeVersion ?: releaseVersion.version)
         testInstrumentationRunner 'ru.wildlik.wileyai.mobile.StageOneInstrumentation'
         ndk { abiFilters 'arm64-v8a', 'x86_64' } // also filters jniLibs packaged from the optional sherpa-onnx AAR
         externalNativeBuild { cmake { abiFilters 'arm64-v8a', 'x86_64'; arguments '-DCMAKE_BUILD_TYPE=Release'; cppFlags '-O2' } }
     }
     buildFeatures { buildConfig true }
-    buildTypes {
-        debug { buildConfigField "boolean", "DIAGNOSTIC", "false" }
-
-    }
+    // Research weights may depend on local voice samples. Include them only in debug.
+    sourceSets.debug.assets.srcDir(layout.buildDirectory.dir('generated/wake-research-assets'))
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/public-voice-assets'))
     defaultConfig { manifestPlaceholders = [appLabel: "WileyAI", pairScheme: "wileyai"] }
     signingConfigs {
         debug {
@@ -29,12 +62,65 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseStore) {
+            publication {
+                storeFile file(releaseStore)
+                storePassword providers.environmentVariable('WILEYAI_ANDROID_STORE_PASSWORD').get()
+                keyAlias providers.environmentVariable('WILEYAI_ANDROID_KEY_ALIAS').get()
+                keyPassword providers.environmentVariable('WILEYAI_ANDROID_KEY_PASSWORD').get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (releaseStore) signingConfig signingConfigs.publication
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+tasks.configureEach {
+    if (name == 'packageRelease') {
+        doFirst {
+            if (!releaseStore || !updatePublicKey) {
+                throw new GradleException('Release APK requires a permanent signer and an update public key')
+            }
+        }
+    }
+}
+
+def comparisonAssets = tasks.register('prepareWakeComparisonModel', Sync) {
+    from('../../local/wakeword26b/next15/C.onnx')
+    into(layout.buildDirectory.dir('generated/wake-research-assets/wake-next16'))
+}
+
+def stage1WakeAssets = tasks.register('prepareStage1WakeModels', Sync) {
+    from('../../local/wakeword26b/next15/C_v2.onnx')
+    from('../../local/wakeword26b/next11-speaker/models/campplus.onnx')
+    into(layout.buildDirectory.dir('generated/wake-research-assets/wake-stage1'))
+}
+tasks.configureEach {
+    if (name == 'preDebugBuild') dependsOn(comparisonAssets, stage1WakeAssets)
+}
+
+def commandVadAssets = tasks.register('prepareCommandVadAsset', Sync) {
+    def model = file('../../assets/voice/silero_vad_v5.onnx')
+    from(model)
+    from('../../THIRD_PARTY_NOTICES.md')
+    from('../../assets/voice/ONNX-Runtime-LICENSE.txt')
+    from('../../assets/voice/ONNX-Runtime-ThirdPartyNotices.txt')
+    into(layout.buildDirectory.dir('generated/public-voice-assets/voice-vad'))
+    doFirst {
+        def sha = java.security.MessageDigest.getInstance('SHA-256').digest(model.bytes).encodeHex().toString()
+        if (sha != '2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f') {
+            throw new GradleException('Не совпала контрольная сумма Silero VAD v5.')
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn(commandVadAssets) }
 
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75@aar'
