@@ -35,7 +35,11 @@ def test_speech_and_app_components(speech_probe, tmp_path, scenario):
     assert "passed: " + scenario in result.stdout
 
 
-@pytest.mark.parametrize("scenario", ["resume", "short-ranges", "truncated-fallback", "redirect", "range-ignored", "invalid-range", "cancelled", "bounded-retries"])
+@pytest.mark.parametrize("scenario", [
+    "resume", "short-ranges", "truncated-fallback", "redirect", "range-ignored",
+    "invalid-range", "cancelled", "bounded-retries", "recovered-primary",
+    "corrupt-mirror", "corrupt-cache", "bad-length-resume",
+])
 def test_download_transport(speech_probe, tmp_path, scenario):
     java, classes = speech_probe
     result = subprocess.run([java, "-cp", str(classes), "DownloadProbe", scenario, str(tmp_path)], capture_output=True, text=True, timeout=35)

@@ -16,7 +16,7 @@ final class LlmPanel {
         progress = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal); progress.setMax(100); parent.addView(progress);
         download = ui.button("Скачать · 378,3 МиБ", () -> {
             if (generating.getAsBoolean()) return;
-            ui.dialog().setTitle("Установить разговорную модель?").setMessage("Qwen3 0.6B, Q4_K_M · 378,3 МиБ. Нужно 600 МиБ свободного места.\n\nИсточник: Hugging Face / unsloth, закреплённая версия. Лицензия Apache-2.0. После проверки файла приложение пробно загрузит модель на телефоне.")
+            ui.dialog().setTitle("Установить разговорную модель?").setMessage("Qwen3 0.6B, Q4_K_M · 378,3 МиБ. Для новой установки нужно 600 МиБ свободного места.\n\nИсточники: GitHub Releases, Hugging Face и ModelScope. Файл проверяется по SHA-256. Лицензия Apache-2.0. После проверки файла приложение пробно загрузит модель на телефоне.")
                 .setNegativeButton("Отмена", null).setPositiveButton("Скачать", (d,w) -> models.download(settings.getBoolean("llm_wifi_only", true))).show();
         }); parent.addView(download);
         pause = ui.button("Приостановить", models::pause); parent.addView(pause);

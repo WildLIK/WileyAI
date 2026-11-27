@@ -3,6 +3,7 @@ import com.sun.net.httpserver.*;
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.atomic.*;
 
@@ -41,16 +42,39 @@ public final class DownloadProbe {
                 try (OutputStream out = request.getResponseBody()) { out.write(DATA, 0, 10); }
             } else { request.sendResponseHeaders(503, -1); request.close(); }
         });
+        server.createContext("/recover", request -> {
+            if (requests.incrementAndGet() == 1) { request.sendResponseHeaders(503, -1); request.close(); }
+            else range(request, DATA.length, starts);
+        });
+        server.createContext("/offline", request -> {
+            fallbacks.incrementAndGet();
+            request.sendResponseHeaders(503, -1);
+            request.close();
+        });
+        server.createContext("/corrupt", request -> {
+            requests.incrementAndGet();
+            request.sendResponseHeaders(200, DATA.length);
+            try (OutputStream out = request.getResponseBody()) { out.write(new byte[DATA.length]); }
+        });
+        server.createContext("/wrong-length", request -> {
+            requests.incrementAndGet();
+            request.sendResponseHeaders(200, 16);
+            try (OutputStream out = request.getResponseBody()) { out.write(new byte[16]); }
+        });
         server.start();
         try {
             String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
-            String first = switch (scenario) { case "redirect" -> "/redirect"; case "range-ignored" -> "/full"; case "truncated-fallback", "invalid-range", "bounded-retries" -> "/bad"; default -> "/good"; };
-            if (Set.of("resume", "range-ignored", "invalid-range", "cancelled").contains(scenario)) Files.write(file, Arrays.copyOf(DATA, 32225));
+            String first = switch (scenario) { case "redirect" -> "/redirect"; case "range-ignored" -> "/full"; case "truncated-fallback", "invalid-range", "bounded-retries" -> "/bad"; case "recovered-primary" -> "/recover"; case "corrupt-mirror" -> "/corrupt"; case "bad-length-resume" -> "/wrong-length"; default -> "/good"; };
+            if (Set.of("resume", "range-ignored", "invalid-range", "cancelled", "bad-length-resume").contains(scenario)) Files.write(file, Arrays.copyOf(DATA, 32225));
+            if (scenario.equals("corrupt-cache")) Files.write(file, new byte[DATA.length]);
             List<ResumableDownload.Source> sources = new ArrayList<>(); sources.add(new ResumableDownload.Source("primary", new URL(endpoint + first)));
-            if (scenario.equals("truncated-fallback") || scenario.equals("cancelled")) sources.add(new ResumableDownload.Source("mirror", new URL(endpoint + "/mirror")));
+            if (Set.of("truncated-fallback", "cancelled", "corrupt-mirror", "corrupt-cache", "bad-length-resume").contains(scenario))
+                sources.add(new ResumableDownload.Source("mirror", new URL(endpoint + "/mirror")));
+            if (scenario.equals("recovered-primary")) sources.add(new ResumableDownload.Source("offline", new URL(endpoint + "/offline")));
             boolean failed = false;
             try {
-                ResumableDownload.download(sources, file, DATA.length, cancel, url -> (HttpURLConnection)url.openConnection(), new ResumableDownload.Observer() {
+                String sha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(DATA));
+                ResumableDownload.download(sources, file, DATA.length, sha256, cancel, url -> (HttpURLConnection)url.openConnection(), new ResumableDownload.Observer() {
                     public void progress(String source, long done, long total) { check(total == DATA.length && done <= total); }
                     public void retry(String source, String reason) { retries.incrementAndGet(); }
                     public void connection(HttpURLConnection connection) { if (connection != null && scenario.equals("cancelled")) cancel.set(true); }
@@ -68,6 +92,10 @@ public final class DownloadProbe {
                     case "truncated-fallback": check(fallbacks.get() == 1 && starts.get() == 32225 && retries.get() == 1); break;
                     case "redirect": check(requests.get() == 2); break;
                     case "range-ignored": check(requests.get() == 1); break;
+                    case "recovered-primary": check(requests.get() == 2 && fallbacks.get() == 1); break;
+                    case "corrupt-mirror": check(requests.get() == 1 && fallbacks.get() == 1 && starts.get() == 0); break;
+                    case "corrupt-cache": check(requests.get() == 0 && fallbacks.get() == 1 && starts.get() == 0); break;
+                    case "bad-length-resume": check(requests.get() == 1 && fallbacks.get() == 1 && starts.get() == 32225); break;
                     default: throw new AssertionError(scenario);
                 }
             }

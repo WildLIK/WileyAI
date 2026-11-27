@@ -1,19 +1,15 @@
 package ru.wildlik.wileyai.mobile;
 
 import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
 import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import java.io.*;
-import java.net.URL;
 import java.nio.file.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.net.ssl.HttpsURLConnection;
 
 /** Downloads only after an explicit UI action; old active models survive every failure. */
 final class SpeechModelManager {
@@ -79,7 +75,7 @@ final class SpeechModelManager {
         }
     }
     private interface Work { void run() throws Exception; }
-    private void start(Work work) {
+    private void start(boolean resume, Work work) {
         if (busy || closed) return;
         busy = true; percent = -1; cancelled.set(false); began = android.os.SystemClock.elapsedRealtime(); phase = "Подготовка"; sourceName = ""; detail = "Подготовка…"; changed();
         worker.execute(() -> {
@@ -87,7 +83,9 @@ final class SpeechModelManager {
                 if (closed || cancelled.get()) throw new InterruptedIOException();
                 Files.createDirectories(base);
                 active = VerifiedModelInstaller.active(base); cleanAbandoned();
-                if (base.toFile().getUsableSpace() < RussianSpeechModel.SPACE_BUDGET) throw new IOException("Для безопасной установки нужно не менее 400 МиБ свободного места");
+                long saved = resume && Files.exists(partial) ? Math.min(Files.size(partial), RussianSpeechModel.SPEC.bytes()) : 0;
+                if (base.toFile().getUsableSpace() < RussianSpeechModel.SPACE_BUDGET - saved)
+                    throw new IOException("Недостаточно свободного места для оставшейся загрузки и установки Vosk");
                 work.run(); saveDiagnostic("complete", null);
             } catch (OutOfMemoryError error) { detail = "Не хватает оперативной памяти для речевой модели. Прежний комплект сохранён."; saveDiagnostic("error", error); }
             catch (LinkageError error) { detail = "Нативный движок не запустился на этом устройстве. Прежний комплект сохранён."; saveDiagnostic("error", error); }
@@ -111,23 +109,13 @@ final class SpeechModelManager {
         cleanAbandoned();
     }
     void download(boolean wifiOnly) {
-        start(() -> {
-            android.net.Network boundNetwork = null;
-            if (wifiOnly) {
-                ConnectivityManager network = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
-                boundNetwork = network.getActiveNetwork(); NetworkCapabilities capabilities = network.getNetworkCapabilities(boundNetwork);
-                if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) throw new IOException("Для загрузки подключитесь к Wi-Fi или отключите режим «Только Wi-Fi».");
-            }
-            final android.net.Network selectedNetwork = boundNetwork;
-            java.util.List<ResumableDownload.Source> sources = java.util.Arrays.asList(
-                new ResumableDownload.Source("Vosk", new URL(RussianSpeechModel.URL)),
-                new ResumableDownload.Source("Резервный сервер", new URL(RussianSpeechModel.MIRROR)));
-            ResumableDownload.download(sources, partial, RussianSpeechModel.SPEC.bytes(), cancelled, url -> {
-                String host = url.getHost().toLowerCase(java.util.Locale.ROOT);
-                if (!url.getProtocol().equals("https") || url.getUserInfo() != null || !(host.equals("alphacephei.com") || host.equals("huggingface.co") || host.endsWith(".huggingface.co") || host.endsWith(".hf.co")))
-                    throw new IOException("Источник перенаправил загрузку на неподдерживаемый адрес");
-                return (HttpsURLConnection)(selectedNetwork == null ? url.openConnection() : selectedNetwork.openConnection(url));
-            }, new ResumableDownload.Observer() {
+        start(true, () -> {
+            var sources = java.util.List.of(
+                ModelDownload.mirror(RussianSpeechModel.ID + ".zip"),
+                ModelDownload.source("Vosk", RussianSpeechModel.URL),
+                ModelDownload.source("Hugging Face", RussianSpeechModel.MIRROR));
+            ResumableDownload.download(sources, partial, RussianSpeechModel.SPEC.bytes(), RussianSpeechModel.SPEC.sha256(),
+                cancelled, url -> ModelDownload.connect(context, wifiOnly, url), new ResumableDownload.Observer() {
                 public void progress(String source, long done, long total) { sourceName = source; partialBytes = done; SpeechModelManager.this.progress("Загрузка", done, total); }
                 public void retry(String source, String reason) { sourceName = source; detail = reason; changed(); }
                 public void connection(java.net.HttpURLConnection active) { connection = active; }
@@ -136,7 +124,7 @@ final class SpeechModelManager {
         });
     }
     void importZip(android.net.Uri uri) {
-        start(() -> {
+        start(false, () -> {
             Path imported = base.resolve("import.zip.part");
             try {
                 try (InputStream input = context.getContentResolver().openInputStream(uri); OutputStream output = Files.newOutputStream(imported)) {

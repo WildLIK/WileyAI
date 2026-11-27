@@ -5,7 +5,8 @@ import java.util.List;
 /** Pinned GigaAM v3 RNN-T (non-punct) ONNX export for sherpa-onnx; sizes and SHA-256 from the Hugging Face LFS manifest. */
 final class GigaAmModel {
     static final String ID = "sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16";
-    static final String BASE = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16/resolve/main/";
+    private static final String REVISION = "0424d62637b37d8b7b1eb0f75a04d78dec55fdcc";
+    static final String BASE = "https://huggingface.co/csukuangfj/" + ID + "/resolve/" + REVISION + "/";
     static final String LICENSE = "MIT";
     /** Verified upstream digest of tokens.txt (plain file, not LFS). */
     static final String TOKENS_SHA256 = "17cc514451bcceac9c280068c71502f8448f99e9fb1456b8d0761651fd0392f2";

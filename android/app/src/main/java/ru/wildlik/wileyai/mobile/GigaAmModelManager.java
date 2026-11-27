@@ -1,12 +1,9 @@
 package ru.wildlik.wileyai.mobile;
 
 import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.*;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
@@ -16,13 +13,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import javax.net.ssl.HttpsURLConnection;
 
 /** GigaAM v3 model files: explicit download or ZIP import; old active model survives every failure. */
 final class GigaAmModelManager {
     interface Listener { void changed(); }
     private final Context context;
-    private final Path base, partial;
+    private final Path base, downloadDirectory;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean cancelled = new AtomicBoolean();
@@ -40,7 +36,7 @@ final class GigaAmModelManager {
         diagnostics = this.context.getSharedPreferences("wiley-gigaam-diagnostics", Context.MODE_PRIVATE);
         lastDiagnostic = diagnostics.getString("last", "");
         base = this.context.getFilesDir().toPath().resolve("asr-models");
-        partial = base.resolve("gigaam-download.part");
+        downloadDirectory = base.resolve("staging-" + GigaAmModel.ENCODER.sha256().substring(0, 32));
         worker.execute(this::refresh);
     }
     Path active() { return active; }
@@ -55,9 +51,17 @@ final class GigaAmModelManager {
         try { return VerifiedModelInstaller.active(context.getFilesDir().toPath().resolve("asr-models")); }
         catch (IOException damaged) { return null; }
     }
+    private long savedBytes() throws IOException {
+        long saved = 0;
+        for (GigaAmModel.File spec : GigaAmModel.FILES) {
+            Path file = downloadDirectory.resolve(spec.name());
+            if (Files.isRegularFile(file)) saved += Math.min(Files.size(file), spec.bytes());
+        }
+        return saved;
+    }
     private void saveDiagnostic(String result, Throwable error) {
         try {
-            partialBytes = Files.exists(partial) ? Files.size(partial) : 0;
+            partialBytes = savedBytes();
             org.json.JSONObject record = new org.json.JSONObject().put("time", System.currentTimeMillis()).put("operation", "gigaam-model")
                 .put("stage", phase).put("source", sourceName).put("result", result).put("partial_bytes", partialBytes)
                 .put("verified_total_bytes", result.equals("complete") ? GigaAmModel.totalBytes() : 0)
@@ -71,8 +75,9 @@ final class GigaAmModelManager {
             Files.createDirectories(base);
             active = VerifiedModelInstaller.active(base);
             cleanAbandoned();
-            partialBytes = Files.exists(partial) ? Files.size(partial) : 0;
-            detail = active == null ? "Не установлена" : "Модель установлена; декодирование проверяется при использовании";
+            partialBytes = savedBytes();
+            detail = active != null ? "Модель установлена; декодирование проверяется при использовании"
+                    : partialBytes > 0 ? "Часть модели сохранена. Загрузку можно продолжить." : "Не установлена";
         } catch (Exception damaged) {
             recoveryNeeded = true; active = null;
             detail = "Не удалось открыть модель. Данные не удалены. Для восстановления удалите модель и установите заново.";
@@ -119,7 +124,7 @@ final class GigaAmModelManager {
             detail = "Модель установлена и проверена по файлам. Декодирование проверяется при первом использовании."; cleanAbandoned();
         } finally {
             Files.deleteIfExists(pointer);
-            if (!published) VerifiedModelInstaller.deleteTree(base, staging);
+            if (!published && Files.exists(generation)) Files.move(generation, staging, StandardCopyOption.ATOMIC_MOVE);
         }
     }
     private static void moveAtomic(Path source, Path target, AtomicBoolean cancel) throws IOException {
@@ -133,7 +138,7 @@ final class GigaAmModelManager {
         }
     }
     private interface Work { void run() throws Exception; }
-    private void start(Work work) {
+    private void start(boolean resume, Work work) {
         if (busy || closed) return;
         busy = true; percent = -1; cancelled.set(false); began = android.os.SystemClock.elapsedRealtime(); phase = "Подготовка"; detail = "Подготовка…"; changed();
         worker.execute(() -> {
@@ -141,7 +146,8 @@ final class GigaAmModelManager {
                 if (closed || cancelled.get()) throw new InterruptedIOException();
                 Files.createDirectories(base);
                 active = VerifiedModelInstaller.active(base); cleanAbandoned();
-                if (base.toFile().getUsableSpace() < GigaAmModel.SPACE_BUDGET) throw new IOException("Для установки нужно не менее 600 МиБ свободного места");
+                long required = GigaAmModel.SPACE_BUDGET - (resume ? savedBytes() : 0);
+                if (base.toFile().getUsableSpace() < required) throw new IOException("Недостаточно свободного места для оставшихся файлов GigaAM");
                 work.run(); saveDiagnostic("complete", null);
             } catch (OutOfMemoryError error) { detail = "Не хватает оперативной памяти для установки модели. Прежняя модель сохранена."; saveDiagnostic("error", error); }
             catch (Exception error) {
@@ -161,54 +167,31 @@ final class GigaAmModelManager {
     private static final class ChecksumException extends IOException {
         ChecksumException(String message) { super(message); }
     }
-    /** Whitelisted hosts only: Hugging Face and its CDN, no credentials, no other hosts. */
-    private static void checkUrl(URL url) throws IOException {
-        String host = url.getHost().toLowerCase(Locale.ROOT);
-        if (!url.getProtocol().equals("https") || url.getUserInfo() != null || !(host.equals("huggingface.co") || host.endsWith(".huggingface.co") || host.endsWith(".hf.co")))
-            throw new IOException("Источник перенаправил загрузку на неподдерживаемый адрес");
-    }
     void download(boolean wifiOnly) {
-        start(() -> {
-            android.net.Network boundNetwork = null;
-            if (wifiOnly) {
-                ConnectivityManager network = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
-                boundNetwork = network.getActiveNetwork(); NetworkCapabilities capabilities = network.getNetworkCapabilities(boundNetwork);
-                if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) throw new IOException("Для загрузки подключитесь к Wi-Fi или отключите режим «Только Wi-Fi».");
+        start(true, () -> {
+            Files.createDirectories(downloadDirectory);
+            long downloaded = 0;
+            for (GigaAmModel.File spec : GigaAmModel.FILES) {
+                long prior = downloaded;
+                var sources = List.of(ModelDownload.mirror("gigaam-v3-" + spec.name()),
+                    ModelDownload.source("Hugging Face", GigaAmModel.BASE + spec.name()));
+                ResumableDownload.download(sources, downloadDirectory.resolve(spec.name()), spec.bytes(), spec.sha256(),
+                    cancelled, url -> ModelDownload.connect(context, wifiOnly, url), new ResumableDownload.Observer() {
+                    public void progress(String source, long done, long total) {
+                        sourceName = source;
+                        partialBytes = prior + done;
+                        GigaAmModelManager.this.progress("Загрузка " + spec.name() + " · " + source, prior + done, GigaAmModel.totalBytes());
+                    }
+                    public void retry(String source, String reason) { sourceName = source; detail = reason; changed(); }
+                    public void connection(java.net.HttpURLConnection active) { connection = active; }
+                });
+                downloaded += spec.bytes();
             }
-            final android.net.Network selectedNetwork = boundNetwork;
-            Path staging = base.resolve("staging-" + UUID.randomUUID().toString().replace("-", ""));
-            try {
-                Files.createDirectories(staging);
-                long[] cumulative = {0};
-                for (GigaAmModel.File spec : GigaAmModel.FILES) {
-                    final long offset = cumulative[0];
-                    Path part = staging.resolve(spec.name() + ".part");
-                    java.util.List<ResumableDownload.Source> sources = java.util.List.of(new ResumableDownload.Source("Hugging Face", new URL(GigaAmModel.BASE + spec.name())));
-                    ResumableDownload.download(sources, part, spec.bytes(), cancelled, url -> {
-                        checkUrl(url);
-                        return (HttpsURLConnection)(selectedNetwork == null ? url.openConnection() : selectedNetwork.openConnection(url));
-                    }, new ResumableDownload.Observer() {
-                        public void progress(String source, long done, long total) { sourceName = source; partialBytes = offset + done; GigaAmModelManager.this.progress("Загрузка " + spec.name(), offset + done, GigaAmModel.totalBytes()); }
-                        public void retry(String source, String reason) { sourceName = source; detail = reason; changed(); }
-                    });
-                    verify(part, spec);
-                    Files.move(part, staging.resolve(spec.name()), StandardCopyOption.REPLACE_EXISTING);
-                    cumulative[0] += spec.bytes();
-                }
-                publish(staging, cancelled);
-            } finally { cleanAbandoned(); }
+            publish(downloadDirectory, cancelled);
         });
     }
-    private static void verify(Path file, GigaAmModel.File spec) throws Exception {
-        MessageDigest sha = MessageDigest.getInstance("SHA-256");
-        try (InputStream input = Files.newInputStream(file)) {
-            byte[] block = new byte[65536]; int n;
-            while ((n = input.read(block)) != -1) sha.update(block, 0, n);
-        }
-        if (!VerifiedModelInstaller.hex(sha.digest()).equals(spec.sha256())) throw new ChecksumException("Контрольная сумма " + spec.name() + " не совпала. Загрузка остановлена; файлы не устанавливаются.");
-    }
     void importZip(android.net.Uri uri) {
-        start(() -> {
+        start(false, () -> {
             Path imported = base.resolve("gigaam-import.zip");
             try {
                 try (InputStream input = context.getContentResolver().openInputStream(uri); OutputStream output = Files.newOutputStream(imported)) {
@@ -256,7 +239,7 @@ final class GigaAmModelManager {
     void discardPartial() {
         if (busy) return;
         busy = true; changed();
-        worker.execute(() -> { try { Files.deleteIfExists(partial); partialBytes = 0; detail = "Незавершённая загрузка удалена"; } catch (IOException failed) { detail = "Не удалось удалить незавершённую загрузку"; } finally { busy = false; changed(); } });
+        worker.execute(() -> { try { VerifiedModelInstaller.deleteTree(base, downloadDirectory); Files.deleteIfExists(base.resolve("gigaam-download.part")); partialBytes = 0; detail = "Незавершённая загрузка удалена"; } catch (IOException failed) { detail = "Не удалось удалить незавершённую загрузку"; } finally { busy = false; changed(); } });
     }
     void remove() {
         if (busy) return;
@@ -272,7 +255,8 @@ final class GigaAmModelManager {
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(base)) {
             for (Path entry : entries) {
                 String name = entry.getFileName().toString();
-                if (name.matches("(?:staging|generation)-[a-f0-9]{32}") && !entry.equals(active)) VerifiedModelInstaller.deleteTree(base, entry);
+                if (name.matches("(?:staging|generation)-[a-f0-9]{32}") && !entry.equals(active) && !entry.equals(downloadDirectory))
+                    VerifiedModelInstaller.deleteTree(base, entry);
                 else if (name.matches("pointer-[a-f0-9]{32}")) Files.deleteIfExists(entry);
             }
         }

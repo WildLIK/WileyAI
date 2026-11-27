@@ -1,7 +1,6 @@
 package ru.wildlik.wileyai.mobile;
 
 import android.content.Context;
-import android.net.*;
 import android.os.*;
 import java.io.*;
 import java.net.*;
@@ -17,7 +16,9 @@ final class LlmModels {
     static final long BYTES = 396705472;
     static final String SHA256 = "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a";
     static final String REVISION = "50968a4468ef4233ed78cd7c3de230dd1d61a56b";
-    static final String URL = "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/" + REVISION + "/Qwen3-0.6B-Q4_K_M.gguf?download=true";
+    private static final String FILE = "Qwen3-0.6B-Q4_K_M.gguf";
+    static final String URL = "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/" + REVISION + "/" + FILE + "?download=true";
+    private static final String MODELSCOPE = "https://modelscope.cn/models/unsloth/Qwen3-0.6B-GGUF/resolve/master/" + FILE;
     private final Context context; private final Path base, part; private final Runnable changed;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(); private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean cancel = new AtomicBoolean(); private volatile HttpURLConnection connection;
@@ -29,12 +30,14 @@ final class LlmModels {
     private void check() throws IOException { if (cancel.get()) throw new InterruptedIOException("Установка остановлена"); }
     void pause() { cancel.set(true); HttpURLConnection current = connection; if (current != null) current.disconnect(); }
     private interface Work { void run() throws Exception; }
-    private void start(Work action) {
+    private void start(boolean resume, Work action) {
         if (busy || closed) return; busy = true; cancel.set(false); progress = -1; status = "Подготовка…"; notifyChanged();
         worker.execute(() -> {
             try {
                 Files.createDirectories(base); if (!LocalLlmNative.supported()) throw new IOException("GGUF доступен только на поддерживаемом 64-битном Android");
-                if (base.toFile().getUsableSpace() < BYTES + 200L * 1048576) throw new IOException("Нужно не менее 600 МиБ свободного места");
+                long saved = resume && Files.exists(part) ? Math.min(Files.size(part), BYTES) : 0;
+                if (base.toFile().getUsableSpace() < BYTES - saved + 200L * 1048576)
+                    throw new IOException("Недостаточно свободного места для оставшейся загрузки и установки Qwen");
                 action.run();
                 Path old = active;
                 active = GgufInstaller.install(base, part, BYTES, SHA256, cancel, candidate -> {
@@ -48,23 +51,19 @@ final class LlmModels {
         });
     }
     void download(boolean wifiOnly) {
-        start(() -> {
-            android.net.Network network = null;
-            if (wifiOnly) { ConnectivityManager manager = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE); network = manager.getActiveNetwork(); NetworkCapabilities caps = manager.getNetworkCapabilities(network); if (caps == null || !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) throw new IOException("Подключитесь к Wi-Fi или разрешите любую сеть"); }
-            final android.net.Network selected = network;
-            ResumableDownload.download(Arrays.asList(new ResumableDownload.Source("Hugging Face", new URL(URL))), part, BYTES, cancel, url -> {
-                String host = url.getHost().toLowerCase(Locale.ROOT);
-                if (!url.getProtocol().equals("https") || url.getUserInfo() != null || !(host.equals("huggingface.co") || host.endsWith(".hf.co"))) throw new IOException("Неподдерживаемое перенаправление модели");
-                return (HttpURLConnection)(selected == null ? url.openConnection() : selected.openConnection(url));
-            }, new ResumableDownload.Observer() {
+        start(true, () -> {
+            var sources = List.of(ModelDownload.mirror(FILE), ModelDownload.source("Hugging Face", URL),
+                ModelDownload.source("ModelScope", MODELSCOPE));
+            ResumableDownload.download(sources, part, BYTES, SHA256, cancel,
+                url -> ModelDownload.connect(context, wifiOnly, url), new ResumableDownload.Observer() {
                 private long last;
-                public void progress(String source, long done, long total) { if (SystemClock.elapsedRealtime() - last < 250 && done < total) return; last = SystemClock.elapsedRealtime(); progress = (int)(done * 100 / total); status = "Загрузка: " + done / 1048576 + " / " + total / 1048576 + " МиБ"; notifyChanged(); }
+                public void progress(String source, long done, long total) { if (SystemClock.elapsedRealtime() - last < 250 && done < total) return; last = SystemClock.elapsedRealtime(); progress = (int)(done * 100 / total); status = "Загрузка · " + source + " · " + done / 1048576 + " / " + total / 1048576 + " МиБ"; notifyChanged(); }
                 public void retry(String source, String reason) { status = reason; notifyChanged(); }
                 public void connection(HttpURLConnection current) { connection = current; }
             });
         });
     }
-    void importFile(android.net.Uri uri) { start(() -> { Path imported = base.resolve("import.part"); try { try (InputStream input = context.getContentResolver().openInputStream(uri); OutputStream output = Files.newOutputStream(imported)) { if (input == null) throw new IOException("Файл недоступен"); long count = 0; byte[] buffer = new byte[65536]; int n; while ((n = input.read(buffer)) != -1) { check(); count += n; if (count > BYTES) throw new IOException("Поддерживается точный Qwen3-0.6B-Q4_K_M.gguf из каталога"); output.write(buffer, 0, n); } } Files.move(imported, part, StandardCopyOption.REPLACE_EXISTING); } finally { Files.deleteIfExists(imported); } }); }
+    void importFile(android.net.Uri uri) { start(false, () -> { Path imported = base.resolve("import.part"); try { try (InputStream input = context.getContentResolver().openInputStream(uri); OutputStream output = Files.newOutputStream(imported)) { if (input == null) throw new IOException("Файл недоступен"); long count = 0; byte[] buffer = new byte[65536]; int n; while ((n = input.read(buffer)) != -1) { check(); count += n; if (count > BYTES) throw new IOException("Поддерживается точный Qwen3-0.6B-Q4_K_M.gguf из каталога"); output.write(buffer, 0, n); } } Files.move(imported, part, StandardCopyOption.REPLACE_EXISTING); } finally { Files.deleteIfExists(imported); } }); }
     void discard() { if (busy) return; busy = true; worker.execute(() -> { try { Files.deleteIfExists(part); status = "Незавершённая загрузка удалена"; } catch (IOException error) { status = "Не удалось удалить незавершённую загрузку"; } finally { busy = false; notifyChanged(); } }); }
     void remove() { if (busy) return; busy = true; worker.execute(() -> { try { LocalLlmRuntime.get(context).session.maintenance("model_removed",()->{try{Files.deleteIfExists(base.resolve("active"));Path old=active;active=null;if(old!=null)Files.deleteIfExists(old);}catch(IOException error){throw new CompletionException(error);}}).get(); status = "Модель удалена. Чаты сохранены."; } catch (Exception error) { status = "Не удалось удалить модель"; } finally { busy = false; notifyChanged(); } }); }
     void close() { closed = true; pause(); worker.shutdown(); }

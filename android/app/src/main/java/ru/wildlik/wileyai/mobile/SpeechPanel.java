@@ -55,7 +55,7 @@ final class SpeechPanel {
         }); advanced.addView(remove);
         advanced.addView(ui.button("Последняя попытка загрузки", () -> ui.dialog().setTitle("Диагностика загрузки").setMessage(models.diagnostic()).setPositiveButton("Закрыть", null).show()));
         ui.card(advanced, "Русский комплект Vosk", RussianSpeechModel.ID + "\nАрхив: 44,1 МиБ. Для безопасной установки нужно 400 МиБ свободного места. Лицензия: Apache-2.0. Сначала проверяются файл и загрузка движком; качество речи проверяется при использовании.");
-        advanced.addView(ui.button("Источники и контрольные суммы", () -> ui.dialog().setTitle("Файл модели").setMessage("Основной источник: alphacephei.com\nРезерв: Hugging Face, закреплённая ревизия. В обоих случаях проверяется тот же архив.\n\nSHA-256: " + RussianSpeechModel.SPEC.sha256() + "\nMD5: " + RussianSpeechModel.SPEC.md5()).setPositiveButton("Закрыть", null).show()));
+        advanced.addView(ui.button("Источники и контрольные суммы", () -> ui.dialog().setTitle("Файл модели").setMessage("GitHub Releases, сервер Vosk и закреплённая копия Hugging Face. Каждый источник проверяется по тем же контрольным суммам.\n\nSHA-256: " + RussianSpeechModel.SPEC.sha256() + "\nMD5: " + RussianSpeechModel.SPEC.md5()).setPositiveButton("Закрыть", null).show()));
         refresh();
     }
     private void renderGigaAm(LinearLayout parent) {
@@ -114,7 +114,9 @@ final class SpeechPanel {
         if (gigaAmState != null) {
             gigaAmState.setText(gigaAm.active() != null && !gigaAm.busy() ? "Модель GigaAM установлена и проверена по файлам" : gigaAm.detail());
             gigaAmProgress.setVisibility(gigaAm.busy() ? View.VISIBLE : View.GONE); gigaAmProgress.setIndeterminate(gigaAm.percent() < 0); if (gigaAm.percent() >= 0) gigaAmProgress.setProgress(gigaAm.percent());
-            gigaAmDownload.setEnabled(!gigaAm.busy()); gigaAmDownload.setText(gigaAm.busy() ? "Загрузка и установка…" : gigaAm.active() != null ? "Переустановить модель" : "Скачать GigaAM · " + GigaAmModel.sizeText() + " МиБ");
+            gigaAmDownload.setEnabled(!gigaAm.busy());
+            gigaAmDownload.setText(gigaAm.busy() ? "Загрузка и установка…" : gigaAm.partialBytes() > 0 ? "Продолжить загрузку GigaAM"
+                : gigaAm.active() != null ? "Переустановить модель" : "Скачать GigaAM · " + GigaAmModel.sizeText() + " МиБ");
             gigaAmPause.setVisibility(gigaAm.busy() ? View.VISIBLE : View.GONE);
             gigaAmRemove.setEnabled(!gigaAm.busy() && gigaAm.removable());
             gigaAmProbe.setEnabled(!gigaAm.busy() && gigaAm.active() != null && !speech.getAsBoolean());
@@ -124,12 +126,12 @@ final class SpeechPanel {
     }
     void confirmDownload() {
         if (!canChange()) return;
-        ui.dialog().setTitle("Скачать русское распознавание?").setMessage("44,1 МиБ. Нужно 400 МиБ свободного места для установки.\n\nОсновной сервер Vosk, при сбое — проверенная копия на Hugging Face. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
+        ui.dialog().setTitle("Скачать русское распознавание?").setMessage("44,1 МиБ. Для новой установки нужно 400 МиБ свободного места.\n\nИсточники: GitHub Releases, Vosk и Hugging Face. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
             .setNegativeButton("Отмена", null).setPositiveButton("Скачать", (d, w) -> models.download(preferences.getBoolean("speech_wifi_only", true))).show();
     }
     void confirmGigaAmDownload() {
         if (!canChange() || gigaAm.busy()) return;
-        ui.dialog().setTitle("Скачать модель GigaAM v3?").setMessage(GigaAmModel.sizeText() + " МиБ, нужно 600 МиБ свободного места. Источник: Hugging Face, закреплённая ревизия; каждый файл проверяется по SHA-256. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
+        ui.dialog().setTitle("Скачать модель GigaAM v3?").setMessage(GigaAmModel.sizeText() + " МиБ. Для новой установки нужно 600 МиБ свободного места. Источники: GitHub Releases и закреплённая копия Hugging Face. Каждый файл проверяется по SHA-256. " + (preferences.getBoolean("speech_wifi_only", true) ? "Только Wi-Fi." : "Разрешена любая сеть."))
             .setNegativeButton("Отмена", null).setPositiveButton("Скачать", (d, w) -> gigaAm.download(preferences.getBoolean("speech_wifi_only", true))).show();
     }
 }
